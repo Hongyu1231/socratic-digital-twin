@@ -1,0 +1,9 @@
+# Supabase CLI project configuration for the Socratic Digital Twin POC.
+# The CLI is optional in this workspace; this file follows the current
+# supabase init layout and is safe to commit (no secrets are stored here).
+project_id = "socratic-digital-twin-poc"
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+

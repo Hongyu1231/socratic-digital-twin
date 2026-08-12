@@ -1,0 +1,16 @@
+node_modules
+.next
+out
+coverage
+dist
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+*.log
+*.tsbuildinfo
+.DS_Store
+supabase/.temp
+work
+outputs
