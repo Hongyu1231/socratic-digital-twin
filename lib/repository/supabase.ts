@@ -302,6 +302,7 @@ export class SupabaseTutorRepository implements TutorRepository {
   async saveReview(input: SaveReviewInput) {
     const bundle = await this.getSession(input.sessionId);
     if (!bundle) throw new Error("Session not found.");
+    if (bundle.session.status !== "completed") throw new Error("Only completed sessions can be reviewed.");
     if (!bundle.assignment || !(await this.listClasses(input.professorId)).some((item) => item.id === bundle.assignment!.classId)) throw new Error("This review is outside the professor's classes.");
     if (bundle.session.reviewerId && bundle.session.reviewerId !== input.professorId) throw new Error("Review already claimed by another professor.");
     if (!bundle.session.reviewerId) {

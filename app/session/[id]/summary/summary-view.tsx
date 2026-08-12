@@ -8,6 +8,7 @@ import type { SessionBundle } from "@/lib/domain";
 export function SessionSummaryView({ sessionId }: { sessionId: string }) {
   const [bundle, setBundle] = useState<SessionBundle | null>(null);
   const [error, setError] = useState("");
+  const [openingReview, setOpeningReview] = useState(false);
   useEffect(() => {
     fetch(`/api/session/${sessionId}`)
       .then(async (response) => {
@@ -33,7 +34,23 @@ export function SessionSummaryView({ sessionId }: { sessionId: string }) {
         <article className="insight-card"><Target /><h3>Reasoning gaps</h3><ul>{summary.weaknesses.map((item) => <li key={item}>{item}</li>)}</ul></article>
         <article className="insight-card"><Compass /><h3>Next steps</h3><ul>{summary.nextSteps.map((item) => <li key={item}>{item}</li>)}</ul></article>
       </div>
-      <div className="summary-actions"><Link className="secondary-button" href="/">Choose another case</Link><button className="primary-button" onClick={async () => { await fetch("/api/demo/identity", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: "professor" }) }); window.location.assign(`/professor/review/${sessionId}`); }}>Open professor review <ArrowRight size={17} /></button></div>
+      <div className="summary-actions"><Link className="secondary-button" href="/">Choose another case</Link><button className="primary-button" disabled={openingReview} onClick={async () => {
+        setOpeningReview(true);
+        setError("");
+        try {
+          const identityResponse = await fetch("/api/demo/identity");
+          const identityData = await identityResponse.json() as { users?: Array<{ id: string; role: string }> };
+          const professor = identityData.users?.find((user) => user.role === "professor");
+          if (!professor) throw new Error("No active professor identity is available.");
+          const switchResponse = await fetch("/api/demo/identity", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: professor.id }) });
+          if (!switchResponse.ok) throw new Error("Professor identity could not be selected.");
+          window.location.assign(`/professor/review/${sessionId}`);
+        } catch (reason) {
+          setError(reason instanceof Error ? reason.message : "Professor review could not be opened.");
+          setOpeningReview(false);
+        }
+      }}>{openingReview ? "Opening review…" : "Open professor review"} <ArrowRight size={17} /></button></div>
+      {error ? <p role="alert" className="mt-3 text-sm text-[#be5048]">{error}</p> : null}
     </div>
   );
 }

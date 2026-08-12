@@ -51,8 +51,11 @@ export const assignmentInputSchema = z.object({
   classId: z.string().uuid(),
   caseId: z.string().uuid(),
   status: z.enum(["draft", "open", "closed"]).default("open"),
-  opensAt: z.string().datetime(),
-  dueAt: z.string().datetime().nullable().default(null),
+  // PostgreSQL returns timestamptz values with an explicit +00:00 offset while
+  // browser-created values normally use Z. Accept both ISO-8601 forms so a
+  // previously persisted assignment can be closed or reopened.
+  opensAt: z.string().datetime({ offset: true }),
+  dueAt: z.string().datetime({ offset: true }).nullable().default(null),
 }).refine((value) => !value.dueAt || value.dueAt > value.opensAt, {
   message: "Due date must be after the opening date.",
 });

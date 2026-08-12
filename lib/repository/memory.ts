@@ -178,6 +178,7 @@ export class InMemoryTutorRepository implements TutorRepository {
   async saveReview(input: SaveReviewInput) {
     const session = this.store.sessions.get(input.sessionId);
     if (!session) throw new Error("Session not found.");
+    if (session.status !== "completed") throw new Error("Only completed sessions can be reviewed.");
     const teachingClass = this.classForAssignment(session.assignmentId);
     if (!teachingClass?.members.some((item) => item.userId === input.professorId && item.role === "professor")) {
       throw new Error("This review is outside the professor's classes.");

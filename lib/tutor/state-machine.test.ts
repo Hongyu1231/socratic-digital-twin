@@ -56,6 +56,7 @@ describe("Socratic state machine", () => {
   it("saves professor labels and a final review score", async () => {
     const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);
     const answered = await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "The unerupted canine is delayed and eruption timing at this age is asymmetric, which could indicate an impaction.");
+    await finishSession(answered.session.id, DEMO_STUDENT_ID);
     const reviewed = await repository.saveReview({
       sessionId: answered.session.id, professorId: DEMO_PROFESSOR_ID,
       reviews: [{ evaluationId: answered.session.evaluations[0].id, label: "partial", comments: "Needs a clearer consequence." }],

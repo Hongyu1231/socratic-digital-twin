@@ -121,6 +121,15 @@ describe("InMemoryTutorRepository class workflows", () => {
       summary: null,
       completedAt: null,
     });
+    await repository.completeSession(started.session.id, {
+      overallScore: 70,
+      headline: "Early learning summary",
+      narrative: "One answer was submitted before the session ended.",
+      strengths: ["Identified relevant evidence"],
+      weaknesses: ["Needs a clearer consequence"],
+      nextSteps: ["Connect evidence to clinical impact"],
+      completedAllPhases: false,
+    }, new Date().toISOString());
 
     const reviewInput = {
       sessionId: started.session.id,
