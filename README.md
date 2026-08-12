@@ -16,6 +16,11 @@ NUS Faculty of Dentistry 教学概念验证：通过连续的苏格拉底式追�
 
 > 教学模拟用途。首版不包含真实患者数据、临床影像或医疗诊断功能。
 
+## 文档 / Documentation
+
+- [用户指南（中英双语） / Bilingual User Guide](docs/USER_GUIDE.md)
+- [开发者指南（中英双语） / Bilingual Developer Guide](docs/DEVELOPER_GUIDE.md)
+
 ## 本地运行
 
 要求 Node.js 22 或更高版本（当前 OpenAI 与 Supabase SDK 的受支持基线）。
