@@ -367,7 +367,7 @@ export class SupabaseTutorRepository implements TutorRepository {
     const rows = must(data, error, "List classes");
     const result = await Promise.all(rows.map(async (row) => {
       const { data: members, error: memberError } = await this.client.from("class_memberships").select("*, users(*)").eq("class_id", row.id);
-      const mapped: ClassMembership[] = must(members, memberError, "List class members").map((member) => ({ classId: member.class_id, userId: member.user_id, role: member.member_role, isLead: member.is_lead, user: member.users ? mapUser(member.users) : undefined }));
+      const mapped: ClassMembership[] = must(members, memberError, "List class members").map((member) => ({ classId: member.class_id, userId: member.user_id, role: member.role, isLead: member.is_lead, user: member.users ? mapUser(member.users) : undefined }));
       return { id: row.id, name: row.name, code: row.code, term: row.term, status: row.status, createdBy: row.created_by, createdAt: row.created_at, members: mapped } as TeachingClass;
     }));
     return userId ? result.filter((item) => item.members.some((member) => member.userId === userId)) : result;
@@ -385,7 +385,7 @@ export class SupabaseTutorRepository implements TutorRepository {
     if (!members.some((item) => item.role === "professor" && item.isLead)) throw new Error("A lead professor is required.");
     const { error: deleteError } = await this.client.from("class_memberships").delete().eq("class_id", classId);
     if (deleteError) throw new Error(`Replace class members: ${deleteError.message}`);
-    const { error } = await this.client.from("class_memberships").insert(members.map((item) => ({ class_id: classId, user_id: item.userId, member_role: item.role, is_lead: item.isLead })));
+    const { error } = await this.client.from("class_memberships").insert(members.map((item) => ({ class_id: classId, user_id: item.userId, role: item.role, is_lead: item.isLead })));
     if (error) throw new Error(`Save class members: ${error.message}`);
     return (await this.listClasses()).find((item) => item.id === classId)!;
   }
