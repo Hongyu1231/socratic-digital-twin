@@ -103,7 +103,9 @@ interface AdminSession {
   class?: TeachingClass;
   className?: string;
   assignment?: { class?: TeachingClass };
+  teachingClass?: TeachingClass | null;
   reviewer?: AdminUser | null;
+  reviewClaim?: { reviewerId?: string | null; reviewerName?: string | null };
 }
 
 interface OverviewData {
@@ -200,7 +202,7 @@ function reviewStatus(item: AdminSession) {
 
 function reviewerId(item: AdminSession) {
   const session = sessionValue(item);
-  return item.reviewer?.id ?? session.professorId ?? session.professor_id ?? "";
+  return item.reviewClaim?.reviewerId ?? item.reviewer?.id ?? session.professorId ?? session.professor_id ?? "";
 }
 
 function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
@@ -396,7 +398,7 @@ function Users({ data, busy, mutate }: { data: DashboardData; busy: string; muta
           <div className="grid grid-cols-[1.35fr_1.5fr_.7fr_.7fr_100px] gap-4 bg-[#ece7de] px-5 py-3 text-[9px] font-extrabold uppercase tracking-[.12em] text-[#726c73]"><span>User</span><span>Email</span><span>Role</span><span>Status</span><span>Action</span></div>
           {shown.map((user) => (
             <div key={user.id} className="grid min-h-20 grid-cols-[1.35fr_1.5fr_.7fr_.7fr_100px] items-center gap-4 border-t border-[#ded8d0] px-5 py-3 text-xs">
-              <div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-full bg-[#e5ede7] font-serif text-[#476555]">{user.name.slice(0, 1)}</span><div><strong className="font-serif text-sm">{user.name}</strong><small className="block text-[10px] text-[#726c73]">{user.classes?.map((item) => item.name).join(", ") || "No class shown"}</small></div></div>
+              <div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-full bg-[#e5ede7] font-serif text-[#476555]">{user.name.slice(0, 1)}</span><div><strong className="font-serif text-sm">{user.name}</strong><small className="block text-[10px] text-[#726c73]">{user.classes?.map((item) => item.name).join(", ") || data.classes.filter((item) => memberships(item).some((member) => memberId(member) === user.id)).map((item) => item.name).join(", ") || "No class shown"}</small></div></div>
               <span className="text-[#726c73]">{user.email}</span>
               <span className="capitalize">{user.role}</span>
               <span className={`w-fit rounded-full px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[.1em] ${isActive(user) ? "bg-[#e5ede7] text-[#476555]" : "bg-[#ece7de] text-[#726c73]"}`}>{isActive(user) ? "Active" : "Inactive"}</span>
@@ -563,7 +565,7 @@ function ActivityView({ data, busy, mutate }: { data: DashboardData; busy: strin
   const [classFilter, setClassFilter] = useState("all");
   const [assignee, setAssignee] = useState<Record<string, string>>({});
   const shown = useMemo(() => data.sessions.filter((item) => {
-    const classId = item.class?.id ?? item.assignment?.class?.id;
+    const classId = item.class?.id ?? item.teachingClass?.id ?? item.assignment?.class?.id;
     return classFilter === "all" || classId === classFilter;
   }), [classFilter, data.sessions]);
   const completed = shown.filter((item) => sessionValue(item).status === "completed").length;
@@ -588,11 +590,11 @@ function ActivityView({ data, busy, mutate }: { data: DashboardData; busy: strin
             const locked = status === "completed";
             return <div key={session.id} className="grid min-h-20 grid-cols-[1fr_1fr_1.2fr_.7fr_.8fr_1.5fr] items-center gap-4 border-t border-[#ded8d0] px-5 py-3 text-xs">
               <div><strong className="font-serif text-sm">{item.student?.name ?? "Unknown student"}</strong><small className="block text-[10px] text-[#726c73]">{session.status}</small></div>
-              <span>{item.class?.name ?? item.assignment?.class?.name ?? item.className ?? "—"}</span>
+              <span>{item.class?.name ?? item.teachingClass?.name ?? item.assignment?.class?.name ?? item.className ?? "—"}</span>
               <span>{item.case?.title ?? "—"}</span>
               <strong>{session.score == null ? "—" : `${session.score}/100`}</strong>
               <span className="status-badge w-fit">{status.replaceAll("_", " ")}</span>
-              {locked ? <span className="text-[#726c73]">{item.reviewer?.name ?? professors.find((entry) => entry.id === currentReviewer)?.name ?? "Completed"}</span> : <div className="flex gap-2"><select aria-label={`Reviewer for ${item.student?.name ?? session.id}`} className={`${inputClass} py-2 text-xs`} value={assignee[session.id] ?? currentReviewer} onChange={(event) => setAssignee({ ...assignee, [session.id]: event.target.value })}><option value="">Release claim</option>{professors.map((professor) => <option key={professor.id} value={professor.id}>{professor.name}</option>)}</select><button type="button" aria-label="Save review assignment" className="rounded-lg bg-[#4e263f] p-2 text-white disabled:opacity-50" disabled={busy === `reassign-${session.id}`} onClick={() => void reassign(item)}>{busy === `reassign-${session.id}` ? <LoaderCircle size={14} className="spin" /> : <Save size={14} />}</button></div>}
+              {locked ? <span className="text-[#726c73]">{item.reviewClaim?.reviewerName ?? item.reviewer?.name ?? professors.find((entry) => entry.id === currentReviewer)?.name ?? "Completed"}</span> : <div className="flex gap-2"><select aria-label={`Reviewer for ${item.student?.name ?? session.id}`} className={`${inputClass} py-2 text-xs`} value={assignee[session.id] ?? currentReviewer} onChange={(event) => setAssignee({ ...assignee, [session.id]: event.target.value })}><option value="">Release claim</option>{professors.map((professor) => <option key={professor.id} value={professor.id}>{professor.name}</option>)}</select><button type="button" aria-label="Save review assignment" className="rounded-lg bg-[#4e263f] p-2 text-white disabled:opacity-50" disabled={busy === `reassign-${session.id}`} onClick={() => void reassign(item)}>{busy === `reassign-${session.id}` ? <LoaderCircle size={14} className="spin" /> : <Save size={14} />}</button></div>}
             </div>;
           })}
         </div>

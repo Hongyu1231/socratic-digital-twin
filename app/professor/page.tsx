@@ -157,6 +157,19 @@ export default function ProfessorDashboard() {
     return state === reviewFilter;
   }), [reviewFilter, sessions]);
 
+  const assignmentProgress = useMemo(() => {
+    const progress = new Map<string, { sessionCount: number; completedCount: number }>();
+    for (const bundle of sessions) {
+      const assignmentId = bundle.session.assignmentId ?? bundle.assignment?.id;
+      if (!assignmentId) continue;
+      const current = progress.get(assignmentId) ?? { sessionCount: 0, completedCount: 0 };
+      current.sessionCount += 1;
+      if (bundle.session.status === "completed") current.completedCount += 1;
+      progress.set(assignmentId, current);
+    }
+    return progress;
+  }, [sessions]);
+
   function createAssignment() {
     if (!draft.classId || !draft.caseId || !draft.opensAt) {
       setError("Choose a class, case and opening time before publishing the assignment.");
@@ -267,7 +280,7 @@ export default function ProfessorDashboard() {
             const deadline = item.dueAt ?? item.closesAt;
             return <article className={styles.assignmentRow} key={item.id}>
               <div className={styles.assignmentIcon}><BookOpenCheck size={19} /></div><div><div className={styles.rowTitle}><h3>{caseTitle}</h3><span data-status={item.status}>{item.status}</span></div><p>{className} · Opens {formatDate(item.opensAt, true)} · {deadline ? `Due ${formatDate(deadline, true)}` : "No deadline"}</p></div>
-              <div className={styles.completion}><strong>{item.completedCount ?? 0}/{item.sessionCount ?? 0}</strong><span>completed</span></div>
+              <div className={styles.completion}><strong>{item.completedCount ?? assignmentProgress.get(item.id)?.completedCount ?? 0}/{item.sessionCount ?? assignmentProgress.get(item.id)?.sessionCount ?? 0}</strong><span>completed</span></div>
               <button className={styles.outlineButton} type="button" disabled={pending} onClick={() => updateAssignment(item.id, item.status === "closed" ? "open" : "closed")}>{item.status === "closed" ? "Reopen" : "Close"}</button>
             </article>;
           })}</div>}
