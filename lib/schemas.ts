@@ -103,7 +103,10 @@ export const tutorOutputSchema = z.object({
   reasoningGap: z.string().min(1).max(500),
   strategy: strategySchema,
   feedback: z.string().min(1).max(350),
-  nextQuestion: z.string().min(3).max(500),
+  nextQuestion: z.string().min(3).max(500).refine(
+    (question) => (question.match(/[?？]/g) ?? []).length === 1,
+    "The tutor response must contain exactly one question.",
+  ),
   memoryPatch: z.object({
     addErrors: z.array(z.string().min(1).max(180)).max(2),
     addStrengths: z.array(z.string().min(1).max(180)).max(2),

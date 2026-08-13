@@ -20,6 +20,7 @@ NUS Faculty of Dentistry 教学概念验证：通过连续的苏格拉底式追�
 
 - [用户指南（中英双语） / Bilingual User Guide](docs/USER_GUIDE.md)
 - [开发者指南（中英双语） / Bilingual Developer Guide](docs/DEVELOPER_GUIDE.md)
+- [导师人性化与教授反馈闭环 / Tutor Humanization & Professor Feedback Loop](docs/HUMANIZATION_PLAN.md)
 
 ## 本地运行
 
