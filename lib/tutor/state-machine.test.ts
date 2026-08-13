@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { InMemoryTutorRepository } from "@/lib/repository/memory";
 import { resetRepositoryForTests } from "@/lib/repository";
-import { DEMO_PROFESSOR_ID, DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID } from "@/lib/seed";
+import { DEMO_PROFESSOR_ID, DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID, impactedCanineCase } from "@/lib/seed";
 import { finishSession, submitStudentAnswer } from "@/lib/tutor/state-machine";
 
 describe("Socratic state machine", () => {
@@ -17,6 +17,8 @@ describe("Socratic state machine", () => {
     expect(updated.session.currentPhase).toBe(2);
     expect(updated.session.state.strengths.length).toBe(1);
     expect(updated.session.messages).toHaveLength(3);
+    expect(updated.session.messages.at(-1)?.content).toBe("What assumption in that reasoning would be most important to verify?");
+    expect(updated.session.messages.at(-1)?.content).not.toBe(impactedCanineCase.phases[1].starterQuestion);
   });
   it("moves on after three unresolved attempts without losing the gap", async () => {
     let bundle = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);

@@ -94,9 +94,7 @@ async function performStudentAnswer(
   const summary = sessionComplete ? await generateSessionSummary(allEvaluations, nextState, true) : null;
   const nextQuestion = sessionComplete
     ? "You have completed all five phases. Open your learning summary and reflect on what you would test next."
-    : phaseComplete
-      ? nextPhaseRecord.starterQuestion
-      : result.nextQuestion;
+    : result.nextQuestion;
   const aiMessage: TutorMessage = {
     id: crypto.randomUUID(),
     sessionId,
