@@ -93,6 +93,23 @@ export const professorReviewSchema = z.object({
       comments: z.string().trim().max(1_500).default(""),
     }),
   ),
+  tutorReviews: z.array(
+    z.object({
+      evaluationId: z.string().uuid(),
+      tutorMessageId: z.string().uuid(),
+      naturalness: z.number().int().min(1).max(5),
+      specificity: z.number().int().min(1).max(5),
+      nonLeading: z.number().int().min(1).max(5),
+      challengeFit: z.number().int().min(1).max(5),
+      helpfulness: z.number().int().min(1).max(5),
+      failureTags: z.array(z.enum([
+        "generic", "repetitive", "leading", "multi_part", "too_difficult",
+        "too_easy", "mini_lecture", "diagnosis_leak", "not_grounded",
+      ])).max(9),
+      preferredRewrite: z.string().trim().max(1_000).default(""),
+      comments: z.string().trim().max(1_500).default(""),
+    }),
+  ).default([]),
   overallFeedback: z.string().trim().max(3_000).default(""),
   status: z.enum(["draft", "completed"]),
 });

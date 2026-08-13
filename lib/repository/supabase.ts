@@ -16,6 +16,7 @@ import type {
   StudentCaseOffering,
   TeachingClass,
   TutorMessage,
+  TutorTurnReview,
 } from "@/lib/domain";
 import { CLASSIFICATION_SCORES } from "@/lib/domain";
 import type { CommitTurnInput, SaveReviewInput, TutorRepository } from "@/lib/repository/types";
@@ -90,6 +91,11 @@ function mapEvaluation(row: Row): Evaluation {
     strategy: criteria.strategy ?? "probe",
     phaseComplete: Boolean(criteria.phaseComplete),
     feedback: criteria.feedback ?? row.feedback ?? "",
+    phaseOrder: criteria.phaseOrder,
+    attempt: criteria.attempt,
+    provider: criteria.provider,
+    model: criteria.model,
+    promptVersion: criteria.promptVersion,
     createdAt: row.created_at,
   };
 }
@@ -164,7 +170,7 @@ export class SupabaseTutorRepository implements TutorRepository {
     const { data: sessionRow, error } = await this.client.from("sessions").select("*").eq("id", sessionId).maybeSingle();
     if (error) throw new Error(`Get session: ${error.message}`);
     if (!sessionRow) return null;
-    const [caseRowResult, phaseRows, userResult, messageResult, evaluationResult, stateResult, sessionReviewResult] = await Promise.all([
+    const [caseRowResult, phaseRows, userResult, messageResult, evaluationResult, stateResult, sessionReviewResult, tutorReviewResult] = await Promise.all([
       this.client.from("cases").select("*").eq("id", sessionRow.case_id).single(),
       this.getPhaseRows(sessionRow.case_id),
       this.client.from("users").select("*").eq("id", sessionRow.student_id).single(),
@@ -172,6 +178,7 @@ export class SupabaseTutorRepository implements TutorRepository {
       this.client.from("evaluations").select("*").eq("session_id", sessionId).order("created_at"),
       this.client.from("session_state").select("*").eq("session_id", sessionId).single(),
       this.client.from("session_reviews").select("*").eq("session_id", sessionId).maybeSingle(),
+      this.client.from("tutor_turn_reviews").select("*").eq("session_id", sessionId).order("created_at"),
     ]);
     const caseRow = must(caseRowResult.data, caseRowResult.error, "Get session case");
     const userRow = must(userResult.data, userResult.error, "Get session student");
@@ -223,6 +230,24 @@ export class SupabaseTutorRepository implements TutorRepository {
       finalScore: reviewRow.overall_score === null ? null : Number(reviewRow.overall_score),
       updatedAt: reviewRow.updated_at,
     } : null;
+    const tutorTurnReviews: TutorTurnReview[] = must(
+      tutorReviewResult.data,
+      tutorReviewResult.error,
+      "Get tutor turn reviews",
+    ).map((row) => ({
+      evaluationId: row.evaluation_id,
+      tutorMessageId: row.tutor_message_id,
+      professorId: row.reviewer_id,
+      naturalness: row.naturalness,
+      specificity: row.specificity,
+      nonLeading: row.non_leading,
+      challengeFit: row.challenge_fit,
+      helpfulness: row.helpfulness,
+      failureTags: row.failure_tags ?? [],
+      preferredRewrite: row.preferred_rewrite ?? "",
+      comments: row.comments ?? "",
+      updatedAt: row.updated_at,
+    }));
     let assignment: CaseAssignment | null = null;
     let teachingClass: TeachingClass | null = null;
     if (sessionRow.class_case_assignment_id) {
@@ -237,6 +262,7 @@ export class SupabaseTutorRepository implements TutorRepository {
       case: mapCase(caseRow, phaseRows),
       student: mapUser(userRow),
       answerReviews,
+      tutorTurnReviews,
       sessionReview,
       runtime: { storage: "supabase", tutor: getTutorMode() },
       assignment,
@@ -267,6 +293,11 @@ export class SupabaseTutorRepository implements TutorRepository {
         strategy: input.evaluation.strategy,
         phaseComplete: input.evaluation.phaseComplete,
         feedback: input.evaluation.feedback,
+        phaseOrder: input.evaluation.phaseOrder,
+        attempt: input.evaluation.attempt,
+        provider: input.evaluation.provider,
+        model: input.evaluation.model,
+        promptVersion: input.evaluation.promptVersion,
       },
       p_evaluation_feedback: input.evaluation.feedback,
       p_evaluator_id: null,
@@ -305,15 +336,29 @@ export class SupabaseTutorRepository implements TutorRepository {
     if (bundle.session.status !== "completed") throw new Error("Only completed sessions can be reviewed.");
     if (!bundle.assignment || !(await this.listClasses(input.professorId)).some((item) => item.id === bundle.assignment!.classId)) throw new Error("This review is outside the professor's classes.");
     if (bundle.session.reviewerId && bundle.session.reviewerId !== input.professorId) throw new Error("Review already claimed by another professor.");
+    const evaluationMap = new Map(bundle.session.evaluations.map((item) => [item.id, item]));
+    const tutorMessageIds = new Set(bundle.session.messages.filter((message) => message.sender === "ai").map((message) => message.id));
+    for (const review of input.reviews) {
+      if (!evaluationMap.has(review.evaluationId)) throw new Error("Review references an answer outside this session.");
+    }
+    for (const review of input.tutorReviews ?? []) {
+      const evaluation = evaluationMap.get(review.evaluationId);
+      if (!evaluation || !tutorMessageIds.has(review.tutorMessageId)) {
+        throw new Error("Tutor review references a turn outside this session.");
+      }
+      const studentMessageIndex = bundle.session.messages.findIndex((message) => message.id === evaluation.messageId);
+      const expectedTutorMessage = bundle.session.messages.slice(studentMessageIndex + 1).find((message) => message.sender === "ai");
+      if (expectedTutorMessage?.id !== review.tutorMessageId) {
+        throw new Error("Tutor review does not match the evaluated answer.");
+      }
+    }
     if (!bundle.session.reviewerId) {
       const { data: claimed, error: claimError } = await this.client.from("sessions").update({ professor_id: input.professorId }).eq("id", input.sessionId).is("professor_id", null).select("id");
       if (claimError) throw new Error(`Claim review: ${claimError.message}`);
       if (!claimed?.length) throw new Error("Review already claimed by another professor.");
     }
-    const evaluationMap = new Map(bundle.session.evaluations.map((item) => [item.id, item]));
     for (const review of input.reviews) {
-      const evaluation = evaluationMap.get(review.evaluationId);
-      if (!evaluation) throw new Error("Review references an answer outside this session.");
+      const evaluation = evaluationMap.get(review.evaluationId)!;
       const { error } = await this.client.from("answer_reviews").upsert({
         message_id: evaluation.messageId,
         reviewer_id: input.professorId,
@@ -323,6 +368,23 @@ export class SupabaseTutorRepository implements TutorRepository {
         rubric: { label: review.label, evaluationId: review.evaluationId },
       }, { onConflict: "message_id,reviewer_id" });
       if (error) throw new Error(`Save answer review: ${error.message}`);
+    }
+    for (const review of input.tutorReviews ?? []) {
+      const { error } = await this.client.from("tutor_turn_reviews").upsert({
+        session_id: input.sessionId,
+        evaluation_id: review.evaluationId,
+        tutor_message_id: review.tutorMessageId,
+        reviewer_id: input.professorId,
+        naturalness: review.naturalness,
+        specificity: review.specificity,
+        non_leading: review.nonLeading,
+        challenge_fit: review.challengeFit,
+        helpfulness: review.helpfulness,
+        failure_tags: review.failureTags,
+        preferred_rewrite: review.preferredRewrite || null,
+        comments: review.comments || null,
+      }, { onConflict: "evaluation_id" });
+      if (error) throw new Error(`Save tutor turn review: ${error.message}`);
     }
     const finalScore = input.reviews.length
       ? Math.round(input.reviews.reduce((sum, item) => sum + CLASSIFICATION_SCORES[item.label], 0) / input.reviews.length)

@@ -24,6 +24,7 @@ export function studentView(bundle: SessionBundle): SessionBundle {
       },
     },
     answerReviews: [],
+    tutorTurnReviews: [],
     sessionReview: bundle.sessionReview?.status === "completed" ? bundle.sessionReview : null,
   };
 }

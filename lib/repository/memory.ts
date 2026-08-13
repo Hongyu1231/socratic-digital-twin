@@ -12,6 +12,7 @@ import type {
   SessionSummary,
   StudentCaseOffering,
   TeachingClass,
+  TutorTurnReview,
 } from "@/lib/domain";
 import { demoAssignment, demoCases, demoClass, demoUsers, getDemoUser } from "@/lib/seed";
 import type { CommitTurnInput, SaveReviewInput, TutorRepository } from "@/lib/repository/types";
@@ -19,6 +20,7 @@ import type { CommitTurnInput, SaveReviewInput, TutorRepository } from "@/lib/re
 interface MemoryStore {
   sessions: Map<string, LearningSession>;
   answerReviews: Map<string, AnswerReview>;
+  tutorTurnReviews: Map<string, TutorTurnReview>;
   sessionReviews: Map<string, SessionReview>;
   users: Map<string, DemoUser>;
   classes: Map<string, TeachingClass>;
@@ -34,6 +36,7 @@ function createStore(): MemoryStore {
   return {
     sessions: new Map(),
     answerReviews: new Map(),
+    tutorTurnReviews: new Map(),
     sessionReviews: new Map(),
     users: new Map(demoUsers.map((item) => [item.id, clone(item)])),
     classes: new Map([[demoClass.id, clone(demoClass)]]),
@@ -184,14 +187,31 @@ export class InMemoryTutorRepository implements TutorRepository {
       throw new Error("This review is outside the professor's classes.");
     }
     if (session.reviewerId && session.reviewerId !== input.professorId) throw new Error("Review already claimed by another professor.");
-    session.reviewerId = input.professorId;
     const validEvaluationIds = new Set(session.evaluations.map((evaluation) => evaluation.id));
+    const validTutorMessages = new Set(session.messages.filter((message) => message.sender === "ai").map((message) => message.id));
     const now = new Date().toISOString();
     for (const review of input.reviews) {
-      if (!validEvaluationIds.has(review.evaluationId)) {
-        throw new Error("Review references an answer outside this session.");
+      if (!validEvaluationIds.has(review.evaluationId)) throw new Error("Review references an answer outside this session.");
+    }
+    for (const review of input.tutorReviews ?? []) {
+      if (!validEvaluationIds.has(review.evaluationId) || !validTutorMessages.has(review.tutorMessageId)) {
+        throw new Error("Tutor review references a turn outside this session.");
       }
+      const evaluation = session.evaluations.find((item) => item.id === review.evaluationId)!;
+      const studentMessageIndex = session.messages.findIndex((message) => message.id === evaluation.messageId);
+      const expectedTutorMessage = session.messages.slice(studentMessageIndex + 1).find((message) => message.sender === "ai");
+      if (expectedTutorMessage?.id !== review.tutorMessageId) throw new Error("Tutor review does not match the evaluated answer.");
+    }
+    session.reviewerId = input.professorId;
+    for (const review of input.reviews) {
       this.store.answerReviews.set(review.evaluationId, {
+        ...review,
+        professorId: input.professorId,
+        updatedAt: now,
+      });
+    }
+    for (const review of input.tutorReviews ?? []) {
+      this.store.tutorTurnReviews.set(review.evaluationId, {
         ...review,
         professorId: input.professorId,
         updatedAt: now,
@@ -220,6 +240,7 @@ export class InMemoryTutorRepository implements TutorRepository {
   reset() {
     this.store.sessions.clear();
     this.store.answerReviews.clear();
+    this.store.tutorTurnReviews.clear();
     this.store.sessionReviews.clear();
     this.store.users = new Map(demoUsers.map((item) => [item.id, clone(item)]));
     this.store.classes = new Map([[demoClass.id, clone(demoClass)]]);
@@ -350,6 +371,9 @@ export class InMemoryTutorRepository implements TutorRepository {
       answerReviews: session.evaluations
         .map((evaluation) => this.store.answerReviews.get(evaluation.id))
         .filter((review): review is AnswerReview => Boolean(review)),
+      tutorTurnReviews: session.evaluations
+        .map((evaluation) => this.store.tutorTurnReviews.get(evaluation.id))
+        .filter((review): review is TutorTurnReview => Boolean(review)),
       sessionReview: this.store.sessionReviews.get(session.id) ?? null,
       runtime: { storage: "memory", tutor: "deterministic" },
       assignment: session.assignmentId ? this.store.assignments.get(session.assignmentId) ?? null : null,

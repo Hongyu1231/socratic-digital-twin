@@ -122,6 +122,11 @@ export interface Evaluation {
   strategy: TutorStrategy;
   phaseComplete: boolean;
   feedback: string;
+  phaseOrder?: number;
+  attempt?: number;
+  provider?: "deterministic" | "claude" | "openai";
+  model?: string;
+  promptVersion?: string;
   createdAt: string;
 }
 
@@ -174,6 +179,32 @@ export interface AnswerReview {
   updatedAt: string;
 }
 
+export type TutorQualityFailureTag =
+  | "generic"
+  | "repetitive"
+  | "leading"
+  | "multi_part"
+  | "too_difficult"
+  | "too_easy"
+  | "mini_lecture"
+  | "diagnosis_leak"
+  | "not_grounded";
+
+export interface TutorTurnReview {
+  evaluationId: string;
+  tutorMessageId: string;
+  professorId: string;
+  naturalness: number;
+  specificity: number;
+  nonLeading: number;
+  challengeFit: number;
+  helpfulness: number;
+  failureTags: TutorQualityFailureTag[];
+  preferredRewrite: string;
+  comments: string;
+  updatedAt: string;
+}
+
 export interface SessionReview {
   sessionId: string;
   professorId: string;
@@ -188,6 +219,7 @@ export interface SessionBundle {
   case: ClinicalCase;
   student: DemoUser;
   answerReviews: AnswerReview[];
+  tutorTurnReviews: TutorTurnReview[];
   sessionReview: SessionReview | null;
   runtime: { storage: "memory" | "supabase"; tutor: "deterministic" | "claude" | "openai" };
   assignment?: CaseAssignment | null;

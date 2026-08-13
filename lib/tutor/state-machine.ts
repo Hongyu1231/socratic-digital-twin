@@ -4,6 +4,7 @@ import { getRepository } from "@/lib/repository";
 import { evaluateWithFallback, getTutorMode } from "@/lib/tutor";
 import { generateSessionSummary } from "@/lib/tutor/summary-ai";
 import { withIdempotency } from "@/lib/idempotency";
+import { TUTOR_PROMPT_VERSION } from "@/lib/tutor/prompt";
 
 const uniqueRecent = (existing: string[], additions: string[], limit = 8) =>
   [...new Set([...existing, ...additions])].slice(-limit);
@@ -88,6 +89,15 @@ async function performStudentAnswer(
     strategy: result.strategy,
     phaseComplete,
     feedback: result.feedback,
+    phaseOrder: phase.order,
+    attempt,
+    provider: result.source,
+    model: result.source === "openai"
+      ? process.env.OPENAI_MODEL ?? "unknown"
+      : result.source === "claude"
+        ? process.env.CLAUDE_MODEL ?? "unknown"
+        : "deterministic-rules-v1",
+    promptVersion: result.source === "deterministic" ? "deterministic-v1" : TUTOR_PROMPT_VERSION,
     createdAt: now,
   };
   const allEvaluations = [...bundle.session.evaluations, evaluation];

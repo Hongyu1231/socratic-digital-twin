@@ -14,6 +14,7 @@ import type {
   StudentCaseOffering,
   TeachingClass,
   TutorMessage,
+  TutorTurnReview,
 } from "@/lib/domain";
 
 export interface CommitTurnInput {
@@ -34,6 +35,7 @@ export interface SaveReviewInput {
   sessionId: string;
   professorId: string;
   reviews: Array<Pick<AnswerReview, "evaluationId" | "label" | "comments">>;
+  tutorReviews?: Array<Pick<TutorTurnReview, "evaluationId" | "tutorMessageId" | "naturalness" | "specificity" | "nonLeading" | "challengeFit" | "helpfulness" | "failureTags" | "preferredRewrite" | "comments">>;
   overallFeedback: string;
   status: SessionReview["status"];
 }

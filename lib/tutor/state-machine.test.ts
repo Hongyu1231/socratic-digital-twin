@@ -62,9 +62,24 @@ describe("Socratic state machine", () => {
     const reviewed = await repository.saveReview({
       sessionId: answered.session.id, professorId: DEMO_PROFESSOR_ID,
       reviews: [{ evaluationId: answered.session.evaluations[0].id, label: "partial", comments: "Needs a clearer consequence." }],
+      tutorReviews: [{
+        evaluationId: answered.session.evaluations[0].id,
+        tutorMessageId: answered.session.messages.at(-1)!.id,
+        naturalness: 4,
+        specificity: 5,
+        nonLeading: 5,
+        challengeFit: 4,
+        helpfulness: 4,
+        failureTags: [],
+        preferredRewrite: "What evidence would help you test that concern?",
+        comments: "The question follows the learner's reasoning.",
+      }],
       overallFeedback: "Good start.", status: "completed",
     });
     expect(reviewed.session.reviewStatus).toBe("completed");
     expect(reviewed.sessionReview?.finalScore).toBe(70);
+    expect(reviewed.tutorTurnReviews).toEqual([
+      expect.objectContaining({ naturalness: 4, specificity: 5, professorId: DEMO_PROFESSOR_ID }),
+    ]);
   });
 });

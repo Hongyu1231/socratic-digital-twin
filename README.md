@@ -1,110 +1,117 @@
 # Socratic Digital Twin AI Tutor
 
-NUS Faculty of Dentistry 教学概念验证：通过连续的苏格拉底式追问训练临床推理，而不是直接给出答案。
+Teaching proof of concept for the NUS Faculty of Dentistry. The tutor uses progressive Socratic questions to help learners practise clinical reasoning instead of revealing an answer immediately.
 
-本项目默认即可运行。没有 Supabase 或 AI 凭证时，它会分别使用进程内存数据库和确定性教学引擎；配置凭证后，每个适配器会独立切换到真实服务。
+The project runs without external services: it uses an in-process repository and a deterministic tutor when credentials are absent. Supabase, OpenAI, and Claude can be enabled independently through environment variables.
 
-## 功能
+> **Teaching simulation only.** This POC does not contain real patient data, clinical images, or diagnostic functionality. It has no production sign-up, OAuth, or Supabase Auth flow.
 
-- 学生选择病例、完成五阶段推理会话并查看形成性总结
-- AI 对每个回答分类为 `correct`、`partial`、`vague` 或 `wrong`
-- 记录推理缺口、强项、弱项、阶段掌握度与历史错误
-- Admin 管理预置用户、班级、五阶段病例版本与全局复核进度
-- 教授布置班级任务、查看完整对话、认领并逐题重新标注
-- 学生只看到所属班级的任务；Mock 三角色按具体预置用户使用签名 HttpOnly Cookie 切换
-- Supabase、OpenAI 与 Claude 均有独立、可测试的本地回退实现
+## Features
 
-> 教学模拟用途。首版不包含真实患者数据、临床影像或医疗诊断功能。
+- Students choose a class assignment, work through a five-phase case, and receive a formative summary.
+- Each answer is classified as `correct`, `partial`, `vague`, or `wrong`.
+- The system records reasoning gaps, strengths, weaknesses, phase mastery, and previous errors.
+- Admins manage seeded users, classes, case versions, publication, and review ownership.
+- Professors assign published cases, inspect complete transcripts, claim reviews, re-label answers, and rate tutor-intervention quality.
+- Students see only assignments in their classes. Demo identity switching uses a signed HttpOnly cookie for a specific seeded user.
+- Supabase persistence, OpenAI, and Claude each have independently testable local fallbacks.
 
-## 文档 / Documentation
+## Documentation and links
 
-- [用户指南（中英双语） / Bilingual User Guide](docs/USER_GUIDE.md)
-- [开发者指南（中英双语） / Bilingual Developer Guide](docs/DEVELOPER_GUIDE.md)
-- [导师人性化与教授反馈闭环 / Tutor Humanization & Professor Feedback Loop](docs/HUMANIZATION_PLAN.md)
+- [Bilingual User Guide](docs/USER_GUIDE.md)
+- [Bilingual Developer Guide](docs/DEVELOPER_GUIDE.md)
+- [Tutor Humanization & Professor Feedback Loop](docs/HUMANIZATION_PLAN.md)
 
-## 本地运行
+## Quick start
 
-要求 Node.js 22 或更高版本（当前 OpenAI 与 Supabase SDK 的受支持基线）。
+Requirements: Node.js 22 or newer (the supported baseline for the current OpenAI and Supabase SDKs).
 
 ```bash
 npm install
-copy .env.example .env.local
+```
+
+Create a local environment file before adding credentials:
+
+```powershell
+Copy-Item .env.example .env.local
+```
+
+On macOS/Linux, use `cp .env.example .env.local` instead. Then open [http://localhost:3000](http://localhost:3000). The complete demo works with an empty `.env.local` by using memory storage and the deterministic tutor.
+
+Start the development server:
+
+```bash
 npm run dev
 ```
 
-打开 [http://localhost:3000](http://localhost:3000)。不填写外部服务变量也可以完成全部演示流程。
-
-常用检查：
+Run the standard verification gates:
 
 ```bash
 npm run typecheck
 npm test
+npm run lint
 npm run build
 ```
 
-## Docker 运行
+## Architecture and adapter selection
 
-项目提供可直接用于 Docker Engine / Docker Desktop 的生产镜像和 Compose 配置。Docker 本身是本地容器运行时，不会自动创建 Supabase 云项目；没有任何凭证时，容器仍可使用内存 repository 和确定性 tutor 完成演示。
+The browser calls Next.js server routes; it never receives database or AI credentials. Route handlers apply the signed demo identity, role and resource authorization, shared Zod validation, the tutor state machine, and repository operations.
 
-先安装并启动 Docker Desktop（或其他兼容 Docker Compose v2 的 Engine），然后在项目根目录运行：
+Database and tutor providers are selected independently:
 
-```bash
-docker compose up --build
-```
+1. `FORCE_MEMORY_REPOSITORY=true` always selects the in-memory repository.
+2. Otherwise, both `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` select the Supabase repository; if either is missing, memory storage is used.
+3. Both `OPENAI_API_KEY` and `OPENAI_MODEL` select the OpenAI Responses API first.
+4. If OpenAI is not configured, both `ANTHROPIC_API_KEY` and `CLAUDE_MODEL` select the Claude Messages API.
+5. With no complete AI pair, or when one AI request times out, is rejected, or returns invalid structured output, that request falls back to the deterministic tutor.
 
-若当前网络无法访问 Docker Hub，但可以访问 AWS Public ECR，可直接覆盖为官方 Node 镜像的公共镜像地址：
+Session summaries use the same OpenAI-then-Claude preference and fall back to a local template. Student answers are treated as untrusted quoted data; model output is validated and only the state machine may merge its allow-listed memory patch.
 
-```bash
-docker build --build-arg NODE_IMAGE=public.ecr.aws/docker/library/node:22-alpine -t socratic-tutor:poc .
-```
+### Repository layout
 
-默认访问 [http://localhost:3000](http://localhost:3000)。如果要从本地环境文件注入 Supabase/OpenAI/Claude 配置，PowerShell 和 macOS/Linux 均可显式指定：
-
-```bash
-docker compose --env-file .env.local up --build
-```
-
-停止并移除容器：
-
-```bash
-docker compose down
-```
-
-Compose 会通过 `/api/cases` 健康检查确认应用已启动。不要把 `.env.local`、服务端密钥或 API key 写入镜像、`Dockerfile`、Compose 文件或 Git；这些文件已被 `.dockerignore` 排除。
-
-## 环境变量
-
-| 变量 | 用途 |
+| Path | Responsibility |
 | --- | --- |
-| `DEMO_SESSION_SECRET` | 签名 Mock 身份 Cookie；生产环境必须设置 |
-| `SUPABASE_URL` | Supabase 项目 URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | 仅服务端使用的数据库密钥，禁止使用 `NEXT_PUBLIC_` 前缀 |
-| `FORCE_MEMORY_REPOSITORY` | 设为 `true` 时强制内存模式，适合本地验收 |
-| `OPENAI_API_KEY` | OpenAI API 密钥，仅在服务端读取 |
-| `OPENAI_MODEL` | 明确指定账号可用且支持 Structured Outputs 的 OpenAI 模型 ID |
-| `OPENAI_PROXY_URL` | 可选；Node.js 无法直连 OpenAI 时使用的 HTTP(S) 代理 URL |
-| `ANTHROPIC_API_KEY` | Claude API 密钥，仅在服务端读取 |
-| `CLAUDE_MODEL` | 明确指定账号可用且支持 Structured Outputs 的 Claude 模型 ID |
+| `app/` | App Router pages and server APIs |
+| `components/site-header.tsx` | Seeded identity selector |
+| `lib/domain.ts` | Domain types and scoring constants |
+| `lib/schemas.ts` | Shared Zod input/output schemas |
+| `lib/auth.ts` | Cookie signing, verification, and role guards |
+| `lib/repository/` | Repository interface, memory adapter, and Supabase adapter |
+| `lib/tutor/` | OpenAI/Claude adapters, deterministic fallback, summaries, humanization prompt, metrics, and state machine |
+| `lib/**/*.test.ts` | Vitest unit and integration tests |
+| `supabase/migrations/` | Versioned database schema |
+| `supabase/seed.sql` | Idempotent demo fixtures |
+| `Dockerfile`, `docker-compose.yml` | Production image and local Compose runtime |
 
-适配器判断规则：
+## Environment variables
 
-- 同时存在 `SUPABASE_URL` 和 `SUPABASE_SERVICE_ROLE_KEY`：使用 Supabase；否则使用内存 repository。
-- 同时存在 `OPENAI_API_KEY` 和 `OPENAI_MODEL`：优先使用 OpenAI Responses API。
-- OpenAI 未配置而 `ANTHROPIC_API_KEY` 与 `CLAUDE_MODEL` 均存在时：使用 Claude；否则使用确定性 tutor。
-- AI 请求超时、拒绝或结构化输出无效时，仅该次回答回退到确定性 tutor。
+Start from `.env.example`. Keep secrets in `.env.local`, Vercel Environment Variables, or a secret manager; never commit them or import them into a client component.
 
-## Supabase 设置
+| Variable | Requirement | Purpose |
+| --- | --- | --- |
+| `DEMO_SESSION_SECRET` | Required in production; development has a safe fallback | HMAC secret for the demo identity cookie |
+| `SUPABASE_URL` | Optional | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Optional; server-only | Supabase database key; never use a `NEXT_PUBLIC_` prefix |
+| `FORCE_MEMORY_REPOSITORY` | Optional | Set to `true` to force memory mode, useful for local acceptance checks |
+| `OPENAI_API_KEY` | Optional pair | OpenAI API key, read only on the server |
+| `OPENAI_MODEL` | Optional pair | Account-available model ID that supports Structured Outputs |
+| `OPENAI_PROXY_URL` | Optional | HTTP(S) proxy for the Node.js OpenAI client; standard proxy variables are also honored |
+| `ANTHROPIC_API_KEY` | Optional pair | Anthropic API key, read only on the server |
+| `CLAUDE_MODEL` | Optional pair | Account-available Claude model ID that supports structured output |
 
-数据库资产位于 `supabase/`：
+## Supabase setup
 
-- `migrations/20260809000000_create_socratic_digital_twin_schema.sql`
-- `migrations/20260812000000_add_class_collaboration.sql`
-- `seed.sql`
-- `config.toml`
+Database assets are in `supabase/`:
 
-两份 migration 创建原有九张教学表，并扩展 `classes`、`class_memberships`、`class_case_assignments`、病例版本及复核认领。`commit_tutor_turn` 用一笔事务写入学生消息、AI 评价、追问和学习状态。所有公开表启用 RLS；`anon` 与 `authenticated` 无表权限，只有服务端 service role 获得明确授权。
+- `migrations/20260809000000_create_socratic_digital_twin_schema.sql` creates the original nine teaching tables: `users`, `cases`, `case_phases`, `sessions`, `messages`, `evaluations`, `session_state`, `answer_reviews`, and `session_reviews`.
+- `migrations/20260812000000_add_class_collaboration.sql` adds active-user flags, case lineage/versioning, `classes`, `class_memberships`, `class_case_assignments`, assignment links and uniqueness for sessions, and single-owner review constraints.
+- `migrations/20260813042137_add_tutor_turn_reviews.sql` adds faculty ratings for tutor interventions (naturalness, specificity, non-leadingness, challenge fit, helpfulness, failure tags, and preferred rewrites).
+- `seed.sql` contains deterministic, idempotent fixtures.
+- `config.toml` enables the seed file for Supabase CLI workflows.
 
-远程开发项目：
+All exposed public tables, including `tutor_turn_reviews`, enable RLS. Direct table privileges are revoked from `public`, `anon`, and `authenticated`; only the server-side `service_role` receives the explicit grants used by this POC. The `commit_tutor_turn` function atomically writes a student message, evaluation, tutor follow-up, and learner state with optimistic version checks.
+
+### Remote development project
 
 ```bash
 npx supabase@latest login
@@ -112,74 +119,197 @@ npx supabase@latest link --project-ref YOUR_PROJECT_REF
 npx supabase@latest db push
 ```
 
-随后在 Supabase SQL Editor 中运行 `supabase/seed.sql`，或仅对一次性开发环境使用：
+After pushing migrations, run `supabase/seed.sql` in the Supabase SQL Editor, or use the following only for a disposable development project:
 
 ```bash
 npx supabase@latest db push --include-seed
 ```
 
-不要对包含真实数据的生产项目运行 `--include-seed` 或远程 reset。
+Do not run `--include-seed` or a remote reset against a production project with data that must be preserved.
 
-如需本地 Supabase，需要 Docker-compatible runtime：
+### Local Supabase
+
+Local Supabase requires a Docker-compatible runtime:
 
 ```bash
 npx supabase@latest start
 npx supabase@latest db reset
 ```
 
-生成数据库类型：
+Generate TypeScript database types when needed:
 
 ```bash
 npx supabase@latest gen types typescript --local > lib/database.types.ts
 ```
 
-## OpenAI / Claude 设置
+The seed creates six demo users (Alicia Tan, Benjamin Lee, Chloe Wong, Prof. Marcus Lim, Prof. Sarah Ng, and Dr. Elaine Koh), a default class, a published five-phase case, and its open assignment. It intentionally does not create `auth.users` rows; real authentication can be linked later.
 
-OpenAI（首选）：
+## OpenAI and Claude setup
 
-1. 在本机 `.env.local` 中设置 `OPENAI_API_KEY`；不要把密钥写入源码、命令历史或 Git。
-2. 将账号实际可用且支持 Structured Outputs 的模型 ID 写入 `OPENAI_MODEL`。
-3. 重启开发服务器。
+OpenAI is the preferred provider:
 
-Claude（可选的第二适配器）：
+1. Set `OPENAI_API_KEY` in `.env.local`.
+2. Set `OPENAI_MODEL` to a model available to the account and compatible with Structured Outputs.
+3. Restart the development server.
 
-1. 创建 Anthropic API 密钥，并写入 `.env.local` 的 `ANTHROPIC_API_KEY`。
-2. 将账号可用的模型 ID 写入 `CLAUDE_MODEL`。
-3. 重启开发服务器。
+Claude is the optional second provider:
 
-回答评估使用一次非流式 Responses API（OpenAI）或 Messages API（Claude）请求和 Zod Structured Outputs，返回分类、置信度、推理缺口、教学策略、一个追问及白名单记忆补丁。学生文本被当作不可信数据，模型输出只能通过状态机合并，不能直接覆盖数据库状态。会话结束时另行生成结构化学习总结；失败时使用本地模板。
+1. Set `ANTHROPIC_API_KEY` in `.env.local`.
+2. Set `CLAUDE_MODEL` to an account-available structured-output model.
+3. Restart the development server.
 
-## 演示流程
+Answer evaluation uses one non-streaming OpenAI Responses API or Claude Messages API request with the shared Zod schema. The result contains a label, confidence, observable reasoning gap, teaching strategy, exactly one follow-up question, and a conservative memory patch. The state machine—not the model—is the authority for phase progression and database state. Session summaries are generated separately; invalid or failed provider output uses the local summary template.
 
-1. 用 Admin（Dr. Elaine Koh）查看六个预置用户、默认班级与病例版本。
-2. Admin 可调整班级成员、发布五阶段病例或复制下一版草稿。
-3. 用 Professor（Prof. Marcus Lim）向自己的班级布置已发布病例。
-4. 用 Student（Alicia Tan）打开班级任务并完成一次回答；发送后学生消息会立即显示。
-5. 结束会话后回到 Marcus 的 Review queue，首次保存草稿即认领。
-6. 切换 Prof. Sarah Ng 验证同一复核只读/409 冲突保护，再由 Marcus 完成复核。
-7. 回到 Admin 的 Activity 查看班级进度、AI 分数和复核归属。
+## Identity, authorization, and state machine
+
+`GET /api/demo/identity` lists active seeded users. `POST /api/demo/identity` accepts only a seeded `userId`; the server derives that user's role and stores a signed HttpOnly cookie, so a client cannot submit `role=admin` to elevate itself. Route handlers use `requireStudent`, `requireProfessor`, or `requireAdmin`, then perform resource checks:
+
+- Students may access their own sessions and assignments in their classes.
+- Professors may access assignments and sessions for classes they teach.
+- Admins manage users, classes, case versions, and review ownership.
+- Inactive users cannot switch identity or call protected APIs.
+
+For each student answer, `lib/tutor/state-machine.ts` loads and authorizes the session, resolves the phase and attempt, invokes the selected tutor, creates the student message/evaluation/follow-up, merges only allow-listed memory fields, and commits the turn atomically with an expected state version. A `correct` answer advances the phase; after the third unsuccessful attempt the phase also advances to prevent a dead end. Phase five completes automatically, while early exit generates a summary with `completedAllPhases=false`.
+
+AI scores map to `correct=100`, `partial=70`, `vague=40`, and `wrong=0`; the rounded average is the formative score. Professor labels and final scores are stored independently and never overwrite the original AI evaluation.
+
+## Core business rules
+
+- A case draft must contain exactly five complete phases.
+- Published cases are immutable; clone a new draft version to edit.
+- Professors may assign only published cases to their own classes.
+- Closed or expired assignments cannot create new sessions; an existing session may continue.
+- Each student has one resumable session per assignment.
+- Only completed sessions may be claimed and reviewed; in-progress sessions are read-only to professors.
+- The first professor to save a draft atomically claims the review; colleagues become read-only.
+- Admins may release or reassign unfinished reviews; completed reviews are locked.
+
+## Recommended three-role demo
+
+1. Switch to **Admin — Dr. Elaine Koh** and inspect the six users, default class, and case versions.
+2. As Admin, adjust class membership, publish the five-phase case, or clone a new draft version.
+3. Switch to **Professor — Prof. Marcus Lim** and assign the published case to his class.
+4. Switch to **Student — Alicia Tan**, open the class assignment, and submit answers. The submitted student message appears immediately before the tutor follow-up.
+5. Complete or end the session, then return to Marcus's **Review queue**. The first **Save draft** atomically claims the review.
+6. Switch to **Professor — Prof. Sarah Ng** to verify the same review is read-only and competing writes are rejected; switch back to Marcus to complete it.
+7. Return to Admin's **Activity** view to inspect class progress, AI scores, and review ownership.
+
+Benjamin Lee and Chloe Wong are additional seeded student identities.
 
 ## API
 
-- `GET /api/cases`
-- `POST /api/session/start`
-- `POST /api/session/message`
-- `GET /api/session/:id`
-- `POST /api/session/:id/complete`
-- `GET /api/professor/sessions`
-- `GET /api/professor/classes`
-- `GET/POST/PATCH /api/professor/assignments`
-- `POST /api/professor/review`
-- `GET /api/admin/overview`
-- `GET/PATCH /api/admin/users`
-- `GET/POST/PATCH /api/admin/classes`
-- `PUT /api/admin/classes/:id/members`
-- `GET/POST/PATCH /api/admin/cases`
-- `POST /api/admin/cases/:id/publish`
-- `POST /api/admin/cases/:id/clone`
-- `GET /api/admin/sessions`
-- `POST /api/admin/reviews/reassign`
-- `GET /api/demo/identity`
-- `POST /api/demo/identity`
+| Method | Endpoint |
+| --- | --- |
+| `GET` | `/api/cases` |
+| `POST` | `/api/session/start` |
+| `POST` | `/api/session/message` |
+| `GET` | `/api/session/:id` |
+| `POST` | `/api/session/:id/complete` |
+| `GET` | `/api/professor/sessions` |
+| `GET` | `/api/professor/classes` |
+| `GET`, `POST`, `PATCH` | `/api/professor/assignments` |
+| `POST` | `/api/professor/review` |
+| `GET` | `/api/admin/overview` |
+| `GET`, `PATCH` | `/api/admin/users` |
+| `GET`, `POST`, `PATCH` | `/api/admin/classes` |
+| `PUT` | `/api/admin/classes/:id/members` |
+| `GET`, `POST`, `PATCH` | `/api/admin/cases` |
+| `POST` | `/api/admin/cases/:id/publish` |
+| `POST` | `/api/admin/cases/:id/clone` |
+| `GET` | `/api/admin/sessions` |
+| `POST` | `/api/admin/reviews/reassign` |
+| `GET`, `POST` | `/api/demo/identity` |
 
-学生 API 不返回逐题 AI 评价；完整评价仅对教授身份开放。消息提交可带 `clientRequestId`，服务器会对同一会话中的重复请求进行幂等处理。
+Request bodies and AI output use shared Zod schemas. Start a session with an `assignmentId`; include a client-generated `clientRequestId` with message submissions so duplicate requests in one session are idempotent. Review writes send answer labels/comments, tutor-quality ratings where applicable, overall feedback, and a `draft` or `completed` status.
+
+```json
+POST /api/session/start
+{ "assignmentId": "uuid" }
+```
+
+```json
+POST /api/session/message
+{
+  "sessionId": "uuid",
+  "message": "student reasoning",
+  "clientRequestId": "client-generated-id"
+}
+```
+
+Student session responses omit per-answer AI classifications, reasoning gaps, and private learner weaknesses. Professor views receive the complete transcript and evaluation data.
+
+## Testing
+
+The standard gates are:
+
+```bash
+npm run typecheck       # TypeScript
+npm test                # Vitest unit and integration tests
+npm run lint            # ESLint
+npm run build           # Next.js production build
+```
+
+Tests cover the four classifications and score calculation, three-attempt protection, phase progression and early completion, memory-patch allow-listing, signed-cookie tamper resistance, class and assignment isolation, session resumption, review claiming/conflicts/locking, and valid/invalid OpenAI and Claude output with deterministic fallback.
+
+Changes involving UI state, cookies, permissions, persistence, or deployment should also be exercised in a real browser using Student → Professor → Admin. Inspect Console and Network output and confirm the final repository/database state.
+
+## Docker
+
+The repository includes a production multi-stage image and a Docker Compose v2 configuration. Docker runs the app locally; it does not create a Supabase cloud project. Without credentials, the container still runs the memory repository and deterministic tutor.
+
+Install and start Docker Desktop (or another Docker Compose v2-compatible engine), then run from the repository root:
+
+```bash
+docker compose up --build
+```
+
+The app is available at [http://localhost:3000](http://localhost:3000). Compose uses `/api/cases` as its health check. To inject local Supabase/OpenAI/Claude configuration explicitly:
+
+```bash
+docker compose --env-file .env.local up --build
+```
+
+If Docker Hub is unreachable but AWS Public ECR is available, override the Node base image:
+
+```bash
+docker build --build-arg NODE_IMAGE=public.ecr.aws/docker/library/node:22-alpine -t socratic-tutor:poc .
+```
+
+Stop and remove the container with:
+
+```bash
+docker compose down
+```
+
+Never put `.env.local`, service keys, or API keys in the image, Dockerfile, Compose file, source, or Git. These files are excluded by `.dockerignore`.
+
+## Deployment
+
+For Vercel:
+
+1. Import this repository into Vercel.
+2. Confirm the project uses Node.js 22 or newer, as required by `package.json`.
+3. Configure all server-only variables in Project Settings → Environment Variables.
+4. Apply Supabase migrations and seed data separately; do not expose the service-role key to the browser.
+5. Deploy and run the Student → Professor → Admin smoke test.
+6. Review Vercel Runtime Logs for persistent 4xx/5xx responses or provider configuration errors.
+
+Do not place production secrets in `vercel.json`, Docker images, source code, screenshots, or browser-visible variables. Replace the demo identity mechanism with an institutional identity provider and complete privacy, audit, retention, and educational-data compliance work before production use.
+
+## Troubleshooting
+
+- **Data disappears after restart:** the memory repository is active. Verify that both Supabase variables are set and `FORCE_MEMORY_REPOSITORY` is not `true`.
+- **The UI shows “Demo tutor”:** provider credentials/model IDs are incomplete, or that request fell back. Inspect redacted server logs for provider, request ID, and error type; logs should not contain student text or secrets.
+- **A professor cannot see a class or session:** verify class membership, assignment ownership, and the session's `class_case_assignment_id`.
+- **Close/Reopen or date requests return 400:** send ISO-8601 timestamps with `Z` or an explicit offset, and ensure the due time is strictly later than the opening time.
+- **Supabase permission error:** use the service-role key only on the server and confirm both migrations have been applied.
+
+## Security and extension checklist
+
+- Treat student answers as untrusted, length-limited input.
+- Never request, store, or display hidden chain-of-thought.
+- Validate model output and merge only allow-listed state changes.
+- Preserve transactions, unique constraints, idempotency, and optimistic version checks.
+- Add role and resource-level authorization tests for every new API.
+- Add a new migration instead of rewriting an applied migration.
+- Keep the deterministic fallback when adding a provider.

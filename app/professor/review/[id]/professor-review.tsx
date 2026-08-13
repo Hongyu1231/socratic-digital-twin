@@ -3,15 +3,41 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { ArrowLeft, Check, Eye, LoaderCircle, LockKeyhole, Save, ShieldCheck } from "lucide-react";
-import type { Classification, SessionBundle } from "@/lib/domain";
+import type { Classification, SessionBundle, TutorQualityFailureTag } from "@/lib/domain";
 import styles from "./review.module.css";
 
 const labels: Classification[] = ["correct", "partial", "vague", "wrong"];
 type DraftReview = { label: Classification; comments: string };
+type TutorDraft = {
+  tutorMessageId: string;
+  naturalness: number;
+  specificity: number;
+  nonLeading: number;
+  challengeFit: number;
+  helpfulness: number;
+  failureTags: TutorQualityFailureTag[];
+  preferredRewrite: string;
+  comments: string;
+};
+
+const qualityDimensions = [
+  ["naturalness", "Naturalness"],
+  ["specificity", "Specificity"],
+  ["nonLeading", "Non-leading"],
+  ["challengeFit", "Challenge fit"],
+  ["helpfulness", "Helpfulness"],
+] as const;
+
+const failureTags: Array<[TutorQualityFailureTag, string]> = [
+  ["generic", "Generic"], ["repetitive", "Repetitive"], ["leading", "Leading"],
+  ["multi_part", "Multi-part"], ["too_difficult", "Too difficult"], ["too_easy", "Too easy"],
+  ["mini_lecture", "Mini-lecture"], ["diagnosis_leak", "Diagnosis leak"], ["not_grounded", "Not grounded"],
+];
 
 export function ProfessorReview({ sessionId }: { sessionId: string }) {
   const [bundle, setBundle] = useState<SessionBundle | null>(null);
   const [drafts, setDrafts] = useState<Record<string, DraftReview>>({});
+  const [tutorDrafts, setTutorDrafts] = useState<Record<string, TutorDraft>>({});
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -32,6 +58,33 @@ export function ProfessorReview({ sessionId }: { sessionId: string }) {
           const existing = data.answerReviews.find((review) => review.evaluationId === evaluation.id);
           return [evaluation.id, { label: existing?.label ?? evaluation.classification, comments: existing?.comments ?? "" }];
         })));
+        setTutorDrafts(Object.fromEntries(data.session.evaluations.flatMap((evaluation) => {
+          const answerIndex = data.session.messages.findIndex((message) => message.id === evaluation.messageId);
+          const tutorMessage = data.session.messages.slice(answerIndex + 1).find((message) => message.sender === "ai");
+          if (!tutorMessage) return [];
+          const existing = data.tutorTurnReviews.find((review) => review.evaluationId === evaluation.id);
+          return [[evaluation.id, existing ? {
+            tutorMessageId: existing.tutorMessageId,
+            naturalness: existing.naturalness,
+            specificity: existing.specificity,
+            nonLeading: existing.nonLeading,
+            challengeFit: existing.challengeFit,
+            helpfulness: existing.helpfulness,
+            failureTags: existing.failureTags,
+            preferredRewrite: existing.preferredRewrite,
+            comments: existing.comments,
+          } : {
+            tutorMessageId: tutorMessage.id,
+            naturalness: 3,
+            specificity: 3,
+            nonLeading: 3,
+            challengeFit: 3,
+            helpfulness: 3,
+            failureTags: [],
+            preferredRewrite: "",
+            comments: "",
+          }]];
+        })));
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : "Review could not be loaded."))
       .finally(() => setLoading(false));
@@ -41,7 +94,12 @@ export function ProfessorReview({ sessionId }: { sessionId: string }) {
     if (!bundle) return [];
     return bundle.session.evaluations.map((evaluation) => {
       const answerIndex = bundle.session.messages.findIndex((message) => message.id === evaluation.messageId);
-      return { evaluation, answer: bundle.session.messages[answerIndex], question: bundle.session.messages.slice(0, answerIndex).toReversed().find((message) => message.sender === "ai") };
+      return {
+        evaluation,
+        answer: bundle.session.messages[answerIndex],
+        question: bundle.session.messages.slice(0, answerIndex).toReversed().find((message) => message.sender === "ai"),
+        tutorReply: bundle.session.messages.slice(answerIndex + 1).find((message) => message.sender === "ai"),
+      };
     });
   }, [bundle]);
 
@@ -51,7 +109,13 @@ export function ProfessorReview({ sessionId }: { sessionId: string }) {
     startTransition(async () => {
       const response = await fetch("/api/professor/review", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, reviews: bundle.session.evaluations.map((evaluation) => ({ evaluationId: evaluation.id, ...drafts[evaluation.id] })), overallFeedback: feedback, status }),
+        body: JSON.stringify({
+          sessionId,
+          reviews: bundle.session.evaluations.map((evaluation) => ({ evaluationId: evaluation.id, ...drafts[evaluation.id] })),
+          tutorReviews: bundle.session.evaluations.flatMap((evaluation) => tutorDrafts[evaluation.id] ? [{ evaluationId: evaluation.id, ...tutorDrafts[evaluation.id] }] : []),
+          overallFeedback: feedback,
+          status,
+        }),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -94,15 +158,23 @@ export function ProfessorReview({ sessionId }: { sessionId: string }) {
       </div>
       <div className="review-layout">
         <section className="transcript-card"><span className="section-kicker">Conversation transcript</span>
-          {turns.length === 0 ? <div className="empty-state"><p>No student answers have been submitted yet.</p></div> : turns.map(({ evaluation, answer, question }, index) => {
+          {turns.length === 0 ? <div className="empty-state"><p>No student answers have been submitted yet.</p></div> : turns.map(({ evaluation, answer, question, tutorReply }, index) => {
             const draft = drafts[evaluation.id] ?? { label: evaluation.classification, comments: "" };
+            const tutorDraft = tutorDrafts[evaluation.id];
             return <article className="review-turn" key={evaluation.id}>
               <span className="sidebar-label">Answer {index + 1}</span>
               <p className="review-question">{question?.content}</p>
               <div className="review-answer">{answer?.content}</div>
-              <div className="ai-evaluation"><span><strong>AI evaluation:</strong> {evaluation.classification} · {Math.round(evaluation.confidence * 100)}% confidence</span><span><strong>Reasoning gap:</strong> {evaluation.reasoningGap}</span><span><strong>Strategy:</strong> {evaluation.strategy}</span></div>
+              <div className="ai-evaluation"><span><strong>AI evaluation:</strong> {evaluation.classification} · {Math.round(evaluation.confidence * 100)}% confidence</span><span><strong>Reasoning gap:</strong> {evaluation.reasoningGap}</span><span><strong>Strategy:</strong> {evaluation.strategy}</span>{evaluation.promptVersion ? <span><strong>Experiment:</strong> {evaluation.provider} · {evaluation.model} · {evaluation.promptVersion} · phase {evaluation.phaseOrder} attempt {evaluation.attempt}</span> : null}</div>
               <div className="label-buttons" aria-label={`Professor label for answer ${index + 1}`}>{labels.map((label) => <button type="button" disabled={readOnly} aria-pressed={draft.label === label} className={draft.label === label ? "selected" : ""} key={label} onClick={() => setDrafts((current) => ({ ...current, [evaluation.id]: { ...draft, label } }))}>{label}</button>)}</div>
               <textarea readOnly={readOnly} aria-label={`Comments for answer ${index + 1}`} placeholder="Add an expert calibration note…" value={draft.comments} onChange={(event) => setDrafts((current) => ({ ...current, [evaluation.id]: { ...draft, comments: event.target.value } }))} />
+              {tutorDraft && tutorReply ? <section className={styles.tutorQuality} aria-label={`Tutor quality for turn ${index + 1}`}>
+                <div className={styles.qualityHeading}><span className="sidebar-label">Tutor intervention quality</span><strong>{tutorReply.content}</strong></div>
+                <div className={styles.qualityGrid}>{qualityDimensions.map(([key, label]) => <div className={styles.ratingRow} key={key}><span>{label}</span><div aria-label={`${label} rating for turn ${index + 1}`}>{[1, 2, 3, 4, 5].map((rating) => <button type="button" disabled={readOnly} aria-pressed={tutorDraft[key] === rating} className={tutorDraft[key] === rating ? styles.ratingSelected : ""} key={rating} onClick={() => setTutorDrafts((current) => ({ ...current, [evaluation.id]: { ...tutorDraft, [key]: rating } }))}>{rating}</button>)}</div></div>)}</div>
+                <div className={styles.tagList} aria-label={`Tutor failure tags for turn ${index + 1}`}>{failureTags.map(([tag, label]) => { const selected = tutorDraft.failureTags.includes(tag); return <button type="button" disabled={readOnly} aria-pressed={selected} className={selected ? styles.tagSelected : ""} key={tag} onClick={() => setTutorDrafts((current) => ({ ...current, [evaluation.id]: { ...tutorDraft, failureTags: selected ? tutorDraft.failureTags.filter((item) => item !== tag) : [...tutorDraft.failureTags, tag] } }))}>{label}</button>; })}</div>
+                <textarea readOnly={readOnly} aria-label={`Preferred tutor rewrite for turn ${index + 1}`} placeholder="Optional: rewrite the tutor response as you would say it…" value={tutorDraft.preferredRewrite} onChange={(event) => setTutorDrafts((current) => ({ ...current, [evaluation.id]: { ...tutorDraft, preferredRewrite: event.target.value } }))} />
+                <textarea readOnly={readOnly} aria-label={`Tutor quality comments for turn ${index + 1}`} placeholder="Why was this tutor move helpful or unhelpful?" value={tutorDraft.comments} onChange={(event) => setTutorDrafts((current) => ({ ...current, [evaluation.id]: { ...tutorDraft, comments: event.target.value } }))} />
+              </section> : null}
             </article>;
           })}
         </section>
