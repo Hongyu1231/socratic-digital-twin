@@ -139,3 +139,46 @@ export const summaryOutputSchema = z.object({
   weaknesses: z.array(z.string().min(1).max(180)).max(5),
   nextSteps: z.array(z.string().min(1).max(180)).min(1).max(5),
 });
+
+export const freezeDatasetSchema = z.object({
+  name: z.string().trim().min(3).max(120),
+});
+
+export const tutorCandidateSchema = z.object({
+  name: z.string().trim().min(3).max(120),
+  provider: z.enum(["openai", "claude", "deterministic"]),
+  model: z.string().trim().min(1).max(160),
+  promptVersion: z.string().trim().regex(/^[a-z0-9][a-z0-9._-]{2,79}$/i),
+  instructions: z.string().trim().min(100).max(12_000),
+});
+
+export const evaluationRunSchema = z.object({
+  datasetId: z.string().uuid(),
+  candidateId: z.string().uuid(),
+});
+
+export const humanizationExperimentSchema = z.object({
+  name: z.string().trim().min(3).max(120),
+  evalRunId: z.string().uuid(),
+  mode: z.enum(["shadow", "ab"]),
+  trafficPercent: z.number().int().min(0).max(25).default(0),
+}).refine((value) => value.mode === "ab" || value.trafficPercent === 0, {
+  message: "Shadow experiments never serve candidate traffic.",
+});
+
+export const facultyApprovalSchema = z.object({
+  evalRunId: z.string().uuid(),
+  decision: z.enum(["approved", "rejected"]),
+  notes: z.string().trim().min(10).max(2_000),
+});
+
+export const tutorReleaseSchema = z.object({
+  evalRunId: z.string().uuid(),
+  trafficPercent: z.number().int().min(1).max(25),
+  releaseNotes: z.string().trim().min(10).max(2_000),
+});
+
+export const tutorRollbackSchema = z.object({
+  releaseId: z.string().uuid(),
+  reason: z.string().trim().min(10).max(2_000),
+});

@@ -20,13 +20,15 @@ import {
   School,
   Send,
   ShieldCheck,
+  FlaskConical,
   UserCog,
   UsersRound,
   X,
 } from "lucide-react";
+import FeedbackLab from "./feedback-lab";
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
-type AdminTab = "overview" | "users" | "classes" | "cases" | "activity";
+type AdminTab = "overview" | "users" | "classes" | "cases" | "activity" | "feedback";
 type Role = "student" | "professor" | "admin";
 type CaseStatus = "draft" | "published" | "archived" | "available";
 
@@ -138,6 +140,7 @@ const TABS: Array<{ id: AdminTab; label: string; icon: typeof LayoutDashboard }>
   { id: "classes", label: "Classes", icon: School },
   { id: "cases", label: "Cases", icon: BookOpen },
   { id: "activity", label: "Activity", icon: Activity },
+  { id: "feedback", label: "Feedback lab", icon: FlaskConical },
 ];
 
 const DEFAULT_PHASES: CasePhaseDraft[] = Array.from({ length: 5 }, (_, index) => ({
@@ -316,6 +319,7 @@ export default function AdminDashboard() {
           {!loading && tab === "classes" ? <Classes data={data} busy={busy} mutate={mutate} /> : null}
           {!loading && tab === "cases" ? <Cases data={data} busy={busy} mutate={mutate} /> : null}
           {!loading && tab === "activity" ? <ActivityView data={data} busy={busy} mutate={mutate} /> : null}
+          {!loading && tab === "feedback" ? <FeedbackLab /> : null}
         </section>
       </div>
     </main>

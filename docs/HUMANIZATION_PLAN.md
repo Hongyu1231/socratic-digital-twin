@@ -38,6 +38,9 @@
 - 教授复核页提供五项 1–5 分导师质量评分、失败标签、可选建议改写和评论，并持久化到 Supabase 或内存 repository。
 - 新增离线指标模块，计算教授覆盖率、AI/教授一致率、balanced accuracy、MAE、signed bias、Brier、false-advance 与导师质量通过率。
 - 新评估记录保存 phase、attempt、provider、model 与 prompt version，支持按版本切片比较；历史记录保持兼容。
+- Admin Feedback Lab 已实现冻结数据集、candidate、离线 gate、0% Shadow、最多 25% A/B、教授追加式批准、Admin 发布和带操作者/原因的回滚审计。
+- 数据库重复执行关键门槛：至少 20 条样本、至少两位教授、离线通过、Shadow 有记录并暂停后才可进入 A/B；A/B 有记录后教授才能批准；任何教授 rejection 都会阻止发布。
+- 历史 tutor-quality 评分只属于历史 baseline，绝不复制成新 candidate 的“人工评分”。新 candidate 的人工判断只来自 A/B 观察后独立的 faculty checkpoint。
 
 ## English
 
@@ -77,3 +80,6 @@ Never train online from one professor comment, and never let a professor correct
 - The professor review page collects five 1–5 tutor-quality ratings, failure tags, an optional preferred rewrite, and comments, persisted through both Supabase and in-memory repositories.
 - A new offline metrics module reports faculty coverage, AI/faculty agreement, balanced accuracy, MAE, signed bias, Brier score, false-advance rate, and tutor-quality pass rate.
 - New evaluations persist phase, attempt, provider, model, and prompt version for version-sliced comparisons while remaining compatible with historical records.
+- The Admin Feedback Lab implements frozen datasets, candidates, offline gates, 0% shadow, at most 25% A/B, append-only professor approval, Admin release, and actor/reason rollback audit.
+- Database triggers repeat the important ordering rules: at least 20 samples from two faculty sources, passed offline gate, recorded-and-paused shadow before A/B, observed A/B before approval, and no release when any faculty rejection exists.
+- Historical tutor-quality ratings remain baseline evidence and are never attributed to a newly generated candidate; candidate faculty judgement begins only after observed A/B evidence.

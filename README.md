@@ -93,6 +93,7 @@ Start from `.env.example`. Keep secrets in `.env.local`, Vercel Environment Vari
 | `SUPABASE_URL` | Optional | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Optional; server-only | Supabase database key; never use a `NEXT_PUBLIC_` prefix |
 | `FORCE_MEMORY_REPOSITORY` | Optional | Set to `true` to force memory mode, useful for local acceptance checks |
+| `EXPERIMENT_PSEUDONYM_SECRET` | Required for production feedback datasets | Server-only HMAC secret for stable one-way evaluation pseudonyms; local demos may fall back to `DEMO_SESSION_SECRET` |
 | `OPENAI_API_KEY` | Optional pair | OpenAI API key, read only on the server |
 | `OPENAI_MODEL` | Optional pair | Account-available model ID that supports Structured Outputs |
 | `OPENAI_PROXY_URL` | Optional | HTTP(S) proxy for the Node.js OpenAI client; standard proxy variables are also honored |
@@ -107,6 +108,7 @@ Database assets are in `supabase/`:
 - `migrations/20260812000000_add_class_collaboration.sql` adds active-user flags, case lineage/versioning, `classes`, `class_memberships`, `class_case_assignments`, assignment links and uniqueness for sessions, and single-owner review constraints.
 - `migrations/20260813042137_add_tutor_turn_reviews.sql` adds faculty ratings for tutor interventions (naturalness, specificity, non-leadingness, challenge fit, helpfulness, failure tags, and preferred rewrites).
 - `migrations/20260813043101_restrict_rls_auto_enable.sql` removes browser-role access to the schema-maintenance helper after the Supabase security advisor identified it.
+- `migrations/20260813064021_humanization_feedback_loop.sql` adds immutable de-identified datasets, prompt/model candidates, offline runs, shadow and limited A/B evidence, append-only faculty decisions, controlled releases, and rollback audit events.
 - `seed.sql` contains deterministic, idempotent fixtures.
 - `config.toml` enables the seed file for Supabase CLI workflows.
 
@@ -220,6 +222,12 @@ Benjamin Lee and Chloe Wong are additional seeded student identities.
 | `GET` | `/api/admin/sessions` |
 | `POST` | `/api/admin/reviews/reassign` |
 | `GET`, `POST` | `/api/demo/identity` |
+| `GET`, `POST` | `/api/admin/humanization/datasets` |
+| `GET`, `POST` | `/api/admin/humanization/candidates` |
+| `GET`, `POST` | `/api/admin/humanization/runs` |
+| `GET`, `POST` | `/api/admin/humanization/experiments` |
+| `GET`, `POST`, `PATCH` | `/api/admin/humanization/releases` |
+| `GET`, `POST` | `/api/professor/humanization/approvals` |
 
 Request bodies and AI output use shared Zod schemas. Start a session with an `assignmentId`; include a client-generated `clientRequestId` with message submissions so duplicate requests in one session are idempotent. Review writes send answer labels/comments, tutor-quality ratings where applicable, overall feedback, and a `draft` or `completed` status.
 
@@ -251,6 +259,16 @@ npm run build           # Next.js production build
 ```
 
 Tests cover the four classifications and score calculation, three-attempt protection, phase progression and early completion, memory-patch allow-listing, signed-cookie tamper resistance, class and assignment isolation, session resumption, review claiming/conflicts/locking, and valid/invalid OpenAI and Claude output with deterministic fallback.
+
+### Governed tutor evolution
+
+The Admin **Feedback lab** implements this one-way, auditable pipeline:
+
+`completed faculty reviews → de-identification → frozen content-addressed dataset → prompt/model candidate → offline baseline comparison → shadow (0% served) → limited A/B (maximum 25%) → professor approval → Admin release or rollback`
+
+Offline admission requires at least 20 labelled turns from at least two distinct faculty reviewer sources, perfect structured-output safety checks, answer agreement of at least 80%, false-advance rate no greater than 5%, and a structured tutor-QA pass rate of at least 70%. These reviewer sources establish dataset diversity but do not approve the candidate; after A/B evidence exists, a named professor must make a separate append-only release decision. The database repeats the important gates, RLS blocks browser table access, and rollout assignment is deterministic. Historical faculty quality scores are not copied onto a new candidate.
+
+No request path performs online self-training. Individual comments are evidence for a future frozen dataset only: they never rewrite prompt files, model weights, learner memory, mastery, or phase progression. Use a fresh time-based holdout for each serious release and retain the previous release metadata for rollback.
 
 Changes involving UI state, cookies, permissions, persistence, or deployment should also be exercised in a real browser using Student → Professor → Admin. Inspect Console and Network output and confirm the final repository/database state.
 

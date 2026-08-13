@@ -25,10 +25,14 @@ export class OpenAITutor {
   readonly mode = "openai" as const;
   private readonly client: OpenAI;
   private readonly model: string;
+  private readonly instructions: string;
+  private readonly promptVersion: string;
 
-  constructor(apiKey: string, model: string) {
+  constructor(apiKey: string, model: string, options?: { instructions?: string; promptVersion?: string }) {
     this.client = createOpenAIClient(apiKey);
     this.model = model;
+    this.instructions = options?.instructions ?? TUTOR_INSTRUCTIONS;
+    this.promptVersion = options?.promptVersion ?? "human-v1";
   }
 
   async evaluate({ phase, answer, state, attempt }: EvaluateInput): Promise<TutorEvaluationResult> {
@@ -36,8 +40,8 @@ export class OpenAITutor {
       model: this.model,
       store: false,
       max_output_tokens: 900,
-      instructions: TUTOR_INSTRUCTIONS,
-      input: buildTutorInput({ phase, answer, state, attempt }),
+      instructions: this.instructions,
+      input: buildTutorInput({ phase, answer, state, attempt }, this.promptVersion),
       text: { format: zodTextFormat(tutorOutputSchema, "tutor_evaluation") },
     });
 

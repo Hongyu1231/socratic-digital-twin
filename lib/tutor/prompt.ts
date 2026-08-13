@@ -24,9 +24,9 @@ interface TutorInput {
   attempt: number;
 }
 
-export function buildTutorInput({ phase, answer, state, attempt }: TutorInput): string {
+export function buildTutorInput({ phase, answer, state, attempt }: TutorInput, promptVersion = TUTOR_PROMPT_VERSION): string {
   return JSON.stringify({
-    promptVersion: TUTOR_PROMPT_VERSION,
+    promptVersion,
     phase: { title: phase.title, goal: phase.goal, rubric: phase.rubric },
     attempt,
     learnerMemory: {

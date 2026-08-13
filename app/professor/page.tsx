@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import type { CaseAssignment, ClinicalCase, SessionBundle, TeachingClass } from "@/lib/domain";
 import styles from "./professor.module.css";
+import FacultyReleaseApproval from "./faculty-release-approval";
 
 type DashboardTab = "classes" | "assignments" | "reviews";
 type AssignmentStatus = "scheduled" | "open" | "closed";
@@ -288,7 +289,7 @@ export default function ProfessorDashboard() {
       ) : null}
 
       {!loading && tab === "reviews" ? (
-        <section className={styles.panel} aria-labelledby="reviews-heading">
+        <><section className={styles.panel} aria-labelledby="reviews-heading">
           <div className={styles.panelHeading}><div><span className="section-kicker">Review queue</span><h2 id="reviews-heading">Clinical calibration</h2></div><div className={styles.filter} aria-label="Filter review queue">{(["all", "available", "mine", "claimed", "completed"] as const).map((value) => <button type="button" className={reviewFilter === value ? styles.activeFilter : ""} key={value} onClick={() => setReviewFilter(value)}>{value === "all" ? "All" : reviewLabels[value]}</button>)}</div></div>
           {visibleSessions.length === 0 ? <Empty title="Nothing in this queue" text="Completed student sessions will appear here when they match this filter." /> : <div className={styles.reviewList}>{visibleSessions.map((bundle) => {
             const state = reviewState(bundle);
@@ -301,7 +302,7 @@ export default function ProfessorDashboard() {
               <Link className={styles.reviewLink} href={`/professor/review/${bundle.session.id}`}>{state === "in_progress" || state === "claimed" ? "View" : state === "completed" ? "Open" : "Review"} <ArrowUpRight size={14} /></Link>
             </article>;
           })}</div>}
-        </section>
+        </section><FacultyReleaseApproval /></>
       ) : null}
     </main>
   );
