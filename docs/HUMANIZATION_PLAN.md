@@ -8,7 +8,7 @@
 
 ### 目前能学到什么
 
-现有逐题复核记录教授对**学生答案**的 `correct / partial / vague / wrong` 标签与评论。它能用于校准 AI 分类，却不能单独证明导师追问是否自然。因此下一阶段增加 `tutor_turn_reviews`：关联 evaluation 与 tutor message，记录自然度、针对性、非引导性、难度适配、帮助程度、问题标签及教授建议改写。
+逐题复核既记录教授对**学生答案**的 `correct / partial / vague / wrong` 标签与评论，也通过 `tutor_turn_reviews` 记录导师追问的自然度、针对性、非引导性、难度适配、帮助程度、问题标签及教授建议改写。两类信号分别用于分类校准和导师质量改进，避免把“答案评分”误当成“导师像不像真人”。
 
 ### 数据与版本
 
@@ -28,13 +28,16 @@
 
 禁止从单个教授评论直接在线自训，也禁止用教授纠偏在运行时改写学生记忆或自动推进阶段。
 
-### 本轮落地（human-v1）
+### 已落地（human-v1 与教授质量反馈）
 
 - OpenAI 与 Claude 共用同一版本化提示词，避免行为漂移。
 - 明确四分类边界和可校准置信度含义。
 - 追问必须先承接学生答案中的一个具体想法或不确定点，再提出恰好一个开放、非引导问题。
 - 禁止通用表扬、复述题干、多问题和直接给答案；按第 1/2/3 次尝试渐进搭脚手架。
 - Structured Output 强制恰好一个问号；无效输出走既有确定性回退，不写入半成品评估。
+- 教授复核页提供五项 1–5 分导师质量评分、失败标签、可选建议改写和评论，并持久化到 Supabase 或内存 repository。
+- 新增离线指标模块，计算教授覆盖率、AI/教授一致率、balanced accuracy、MAE、signed bias、Brier、false-advance 与导师质量通过率。
+- 新评估记录保存 phase、attempt、provider、model 与 prompt version，支持按版本切片比较；历史记录保持兼容。
 
 ## English
 
@@ -44,7 +47,7 @@ Make the tutor feel like an attentive human teacher who acknowledges the learner
 
 ### What current reviews can teach us
 
-Current answer reviews capture a professor's `correct / partial / vague / wrong` label and comments about the **student answer**. They support classifier calibration but do not establish whether the tutor intervention feels human. The next schema increment should add `tutor_turn_reviews`, linked to the evaluation and tutor message, with naturalness, specificity, non-leadingness, challenge fit, helpfulness, failure tags, and an optional preferred rewrite.
+Turn reviews now capture both a professor's `correct / partial / vague / wrong` judgement of the **student answer** and a dedicated `tutor_turn_reviews` record for the tutor intervention. The latter stores naturalness, specificity, non-leadingness, challenge fit, helpfulness, failure tags, and an optional preferred rewrite. These two signals serve classifier calibration and tutor-quality improvement separately.
 
 ### Data and versioning
 
@@ -64,10 +67,13 @@ Persist `provider`, `model`, `prompt_version`, case version, phase, attempt, AI 
 
 Never train online from one professor comment, and never let a professor correction rewrite learner memory or phase progression at runtime.
 
-### Implemented in this iteration (`human-v1`)
+### Implemented (`human-v1` and faculty tutor-quality feedback)
 
 - OpenAI and Claude now share one versioned prompt contract.
 - Classification boundaries and calibrated-confidence semantics are explicit.
 - A follow-up must acknowledge one specific idea or uncertainty in the learner's answer before asking exactly one open, non-leading question.
 - Generic praise, question repetition, multi-part questions, and answer revealing are prohibited; scaffolding changes across attempts 1, 2, and 3+.
 - Structured output enforces exactly one question mark; invalid output uses the existing deterministic fallback and is not partially persisted.
+- The professor review page collects five 1–5 tutor-quality ratings, failure tags, an optional preferred rewrite, and comments, persisted through both Supabase and in-memory repositories.
+- A new offline metrics module reports faculty coverage, AI/faculty agreement, balanced accuracy, MAE, signed bias, Brier score, false-advance rate, and tutor-quality pass rate.
+- New evaluations persist phase, attempt, provider, model, and prompt version for version-sliced comparisons while remaining compatible with historical records.

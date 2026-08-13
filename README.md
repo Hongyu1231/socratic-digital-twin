@@ -106,6 +106,7 @@ Database assets are in `supabase/`:
 - `migrations/20260809000000_create_socratic_digital_twin_schema.sql` creates the original nine teaching tables: `users`, `cases`, `case_phases`, `sessions`, `messages`, `evaluations`, `session_state`, `answer_reviews`, and `session_reviews`.
 - `migrations/20260812000000_add_class_collaboration.sql` adds active-user flags, case lineage/versioning, `classes`, `class_memberships`, `class_case_assignments`, assignment links and uniqueness for sessions, and single-owner review constraints.
 - `migrations/20260813042137_add_tutor_turn_reviews.sql` adds faculty ratings for tutor interventions (naturalness, specificity, non-leadingness, challenge fit, helpfulness, failure tags, and preferred rewrites).
+- `migrations/20260813043101_restrict_rls_auto_enable.sql` removes browser-role access to the schema-maintenance helper after the Supabase security advisor identified it.
 - `seed.sql` contains deterministic, idempotent fixtures.
 - `config.toml` enables the seed file for Supabase CLI workflows.
 
@@ -302,7 +303,7 @@ Do not place production secrets in `vercel.json`, Docker images, source code, sc
 - **The UI shows “Demo tutor”:** provider credentials/model IDs are incomplete, or that request fell back. Inspect redacted server logs for provider, request ID, and error type; logs should not contain student text or secrets.
 - **A professor cannot see a class or session:** verify class membership, assignment ownership, and the session's `class_case_assignment_id`.
 - **Close/Reopen or date requests return 400:** send ISO-8601 timestamps with `Z` or an explicit offset, and ensure the due time is strictly later than the opening time.
-- **Supabase permission error:** use the service-role key only on the server and confirm both migrations have been applied.
+- **Supabase permission error:** use the service-role key only on the server and confirm all migrations have been applied.
 
 ## Security and extension checklist
 
