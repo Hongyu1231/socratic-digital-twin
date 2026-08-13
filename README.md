@@ -109,6 +109,7 @@ Database assets are in `supabase/`:
 - `migrations/20260813042137_add_tutor_turn_reviews.sql` adds faculty ratings for tutor interventions (naturalness, specificity, non-leadingness, challenge fit, helpfulness, failure tags, and preferred rewrites).
 - `migrations/20260813043101_restrict_rls_auto_enable.sql` removes browser-role access to the schema-maintenance helper after the Supabase security advisor identified it.
 - `migrations/20260813064021_humanization_feedback_loop.sql` adds immutable de-identified datasets, prompt/model candidates, offline runs, shadow and limited A/B evidence, append-only faculty decisions, controlled releases, and rollback audit events.
+- `migrations/20260813131710_add_demo_clinical_cases.sql` adds three text-only, five-phase clinical reasoning simulations and opens them for the default demo class.
 - `seed.sql` contains deterministic, idempotent fixtures.
 - `config.toml` enables the seed file for Supabase CLI workflows.
 
@@ -145,7 +146,7 @@ Generate TypeScript database types when needed:
 npx supabase@latest gen types typescript --local > lib/database.types.ts
 ```
 
-The seed creates six demo users (Alicia Tan, Benjamin Lee, Chloe Wong, Prof. Marcus Lim, Prof. Sarah Ng, and Dr. Elaine Koh), a default class, a published five-phase case, and its open assignment. It intentionally does not create `auth.users` rows; real authentication can be linked later.
+The fixtures create six demo users (Alicia Tan, Benjamin Lee, Chloe Wong, Prof. Marcus Lim, Prof. Sarah Ng, and Dr. Elaine Koh), a default class, and four published five-phase assignments: Impacted Maxillary Canine, Acute Posterior Tooth Pain, Periodontal Risk and Bone Loss, and Fractured Immature Maxillary Incisor. They are text-only teaching simulations and contain no real patient records. The seed intentionally does not create `auth.users` rows; real authentication can be linked later.
 
 ## OpenAI and Claude setup
 

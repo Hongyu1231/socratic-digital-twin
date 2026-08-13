@@ -78,7 +78,7 @@ export default function CaseSelectionPage() {
             <span className="section-kicker">Available simulation</span>
             <h2 id="cases-title">Choose a clinical case</h2>
           </div>
-          <p>One carefully scoped case is included in this proof of concept.</p>
+          <p>Choose from text-only teaching simulations assigned by your professor.</p>
         </div>
 
         {error ? <div className="error-banner" role="alert">{error}</div> : null}

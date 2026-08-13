@@ -14,7 +14,7 @@ import type {
   TeachingClass,
   TutorTurnReview,
 } from "@/lib/domain";
-import { demoAssignment, demoCases, demoClass, demoUsers, getDemoUser } from "@/lib/seed";
+import { demoAssignment, demoAssignments, demoCases, demoClass, demoUsers, getDemoUser } from "@/lib/seed";
 import type { CommitTurnInput, SaveReviewInput, TutorRepository } from "@/lib/repository/types";
 
 interface MemoryStore {
@@ -41,7 +41,7 @@ function createStore(): MemoryStore {
     users: new Map(demoUsers.map((item) => [item.id, clone(item)])),
     classes: new Map([[demoClass.id, clone(demoClass)]]),
     cases: new Map(demoCases.map((item) => [item.id, clone(item)])),
-    assignments: new Map([[demoAssignment.id, clone(demoAssignment)]]),
+    assignments: new Map(demoAssignments.map((item) => [item.id, clone(item)])),
   };
 }
 
@@ -245,7 +245,7 @@ export class InMemoryTutorRepository implements TutorRepository {
     this.store.users = new Map(demoUsers.map((item) => [item.id, clone(item)]));
     this.store.classes = new Map([[demoClass.id, clone(demoClass)]]);
     this.store.cases = new Map(demoCases.map((item) => [item.id, clone(item)]));
-    this.store.assignments = new Map([[demoAssignment.id, clone(demoAssignment)]]);
+    this.store.assignments = new Map(demoAssignments.map((item) => [item.id, clone(item)]));
   }
 
   async listUsers() { return clone([...this.store.users.values()]); }
