@@ -199,4 +199,12 @@ describe("InMemoryTutorRepository class workflows", () => {
       version: (source!.version ?? 1) + 2,
     });
   });
+
+  it("archives an unpublished draft without inventing a publication timestamp", async () => {
+    const draft = await repository.cloneCase(IMPACTED_CANINE_CASE_ID, DEMO_ADMIN_ID);
+    expect(draft).toMatchObject({ status: "draft", publishedAt: null });
+
+    const archived = await repository.archiveCase(draft.id);
+    expect(archived).toMatchObject({ status: "archived", publishedAt: null });
+  });
 });

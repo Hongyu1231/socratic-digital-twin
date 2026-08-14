@@ -30,13 +30,15 @@ interface BrowserSpeechRecognition {
 }
 
 type SpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+type SessionPendingAction = "message" | "pause" | "resume" | "end";
 
 export function SocraticChat({ sessionId }: { sessionId: string }) {
   const router = useRouter();
   const [bundle, setBundle] = useState<SessionBundle | null>(null);
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState("");
-  const [pending, setPending] = useState(false);
+  const [pendingAction, setPendingAction] = useState<SessionPendingAction | null>(null);
+  const pending = pendingAction !== null;
   const [optimisticMessage, setOptimisticMessage] = useState<TutorMessage | null>(null);
   const [listening, setListening] = useState(false);
   const [speechInputAvailable, setSpeechInputAvailable] = useState(false);
@@ -307,7 +309,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
       content: message,
       timestamp: new Date().toISOString(),
     });
-    setPending(true);
+    setPendingAction("message");
 
     try {
       const response = await fetch("/api/session/message", {
@@ -326,13 +328,13 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
       setError(reason instanceof Error ? reason.message : "Your answer could not be evaluated.");
     } finally {
       setOptimisticMessage(null);
-      setPending(false);
+      setPendingAction(null);
     }
   }
 
   async function endSession() {
     if (!window.confirm("End this session now? Your summary will reflect the phases completed so far.")) return;
-    setPending(true);
+    setPendingAction("end");
     setError("");
     try {
       const response = await fetch(`/api/session/${sessionId}/complete`, { method: "POST" });
@@ -341,13 +343,13 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
       router.push(`/session/${sessionId}/summary`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The session could not be ended.");
-      setPending(false);
+      setPendingAction(null);
     }
   }
 
   async function pauseSession() {
     if (pending) return;
-    setPending(true);
+    setPendingAction("pause");
     setError("");
     recognitionRef.current?.abort();
     window.speechSynthesis?.cancel();
@@ -358,12 +360,12 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
       router.push("/");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The session could not be paused.");
-      setPending(false);
+      setPendingAction(null);
     }
   }
 
   async function resumeSession() {
-    setPending(true);
+    setPendingAction("resume");
     setError("");
     try {
       const response = await fetch(`/api/session/${sessionId}/resume`, { method: "POST" });
@@ -373,7 +375,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The session could not be resumed.");
     } finally {
-      setPending(false);
+      setPendingAction(null);
     }
   }
 
@@ -411,8 +413,8 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
           <div><span className="sidebar-label">Phase {session.currentPhase} of {clinicalCase.phases.length}</span><br /><strong>{currentPhase.title}</strong></div>
           <div className="session-top-actions">
             <button className="mobile-case-button" type="button" onClick={() => setMobileCaseOpen(true)}><BookOpen size={14} /><span>Case</span></button>
-            <button className="mobile-pause-button" type="button" onClick={pauseSession} disabled={pending || Boolean(session.pausedAt)}><PauseCircle size={14} /><span>Pause</span></button>
-            <button className="mobile-end-button" type="button" onClick={endSession} disabled={pending}>End</button>
+            <button className="mobile-pause-button" type="button" onClick={pauseSession} disabled={pending || Boolean(session.pausedAt)}>{pendingAction === "pause" ? <LoaderCircle className="spin" size={14} /> : <PauseCircle size={14} />}<span>{pendingAction === "pause" ? "Pausing…" : "Pause"}</span></button>
+            <button className="mobile-end-button" type="button" onClick={endSession} disabled={pending}>{pendingAction === "end" ? <><LoaderCircle className="spin" size={13} /> Ending…</> : "End"}</button>
             <button className="voice-toggle" type="button" aria-pressed={autoRead && speechOutputAvailable} onClick={toggleTutorVoice} disabled={!speechOutputAvailable} title={speechOutputAvailable ? "Turn automatic tutor voice replies on or off" : "Tutor voice is not supported by this browser"}>
               {autoRead && speechOutputAvailable ? <Volume2 size={14} /> : <VolumeX size={14} />} <span>{!speechOutputAvailable ? "Voice unavailable" : preparingVoiceMessageId ? "Preparing voice" : speakingMessageId ? "Tutor speaking" : autoRead ? "Tutor voice on" : "Tutor voice off"}</span>
             </button>
@@ -440,10 +442,10 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
               {message.sender === "student" ? <div className="message-avatar">A</div> : null}
             </article>
           ))}
-          {pending ? <article className="message"><div className="message-avatar">S</div><div><div className="message-bubble thinking"><i /><i /><i /></div><span className="message-meta">Examining your reasoning</span></div></article> : null}
+          {pendingAction === "message" ? <article className="message"><div className="message-avatar">S</div><div><div className="message-bubble thinking"><i /><i /><i /></div><span className="message-meta">Examining your reasoning</span></div></article> : null}
           <div ref={bottomRef} />
         </div>
-        {session.pausedAt ? <div className="paused-session-card"><PauseCircle size={28} /><span className="section-kicker">Session paused</span><h2>Your progress is safely saved</h2><p>Resume when you are ready to continue from this exact phase and conversation.</p><button type="button" className="primary-button" onClick={resumeSession} disabled={pending}>{pending ? <LoaderCircle className="spin" size={16} /> : <Play size={16} />} Resume session</button>{error ? <div className="error-banner" role="alert">{error}</div> : null}</div> : <form className="chat-composer" onSubmit={submit}>
+        {session.pausedAt ? <div className="paused-session-card"><PauseCircle size={28} /><span className="section-kicker">Session paused</span><h2>Your progress is safely saved</h2><p>Resume when you are ready to continue from this exact phase and conversation.</p><button type="button" className="primary-button" onClick={resumeSession} disabled={pending}>{pendingAction === "resume" ? <LoaderCircle className="spin" size={16} /> : <Play size={16} />} {pendingAction === "resume" ? "Resuming…" : "Resume session"}</button>{error ? <div className="error-banner" role="alert">{error}</div> : null}</div> : <form className="chat-composer" onSubmit={submit}>
           {error ? <div className="error-banner" role="alert">{error}</div> : null}
           <div className="composer-box">
             <textarea
@@ -460,7 +462,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
               maxLength={2000}
               disabled={pending}
             />
-            <div className="composer-actions"><div className="composer-help"><small>Enter to send · Shift + Enter for a new line</small><small>Tutor audio is AI-generated. Do not include patient identifiers.</small></div><div className="composer-buttons"><button className={`voice-input-button${listening ? " listening" : ""}`} type="button" onClick={toggleSpeechInput} disabled={pending || !speechInputAvailable} aria-pressed={listening} aria-label={listening ? "Stop voice input" : "Start voice input"} title={speechInputAvailable ? "Dictate your answer" : "Voice input is not supported by this browser"}>{listening ? <MicOff size={17} /> : <Mic size={17} />}</button><button className="send-button" disabled={!answer.trim() || pending} aria-label="Send answer"><ArrowUp size={18} /></button></div></div>
+            <div className="composer-actions"><div className="composer-help"><small>Enter to send · Shift + Enter for a new line</small><small>Tutor audio is AI-generated. Do not include patient identifiers.</small></div><div className="composer-buttons"><button className={`voice-input-button${listening ? " listening" : ""}`} type="button" onClick={toggleSpeechInput} disabled={pending || !speechInputAvailable} aria-pressed={listening} aria-label={listening ? "Stop voice input" : "Start voice input"} title={speechInputAvailable ? "Dictate your answer" : "Voice input is not supported by this browser"}>{listening ? <MicOff size={17} /> : <Mic size={17} />}</button><button className="send-button" disabled={!answer.trim() || pending} aria-label={pendingAction === "message" ? "Sending answer" : "Send answer"}>{pendingAction === "message" ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}</button></div></div>
           </div>
         </form>}
       </section>
@@ -470,8 +472,8 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
         <div className="progress-orbit" style={{ "--progress": `${progress}%` } as React.CSSProperties}><div><strong>{progress}%</strong><small>Complete</small></div></div>
         <div className="phase-card"><span>Current goal</span><strong>{currentPhase.title}</strong><p>{currentPhase.goal}</p></div>
         <div className="session-control-stack">
-          {session.pausedAt ? <button className="pause-session" onClick={resumeSession} disabled={pending}><Play size={16} /> Resume session</button> : <button className="pause-session" onClick={pauseSession} disabled={pending}><PauseCircle size={16} /> Pause &amp; return to cases</button>}
-          <button className="end-session" onClick={endSession} disabled={pending}>End session &amp; view summary</button>
+          {session.pausedAt ? <button className="pause-session" onClick={resumeSession} disabled={pending}>{pendingAction === "resume" ? <LoaderCircle className="spin" size={16} /> : <Play size={16} />} {pendingAction === "resume" ? "Resuming…" : "Resume session"}</button> : <button className="pause-session" onClick={pauseSession} disabled={pending}>{pendingAction === "pause" ? <LoaderCircle className="spin" size={16} /> : <PauseCircle size={16} />} {pendingAction === "pause" ? "Pausing…" : "Pause & return to cases"}</button>}
+          <button className="end-session" onClick={endSession} disabled={pending}>{pendingAction === "end" ? <LoaderCircle className="spin" size={16} /> : null}{pendingAction === "end" ? "Ending session…" : "End session & view summary"}</button>
         </div>
       </aside>
       {mobileCaseOpen ? <div className="mobile-case-backdrop"><aside className="mobile-case-drawer" aria-label="Case details and attachments"><button className="mobile-case-close" type="button" onClick={() => setMobileCaseOpen(false)} aria-label="Close case details"><X size={18} /></button><span className="sidebar-label">Active case</span><h2>{clinicalCase.title}</h2><p>{clinicalCase.description}</p><ul className="goal-list" aria-label="Learning phases">{clinicalCase.phases.map((phase) => <li key={phase.id} className={phase.order < session.currentPhase ? "done" : phase.order === session.currentPhase ? "active" : ""}><span className="goal-number">{phase.order < session.currentPhase ? <Check size={11} /> : phase.order}</span><span>{phase.title}</span></li>)}</ul><CaseResources clinicalCase={clinicalCase} /></aside></div> : null}

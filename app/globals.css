@@ -73,6 +73,7 @@ button { color: inherit; }
 .role-popover > span { display: block; padding: 5px 8px 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .12em; font-size: 10px; }
 .role-popover button { width: 100%; display: grid; grid-template-columns: 22px 1fr auto; align-items: center; text-align: left; border: 0; background: transparent; border-radius: 10px; padding: 10px 8px; cursor: pointer; font-size: 12px; }
 .role-popover button:hover { background: var(--paper); }
+.role-popover button:disabled { opacity: .55; cursor: wait; }
 .role-popover button small { color: var(--muted); }
 
 .page-shell { width: min(1280px, calc(100% - 40px)); margin: 0 auto; }
@@ -124,6 +125,7 @@ button { color: inherit; }
 .primary-button:hover { background: var(--coral-dark); transform: translateY(-1px); }
 .primary-button:disabled { opacity: .55; cursor: wait; transform: none; }
 .secondary-button { background: var(--paper-deep); color: var(--plum); }
+.secondary-button:disabled { opacity: .55; cursor: wait; transform: none; }
 .case-preview-card { border: 1px dashed #cfc5c4; border-radius: 3px 28px 3px 3px; padding: 34px; display: flex; flex-direction: column; justify-content: center; background: rgba(255,255,255,.22); }
 .case-preview-card > span { color: var(--sage); text-transform: uppercase; letter-spacing: .12em; font-size: 10px; font-weight: 800; }
 .case-preview-card h3 { font: 28px/1.2 Georgia, serif; margin: 12px 0; }

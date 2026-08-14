@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowUpRight,
   BookOpenCheck,
@@ -130,7 +130,7 @@ export default function ProfessorDashboard() {
   const [showAssignmentForm, setShowAssignmentForm] = useState(false);
   const [draft, setDraft] = useState<AssignmentDraft>(EMPTY_DRAFT);
   const [reviewFilter, setReviewFilter] = useState<"all" | "available" | "mine" | "claimed" | "completed">("all");
-  const [pending, startTransition] = useTransition();
+  const [pendingAction, setPendingAction] = useState("");
 
   const loadDashboard = useCallback(async () => {
     setLoading(true);
@@ -181,55 +181,57 @@ export default function ProfessorDashboard() {
     return progress;
   }, [sessions]);
 
-  function createAssignment() {
+  async function createAssignment() {
     if (!draft.classId || !draft.caseId || !draft.opensAt) {
       setError("Choose a class, case and opening time before publishing the assignment.");
       return;
     }
     setError(""); setNotice("");
-    startTransition(async () => {
-      try {
-        const opensAt = toIsoDateTime(draft.opensAt, "Opening time");
-        const dueAt = draft.dueAt ? toIsoDateTime(draft.dueAt, "Deadline") : null;
-        if (dueAt && new Date(dueAt) <= new Date(opensAt)) {
-          throw new Error("The deadline must be later than the opening time.");
-        }
-        const payload = {
-          classId: draft.classId,
-          caseId: draft.caseId,
-          opensAt,
-          dueAt,
-        };
-        await fetch("/api/professor/assignments", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }).then(readJson);
-        setDraft(EMPTY_DRAFT);
-        setShowAssignmentForm(false);
-        setNotice("Assignment published to the class.");
-        await loadDashboard();
-      } catch (reason) {
-        setError(reason instanceof Error ? reason.message : "Assignment could not be created.");
+    setPendingAction("create-assignment");
+    try {
+      const opensAt = toIsoDateTime(draft.opensAt, "Opening time");
+      const dueAt = draft.dueAt ? toIsoDateTime(draft.dueAt, "Deadline") : null;
+      if (dueAt && new Date(dueAt) <= new Date(opensAt)) {
+        throw new Error("The deadline must be later than the opening time.");
       }
-    });
+      const payload = {
+        classId: draft.classId,
+        caseId: draft.caseId,
+        opensAt,
+        dueAt,
+      };
+      await fetch("/api/professor/assignments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }).then(readJson);
+      setDraft(EMPTY_DRAFT);
+      setShowAssignmentForm(false);
+      setNotice("Assignment published to the class.");
+      await loadDashboard();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Assignment could not be created.");
+    } finally {
+      setPendingAction("");
+    }
   }
 
-  function updateAssignment(id: string, status: "open" | "closed") {
+  async function updateAssignment(id: string, status: "open" | "closed") {
     setError(""); setNotice("");
-    startTransition(async () => {
-      try {
-        await fetch("/api/professor/assignments", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ assignmentId: id, status }),
-        }).then(readJson);
-        setNotice(status === "closed" ? "Assignment closed." : "Assignment reopened.");
-        await loadDashboard();
-      } catch (reason) {
-        setError(reason instanceof Error ? reason.message : "Assignment could not be updated.");
-      }
-    });
+    setPendingAction(`assignment-${id}`);
+    try {
+      await fetch("/api/professor/assignments", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignmentId: id, status }),
+      }).then(readJson);
+      setNotice(status === "closed" ? "Assignment closed." : "Assignment reopened.");
+      await loadDashboard();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Assignment could not be updated.");
+    } finally {
+      setPendingAction("");
+    }
   }
 
   return (
@@ -240,7 +242,7 @@ export default function ProfessorDashboard() {
           <h1>Teaching command centre</h1>
           <p>Manage your classes, open learning activities and calibrate each student&apos;s clinical reasoning.</p>
         </div>
-        <button className={styles.refreshButton} type="button" onClick={() => void loadDashboard()} disabled={loading}>
+        <button className={styles.refreshButton} type="button" onClick={() => void loadDashboard()} disabled={loading || Boolean(pendingAction)}>
           <RefreshCw size={15} className={loading ? "spin" : undefined} /> Refresh data
         </button>
       </header>
@@ -288,7 +290,7 @@ export default function ProfessorDashboard() {
             <label><span>Published case</span><select value={draft.caseId} onChange={(event) => setDraft((current) => ({ ...current, caseId: event.target.value }))}><option value="">Select a case</option>{cases.map((item) => <option value={item.id} key={item.id}>{item.title}{item.version ? ` · v${item.version}` : ""}</option>)}</select></label>
             <DateTimeSelect label="Opens" value={draft.opensAt} onChange={(opensAt) => setDraft((current) => ({ ...current, opensAt }))} helperText="Choose a date and a 15-minute time slot." />
             <DateTimeSelect label="Deadline (optional)" value={draft.dueAt} onChange={(dueAt) => setDraft((current) => ({ ...current, dueAt }))} minValue={draft.opensAt} optional helperText="Select No deadline to leave the activity open-ended." />
-            <div className={styles.formActions}><button type="button" className="secondary-button" onClick={() => { setShowAssignmentForm(false); setDraft(EMPTY_DRAFT); }}>Cancel</button><button type="button" className="primary-button" disabled={pending} onClick={createAssignment}>{pending ? <LoaderCircle size={15} className="spin" /> : <BookOpenCheck size={15} />} Publish</button></div>
+            <div className={styles.formActions}><button type="button" className="secondary-button" onClick={() => { setShowAssignmentForm(false); setDraft(EMPTY_DRAFT); }} disabled={Boolean(pendingAction)}>Cancel</button><button type="button" className="primary-button" disabled={Boolean(pendingAction)} onClick={() => void createAssignment()}>{pendingAction === "create-assignment" ? <LoaderCircle size={15} className="spin" /> : <BookOpenCheck size={15} />} {pendingAction === "create-assignment" ? "Publishing…" : "Publish"}</button></div>
           </div> : null}
           {assignments.length === 0 ? <Empty title="No assignments yet" text="Publish a case to one of your classes to begin collecting student sessions." /> : <div className={styles.assignmentList}>{assignments.map((item) => {
             const className = item.class?.name ?? item.className ?? classes.find((entry) => entry.id === item.classId)?.name ?? "Teaching class";
@@ -297,7 +299,7 @@ export default function ProfessorDashboard() {
             return <article className={styles.assignmentRow} key={item.id}>
               <div className={styles.assignmentIcon}><BookOpenCheck size={19} /></div><div><div className={styles.rowTitle}><h3>{caseTitle}</h3><span data-status={item.status}>{item.status}</span></div><p>{className} · Opens {formatDate(item.opensAt, true)} · {deadline ? `Due ${formatDate(deadline, true)}` : "No deadline"}</p></div>
               <div className={styles.completion}><strong>{item.completedCount ?? assignmentProgress.get(item.id)?.completedCount ?? 0}/{item.sessionCount ?? assignmentProgress.get(item.id)?.sessionCount ?? 0}</strong><span>completed</span></div>
-              <button className={styles.outlineButton} type="button" disabled={pending} onClick={() => updateAssignment(item.id, item.status === "closed" ? "open" : "closed")}>{item.status === "closed" ? "Reopen" : "Close"}</button>
+              <button className={styles.outlineButton} type="button" disabled={Boolean(pendingAction)} onClick={() => void updateAssignment(item.id, item.status === "closed" ? "open" : "closed")}>{pendingAction === `assignment-${item.id}` ? <><LoaderCircle size={14} className="spin" /> {item.status === "closed" ? "Reopening…" : "Closing…"}</> : item.status === "closed" ? "Reopen" : "Close"}</button>
             </article>;
           })}</div>}
         </section>

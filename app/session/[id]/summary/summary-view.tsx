@@ -49,7 +49,7 @@ export function SessionSummaryView({ sessionId }: { sessionId: string }) {
           setError(reason instanceof Error ? reason.message : "Professor review could not be opened.");
           setOpeningReview(false);
         }
-      }}>{openingReview ? "Opening review…" : "Open professor review"} <ArrowRight size={17} /></button></div>
+      }}>{openingReview ? <LoaderCircle size={17} className="spin" /> : <ArrowRight size={17} />}{openingReview ? "Opening review…" : "Open professor review"}</button></div>
       {error ? <p role="alert" className="mt-3 text-sm text-[#be5048]">{error}</p> : null}
     </div>
   );

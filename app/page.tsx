@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, BookOpen, Brain, Check, Clock3, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpen, Brain, Check, Clock3, LoaderCircle, Sparkles } from "lucide-react";
 import type { StudentCaseOffering } from "@/lib/domain";
 
 export default function CaseSelectionPage() {
@@ -10,7 +10,7 @@ export default function CaseSelectionPage() {
   const [offerings, setOfferings] = useState<StudentCaseOffering[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [pending, startTransition] = useTransition();
+  const [pendingAssignmentId, setPendingAssignmentId] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -29,7 +29,9 @@ export default function CaseSelectionPage() {
     return () => controller.abort();
   }, []);
 
-  function startCase(offering: StudentCaseOffering) {
+  async function startCase(offering: StudentCaseOffering) {
+    if (pendingAssignmentId) return;
+    setPendingAssignmentId(offering.assignment.id);
     if (offering.existingSessionId) {
       if (offering.existingSessionStatus === "completed") {
         router.push(`/session/${offering.existingSessionId}/summary`);
@@ -40,19 +42,23 @@ export default function CaseSelectionPage() {
         return;
       }
       setError("");
-      startTransition(async () => {
+      try {
         const response = await fetch(`/api/session/${offering.existingSessionId}/resume`, { method: "POST" });
         const data = await response.json();
         if (!response.ok) {
           setError(data.error ?? "The paused session could not be resumed.");
+          setPendingAssignmentId(null);
           return;
         }
         router.push(`/session/${offering.existingSessionId}`);
-      });
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "The paused session could not be resumed.");
+        setPendingAssignmentId(null);
+      }
       return;
     }
     setError("");
-    startTransition(async () => {
+    try {
       const response = await fetch("/api/session/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -61,10 +67,14 @@ export default function CaseSelectionPage() {
       const data = await response.json();
       if (!response.ok) {
         setError(data.error ?? "The session could not be started.");
+        setPendingAssignmentId(null);
         return;
       }
       router.push(`/session/${data.session.id}`);
-    });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The session could not be started.");
+      setPendingAssignmentId(null);
+    }
   }
 
   return (
@@ -130,9 +140,10 @@ export default function CaseSelectionPage() {
                   ))}
                 </ul>
               </div>
-              <button className="primary-button" onClick={() => startCase(offering)} disabled={pending || disabled}>
-                {pending ? "Preparing session…" : offering.existingSessionPausedAt ? "Resume paused session" : offering.existingSessionStatus === "completed" ? "View learning summary" : offering.existingSessionId ? "Continue session" : offering.availability === "upcoming" ? "Opens soon" : offering.availability === "closed" ? "Assignment closed" : "Begin Socratic session"}
-                <ArrowRight size={18} />
+              <button className="primary-button" onClick={() => void startCase(offering)} disabled={Boolean(pendingAssignmentId) || disabled}>
+                {pendingAssignmentId === offering.assignment.id ? <LoaderCircle size={18} className="spin" /> : null}
+                {pendingAssignmentId === offering.assignment.id ? "Preparing session…" : offering.existingSessionPausedAt ? "Resume paused session" : offering.existingSessionStatus === "completed" ? "View learning summary" : offering.existingSessionId ? "Continue session" : offering.availability === "upcoming" ? "Opens soon" : offering.availability === "closed" ? "Assignment closed" : "Begin Socratic session"}
+                {pendingAssignmentId === offering.assignment.id ? null : <ArrowRight size={18} />}
               </button>
             </article>
           );})}

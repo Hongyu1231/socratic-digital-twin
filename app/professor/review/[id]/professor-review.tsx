@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Check, Eye, LoaderCircle, LockKeyhole, Save, ShieldCheck } from "lucide-react";
 import type { Classification, SessionBundle, TutorQualityFailureTag } from "@/lib/domain";
 import styles from "./review.module.css";
@@ -42,7 +42,7 @@ export function ProfessorReview({ sessionId }: { sessionId: string }) {
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [pending, startTransition] = useTransition();
+  const [savingStatus, setSavingStatus] = useState<"draft" | "completed" | null>(null);
 
   useEffect(() => {
     fetch(`/api/session/${sessionId}`)
@@ -103,10 +103,11 @@ export function ProfessorReview({ sessionId }: { sessionId: string }) {
     });
   }, [bundle]);
 
-  function save(status: "draft" | "completed") {
+  async function save(status: "draft" | "completed") {
     if (!bundle || bundle.reviewClaim?.canEdit === false) return;
     setError(""); setSaved(false);
-    startTransition(async () => {
+    setSavingStatus(status);
+    try {
       const response = await fetch("/api/professor/review", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -128,7 +129,11 @@ export function ProfessorReview({ sessionId }: { sessionId: string }) {
         return;
       }
       setBundle(data); setSaved(true);
-    });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Review could not be saved.");
+    } finally {
+      setSavingStatus(null);
+    }
   }
 
   if (loading) return <div className="empty-state"><LoaderCircle className="spin" /><h2>Opening review workspace…</h2></div>;
@@ -180,7 +185,7 @@ export function ProfessorReview({ sessionId }: { sessionId: string }) {
         </section>
         <aside className="review-panel"><span className="section-kicker">Learner model</span><div className="memory-list"><div><span>Strengths</span><p>{bundle.session.state.strengths.join(" · ") || "Not enough evidence yet"}</p></div><div><span>Weak areas</span><p>{bundle.session.state.weaknesses.join(" · ") || "Not enough evidence yet"}</p></div><div><span>Previous errors</span><p>{bundle.session.state.previousErrors.join(" · ") || "None recorded"}</p></div><div><span>AI score</span><p>{bundle.session.score ?? "In progress"} / 100</p></div></div>
           <label className="sidebar-label" htmlFor="overall-feedback">Overall feedback</label><textarea id="overall-feedback" readOnly={readOnly} value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="Summarise the student's clinical reasoning…" />
-          {readOnly ? <p className={styles.readOnlyNote}><LockKeyhole size={13} /> This completed or claimed review cannot be edited.</p> : <div className="review-actions"><button type="button" className="secondary-button" disabled={pending} onClick={() => save("draft")}><Save size={15} /> Save draft</button><button type="button" className="primary-button" disabled={pending} onClick={() => save("completed")}><Check size={15} /> Complete review</button></div>}
+          {readOnly ? <p className={styles.readOnlyNote}><LockKeyhole size={13} /> This completed or claimed review cannot be edited.</p> : <div className="review-actions"><button type="button" className="secondary-button" disabled={Boolean(savingStatus)} onClick={() => void save("draft")}>{savingStatus === "draft" ? <LoaderCircle size={15} className="spin" /> : <Save size={15} />} {savingStatus === "draft" ? "Saving…" : "Save draft"}</button><button type="button" className="primary-button" disabled={Boolean(savingStatus)} onClick={() => void save("completed")}>{savingStatus === "completed" ? <LoaderCircle size={15} className="spin" /> : <Check size={15} />} {savingStatus === "completed" ? "Completing…" : "Complete review"}</button></div>}
         </aside>
       </div>
     </div>

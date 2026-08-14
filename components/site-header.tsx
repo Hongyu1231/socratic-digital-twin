@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { GraduationCap, ShieldCheck, UserRound } from "lucide-react";
-import { useEffect, useState, useTransition } from "react";
+import { GraduationCap, LoaderCircle, ShieldCheck, UserRound } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { DemoUser, UserRole } from "@/lib/domain";
 
 export function SiteHeader() {
@@ -13,7 +13,7 @@ export function SiteHeader() {
   const [open, setOpen] = useState(false);
   const [users, setUsers] = useState<DemoUser[]>([]);
   const [identity, setIdentity] = useState<DemoUser | null>(null);
-  const [pending, startTransition] = useTransition();
+  const [switchingUserId, setSwitchingUserId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/demo/identity")
@@ -25,15 +25,19 @@ export function SiteHeader() {
       .catch(() => undefined);
   }, []);
 
-  function switchUser(userId: string, role: UserRole) {
-    startTransition(async () => {
+  async function switchUser(userId: string, role: UserRole) {
+    if (switchingUserId) return;
+    setSwitchingUserId(userId);
+    try {
       const response = await fetch("/api/demo/identity", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId }),
       });
       if (response.ok) window.location.assign(role === "admin" ? "/admin" : role === "professor" ? "/professor" : "/");
-    });
+    } finally {
+      setSwitchingUserId(null);
+    }
   }
 
   return (
@@ -52,7 +56,7 @@ export function SiteHeader() {
           {open ? (
             <div className="role-popover">
               <span>Demo identity</span>
-              {users.map((user) => <button key={user.id} disabled={pending} onClick={() => switchUser(user.id, user.role)}>{user.role === "admin" ? <ShieldCheck size={16} /> : user.role === "professor" ? <GraduationCap size={16} /> : <UserRound size={16} />} {user.name} <small>{user.role}</small></button>)}
+              {users.map((user) => <button key={user.id} disabled={Boolean(switchingUserId)} onClick={() => void switchUser(user.id, user.role)}>{switchingUserId === user.id ? <LoaderCircle size={16} className="spin" /> : user.role === "admin" ? <ShieldCheck size={16} /> : user.role === "professor" ? <GraduationCap size={16} /> : <UserRound size={16} />} {user.name} <small>{switchingUserId === user.id ? "switching…" : user.role}</small></button>)}
             </div>
           ) : null}
         </div>

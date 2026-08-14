@@ -275,7 +275,7 @@ export default function AdminDashboard() {
   return (
     <main className="min-h-[calc(100vh-76px)] bg-[#f6f3ed]">
       <div className="mx-auto grid w-[min(1440px,100%)] grid-cols-1 lg:grid-cols-[230px_minmax(0,1fr)]">
-        <aside className="border-b border-[#ded8d0] bg-[#21172b] px-5 py-5 text-white lg:min-h-[calc(100vh-76px)] lg:border-b-0 lg:border-r lg:py-9">
+        <aside className="border-b border-[#ded8d0] bg-[#21172b] px-5 py-5 text-white lg:sticky lg:top-[76px] lg:h-[calc(100vh-76px)] lg:self-start lg:overflow-y-auto lg:border-b-0 lg:border-r lg:py-9">
           <div className="mb-6 hidden px-3 lg:block">
             <span className="text-[10px] font-extrabold uppercase tracking-[.16em] text-[#e7aca2]">Operations</span>
             <h1 className="mt-2 font-serif text-2xl">Admin workspace</h1>
@@ -307,7 +307,7 @@ export default function AdminDashboard() {
               <span className="section-kicker">Teaching operations</span>
               <h2 className="mt-2 font-serif text-4xl tracking-[-.035em] text-[#21172b] md:text-5xl">{TABS.find((item) => item.id === tab)?.label}</h2>
             </div>
-            <button className="secondary-button" type="button" onClick={() => void load()} disabled={loading}>
+            <button className="secondary-button" type="button" onClick={() => void load()} disabled={loading || Boolean(busy)}>
               <RefreshCw size={15} className={loading ? "spin" : ""} /> Refresh
             </button>
           </div>
@@ -387,8 +387,8 @@ function Users({ data, busy, mutate }: { data: DashboardData; busy: string; muta
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editing) return;
-    await mutate(`user-${editing.id}`, () => api("/api/admin/users", { method: "PATCH", body: JSON.stringify({ userId: editing.id, name: editing.name, email: editing.email, isActive: isActive(editing) }) }), "User profile updated.");
-    setEditing(null);
+    const ok = await mutate(`user-${editing.id}`, () => api("/api/admin/users", { method: "PATCH", body: JSON.stringify({ userId: editing.id, name: editing.name, email: editing.email, isActive: isActive(editing) }) }), "User profile updated.");
+    if (ok) setEditing(null);
   }
   return (
     <div className="grid gap-5">
@@ -423,7 +423,7 @@ function Users({ data, busy, mutate }: { data: DashboardData; busy: string; muta
               <Field label="Role"><input className={inputClass} value={editing.role} disabled /></Field>
               <div className="flex items-center justify-between rounded-xl border border-[#ded8d0] p-4 text-xs font-bold"><span><strong>Account active</strong><small className="mt-1 block font-normal text-[#726c73]">Inactive identities cannot sign in or call protected APIs.</small></span><input type="checkbox" aria-label="Account active" className="size-4 accent-[#de695c]" checked={isActive(editing)} onChange={(event) => setEditing({ ...editing, isActive: event.target.checked })} /></div>
             </div>
-            <div className="mt-6 flex justify-end gap-2"><button type="button" className="secondary-button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" disabled={busy === `user-${editing.id}`}><Save size={15} /> Save user</button></div>
+            <div className="mt-6 flex justify-end gap-2"><button type="button" className="secondary-button" onClick={() => setEditing(null)} disabled={Boolean(busy)}>Cancel</button><button className="primary-button" disabled={Boolean(busy)}>{busy === `user-${editing.id}` ? <LoaderCircle size={15} className="spin" /> : <Save size={15} />} {busy === `user-${editing.id}` ? "Saving…" : "Save user"}</button></div>
           </form>
         </div>
       ) : null}
@@ -481,7 +481,7 @@ function Classes({ data, busy, mutate }: { data: DashboardData; busy: string; mu
               <Field label="Class code"><input className={inputClass} value={draft.code} onChange={(event) => setDraft({ ...draft, code: event.target.value.toUpperCase() })} required /></Field>
               <Field label="Term / semester"><input className={inputClass} value={draft.term} onChange={(event) => setDraft({ ...draft, term: event.target.value })} required /></Field>
               <Field label="Status"><select className={inputClass} value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as "active" | "archived" })}><option value="active">Active</option><option value="archived">Archived</option></select></Field>
-              <div className="sm:col-span-2 flex justify-end"><button className="secondary-button" disabled={busy === `class-${editing?.id ?? "new"}`}><Save size={15} /> {creating ? "Create class" : "Save details"}</button></div>
+              <div className="sm:col-span-2 flex justify-end"><button className="secondary-button" disabled={Boolean(busy)}>{busy === `class-${editing?.id ?? "new"}` ? <LoaderCircle size={15} className="spin" /> : <Save size={15} />} {busy === `class-${editing?.id ?? "new"}` ? "Saving…" : creating ? "Create class" : "Save details"}</button></div>
             </form>
             {editing ? <>
               <div className="my-6 border-t border-[#ded8d0]" />
@@ -492,7 +492,7 @@ function Classes({ data, busy, mutate }: { data: DashboardData; busy: string; mu
                   return <div key={user.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 border-t border-[#ded8d0] p-3 first:border-t-0"><input type="checkbox" className="size-4 accent-[#de695c]" checked={checked} onChange={(event) => setSelected(event.target.checked ? [...selected, user.id] : selected.filter((id) => id !== user.id))} /><span className="text-xs"><strong>{user.name}</strong><small className="ml-2 capitalize text-[#726c73]">{user.role}</small></span>{user.role === "professor" && checked ? <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.08em] text-[#726c73]"><input type="radio" name="lead" checked={leadId === user.id} onChange={() => setLeadId(user.id)} /> Lead</label> : null}</div>;
                 })}
               </div>
-              <div className="mt-6 flex justify-end"><button type="button" className="primary-button" onClick={() => void saveMembers()} disabled={busy === `members-${editing.id}`}><UsersRound size={15} /> Save members</button></div>
+              <div className="mt-6 flex justify-end"><button type="button" className="primary-button" onClick={() => void saveMembers()} disabled={Boolean(busy)}>{busy === `members-${editing.id}` ? <LoaderCircle size={15} className="spin" /> : <UsersRound size={15} />} {busy === `members-${editing.id}` ? "Saving…" : "Save members"}</button></div>
             </> : null}
           </div>
         </div>
@@ -522,9 +522,9 @@ function Cases({ data, busy, mutate }: { data: DashboardData; busy: string; muta
           return <article key={item.id} className={`${panelClass} grid gap-5 p-6 lg:grid-cols-[1fr_auto] lg:items-center`}>
             <div><div className="flex flex-wrap items-center gap-2"><span className="status-badge">{item.status}</span><span className="font-mono text-[10px] text-[#726c73]">VERSION {item.version ?? 1}</span></div><h3 className="mt-3 font-serif text-2xl">{item.title}</h3><p className="mt-2 max-w-3xl text-xs leading-5 text-[#726c73]">{item.description}</p><small className="mt-3 block text-[10px] uppercase tracking-[.1em] text-[#726c73]">{item.phases?.length ?? 0} phases · {item.learningObjectives?.length ?? 0} learning objectives</small></div>
             <div className="flex flex-wrap gap-2">
-              {!immutable && item.status !== "archived" ? <><button type="button" className="secondary-button" onClick={() => edit(item)}><PencilLine size={14} /> Edit</button><button type="button" className="primary-button" disabled={busy === `publish-${item.id}`} onClick={() => void mutate(`publish-${item.id}`, () => api(`/api/admin/cases/${item.id}/publish`, { method: "POST" }), "Case published and locked as an immutable version.")}><Send size={14} /> Publish</button></> : null}
-              {immutable ? <button type="button" className="secondary-button" disabled={busy === `clone-${item.id}`} onClick={() => void mutate(`clone-${item.id}`, () => api(`/api/admin/cases/${item.id}/clone`, { method: "POST" }), "A new editable case version was created.")}><Copy size={14} /> New version</button> : null}
-              {item.status !== "archived" ? <button type="button" title="Archive" aria-label={`Archive ${item.title}`} className="rounded-lg border border-[#ded8d0] p-3 text-[#726c73] hover:text-[#be5048]" disabled={busy === `archive-${item.id}`} onClick={() => void mutate(`archive-${item.id}`, () => api("/api/admin/cases", { method: "PATCH", body: JSON.stringify({ caseId: item.id, status: "archived" }) }), "Case archived.")}><Archive size={15} /></button> : null}
+              {!immutable && item.status !== "archived" ? <><button type="button" className="secondary-button" onClick={() => edit(item)} disabled={Boolean(busy)}><PencilLine size={14} /> Edit</button><button type="button" className="primary-button" disabled={Boolean(busy)} onClick={() => void mutate(`publish-${item.id}`, () => api(`/api/admin/cases/${item.id}/publish`, { method: "POST" }), "Case published and locked as an immutable version.")}>{busy === `publish-${item.id}` ? <LoaderCircle size={14} className="spin" /> : <Send size={14} />} {busy === `publish-${item.id}` ? "Publishing…" : "Publish"}</button></> : null}
+              {immutable ? <button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => void mutate(`clone-${item.id}`, () => api(`/api/admin/cases/${item.id}/clone`, { method: "POST" }), "A new editable case version was created.")}>{busy === `clone-${item.id}` ? <LoaderCircle size={14} className="spin" /> : <Copy size={14} />} {busy === `clone-${item.id}` ? "Creating…" : "New version"}</button> : null}
+              {item.status !== "archived" ? <button type="button" title={busy === `archive-${item.id}` ? "Archiving" : "Archive"} aria-label={busy === `archive-${item.id}` ? `Archiving ${item.title}` : `Archive ${item.title}`} className="rounded-lg border border-[#ded8d0] p-3 text-[#726c73] hover:text-[#be5048] disabled:cursor-wait disabled:opacity-50" disabled={Boolean(busy)} onClick={() => void mutate(`archive-${item.id}`, () => api("/api/admin/cases", { method: "PATCH", body: JSON.stringify({ caseId: item.id, status: "archived" }) }), "Case archived.")}>{busy === `archive-${item.id}` ? <LoaderCircle size={15} className="spin" /> : <Archive size={15} />}</button> : null}
             </div>
           </article>;
         })}
@@ -557,7 +557,7 @@ function Cases({ data, busy, mutate }: { data: DashboardData; busy: string; muta
                 </section>;
               })}
             </div>
-            <div className="mt-7 flex flex-wrap justify-end gap-2"><button type="button" className="secondary-button" onClick={() => setEditor(null)}>Cancel</button><button className="primary-button" disabled={busy === `case-${editor.id || "new"}`}><Save size={15} /> Save draft</button></div>
+            <div className="mt-7 flex flex-wrap justify-end gap-2"><button type="button" className="secondary-button" onClick={() => setEditor(null)} disabled={Boolean(busy)}>Cancel</button><button className="primary-button" disabled={Boolean(busy)}>{busy === `case-${editor.id || "new"}` ? <LoaderCircle size={15} className="spin" /> : <Save size={15} />} {busy === `case-${editor.id || "new"}` ? "Saving…" : "Save draft"}</button></div>
           </form>
         </div>
       ) : null}
@@ -599,7 +599,7 @@ function ActivityView({ data, busy, mutate }: { data: DashboardData; busy: strin
               <span>{item.case?.title ?? "—"}</span>
               <strong>{session.score == null ? "—" : `${session.score}/100`}</strong>
               <span className="status-badge w-fit">{status.replaceAll("_", " ")}</span>
-              {locked ? <span className="text-[#726c73]">{item.reviewClaim?.reviewerName ?? item.reviewer?.name ?? professors.find((entry) => entry.id === currentReviewer)?.name ?? "Completed"}</span> : <div className="flex gap-2"><select aria-label={`Reviewer for ${item.student?.name ?? session.id}`} className={`${inputClass} py-2 text-xs`} value={assignee[session.id] ?? currentReviewer} onChange={(event) => setAssignee({ ...assignee, [session.id]: event.target.value })}><option value="">Release claim</option>{professors.map((professor) => <option key={professor.id} value={professor.id}>{professor.name}</option>)}</select><button type="button" aria-label="Save review assignment" className="rounded-lg bg-[#4e263f] p-2 text-white disabled:opacity-50" disabled={busy === `reassign-${session.id}`} onClick={() => void reassign(item)}>{busy === `reassign-${session.id}` ? <LoaderCircle size={14} className="spin" /> : <Save size={14} />}</button></div>}
+              {locked ? <span className="text-[#726c73]">{item.reviewClaim?.reviewerName ?? item.reviewer?.name ?? professors.find((entry) => entry.id === currentReviewer)?.name ?? "Completed"}</span> : <div className="flex gap-2"><select aria-label={`Reviewer for ${item.student?.name ?? session.id}`} className={`${inputClass} py-2 text-xs`} value={assignee[session.id] ?? currentReviewer} onChange={(event) => setAssignee({ ...assignee, [session.id]: event.target.value })} disabled={Boolean(busy)}><option value="">Release claim</option>{professors.map((professor) => <option key={professor.id} value={professor.id}>{professor.name}</option>)}</select><button type="button" aria-label={busy === `reassign-${session.id}` ? "Saving review assignment" : "Save review assignment"} className="rounded-lg bg-[#4e263f] p-2 text-white disabled:cursor-wait disabled:opacity-50" disabled={Boolean(busy)} onClick={() => void reassign(item)}>{busy === `reassign-${session.id}` ? <LoaderCircle size={14} className="spin" /> : <Save size={14} />}</button></div>}
             </div>;
           })}
         </div>
