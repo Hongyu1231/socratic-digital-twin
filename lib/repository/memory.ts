@@ -16,6 +16,7 @@ import type {
 } from "@/lib/domain";
 import { demoAssignment, demoAssignments, demoCases, demoClass, demoUsers, getDemoUser } from "@/lib/seed";
 import type { CommitTurnInput, SaveReviewInput, TutorRepository } from "@/lib/repository/types";
+import { getCaseLineageId, getNextCaseVersion, getVersionedCaseTitle } from "@/lib/repository/case-version";
 
 interface MemoryStore {
   sessions: Map<string, LearningSession>;
@@ -324,7 +325,8 @@ export class InMemoryTutorRepository implements TutorRepository {
     const current = this.store.cases.get(caseId);
     if (!current) throw new Error("Case not found.");
     const id = crypto.randomUUID();
-    const next: ClinicalCase = { ...clone(current), id, title: `${current.title} v${(current.version ?? 1) + 1}`, status: "draft", sourceCaseId: current.sourceCaseId ?? current.id, version: (current.version ?? 1) + 1, publishedAt: null, phases: current.phases.map((phase) => ({ ...phase, id: crypto.randomUUID(), caseId: id })) };
+    const version = getNextCaseVersion([...this.store.cases.values()], current);
+    const next: ClinicalCase = { ...clone(current), id, title: getVersionedCaseTitle(current.title, version), status: "draft", sourceCaseId: getCaseLineageId(current), version, publishedAt: null, phases: current.phases.map((phase) => ({ ...phase, id: crypto.randomUUID(), caseId: id })) };
     this.store.cases.set(id, next);
     return clone(next);
   }

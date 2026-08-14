@@ -20,8 +20,8 @@ The project runs without external services: it uses an in-process repository and
 
 ## Documentation and links
 
-- [Bilingual User Guide](docs/USER_GUIDE.md)
-- [Bilingual Developer Guide](docs/DEVELOPER_GUIDE.md)
+- User Guide: [English](docs/USER_GUIDE.md) · [中文](docs/USER_GUIDE_ZH.md)
+- Developer Guide: [English](docs/DEVELOPER_GUIDE.md) · [中文](docs/DEVELOPER_GUIDE_ZH.md)
 - [Tutor Humanization & Professor Feedback Loop](docs/HUMANIZATION_PLAN.md)
 
 ## Quick start

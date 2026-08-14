@@ -191,5 +191,12 @@ describe("InMemoryTutorRepository class workflows", () => {
     });
     expect(clone.phases).toHaveLength(source!.phases.length);
     expect(clone.phases.every((phase, index) => phase.caseId === clone.id && phase.id !== source!.phases[index].id)).toBe(true);
+
+    const nextClone = await repository.cloneCase(IMPACTED_CANINE_CASE_ID, DEMO_ADMIN_ID);
+    expect(nextClone).toMatchObject({
+      title: `${source!.title} v${(source!.version ?? 1) + 2}`,
+      sourceCaseId: source!.id,
+      version: (source!.version ?? 1) + 2,
+    });
   });
 });

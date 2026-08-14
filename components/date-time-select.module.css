@@ -1,0 +1,50 @@
+.field {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-width: 0;
+}
+
+.label {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(92px, .7fr);
+  gap: 7px;
+}
+
+.controls select {
+  width: 100%;
+  min-width: 0;
+  height: 41px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 9px;
+  background: var(--white);
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.controls select:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+.field small {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.35;
+  text-transform: none;
+}
+
+@media (max-width: 560px) {
+  .controls { grid-template-columns: 1fr; }
+}

@@ -20,6 +20,7 @@ import type {
 } from "@/lib/domain";
 import { CLASSIFICATION_SCORES } from "@/lib/domain";
 import type { CommitTurnInput, SaveReviewInput, TutorRepository } from "@/lib/repository/types";
+import { buildCaseVersionSlug, getCaseLineageId, getNextCaseVersion, getVersionedCaseTitle } from "@/lib/repository/case-version";
 import { getTutorMode } from "@/lib/tutor";
 
 type Row = Record<string, any>;
@@ -474,14 +475,16 @@ export class SupabaseTutorRepository implements TutorRepository {
   async saveCase(input: ClinicalCase, adminId: string) {
     const existing = input.id ? await this.getCase(input.id) : null;
     if (existing && existing.status !== "draft") throw new Error("Published cases are immutable. Clone a new version.");
-    const payload = { title: input.title, slug: `${input.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}-${input.version ?? 1}-${input.id?.slice(0, 6) ?? crypto.randomUUID().slice(0, 6)}`, specialty: "dentistry", presenting_complaint: input.description, status: "draft", created_by: adminId, source_case_id: input.sourceCaseId ?? null, version: input.version ?? 1, published_at: null, patient_context: {}, tags: input.learningObjectives };
-    const operation = input.id ? this.client.from("cases").update(payload).eq("id", input.id).select("id").single() : this.client.from("cases").insert(payload).select("id").single();
+    const caseId = input.id || crypto.randomUUID();
+    const version = input.version ?? 1;
+    const payload = { title: input.title, slug: buildCaseVersionSlug(input.title, version, caseId), specialty: "dentistry", presenting_complaint: input.description, status: "draft", created_by: adminId, source_case_id: input.sourceCaseId ?? null, version, published_at: null, patient_context: {}, tags: input.learningObjectives };
+    const operation = input.id ? this.client.from("cases").update(payload).eq("id", input.id).select("id").single() : this.client.from("cases").insert({ id: caseId, ...payload }).select("id").single();
     const { data, error } = await operation;
-    const caseId = must(data, error, "Save case").id;
-    if (input.id) await this.client.from("case_phases").delete().eq("case_id", caseId);
-    const { error: phaseError } = await this.client.from("case_phases").insert(input.phases.map((phase, index) => ({ case_id: caseId, phase_order: index + 1, phase_key: `phase_${index + 1}`, title: phase.title, objectives: [phase.goal, ...phase.rubric], questions: [phase.starterQuestion, ...phase.exampleQuestions], teaching_notes: phase.goal, expected_findings: Object.fromEntries(phase.rubric.map((item) => [item, true])), metadata: {} })));
+    const savedCaseId = must(data, error, "Save case").id;
+    if (input.id) await this.client.from("case_phases").delete().eq("case_id", savedCaseId);
+    const { error: phaseError } = await this.client.from("case_phases").insert(input.phases.map((phase, index) => ({ case_id: savedCaseId, phase_order: index + 1, phase_key: `phase_${index + 1}`, title: phase.title, objectives: [phase.goal, ...phase.rubric], questions: [phase.starterQuestion, ...phase.exampleQuestions], teaching_notes: phase.goal, expected_findings: Object.fromEntries(phase.rubric.map((item) => [item, true])), metadata: {} })));
     if (phaseError) throw new Error(`Save case phases: ${phaseError.message}`);
-    return (await this.listCaseVersions()).find((item) => item.id === caseId)!;
+    return (await this.listCaseVersions()).find((item) => item.id === savedCaseId)!;
   }
 
   async publishCase(caseId: string) {
@@ -499,7 +502,8 @@ export class SupabaseTutorRepository implements TutorRepository {
   async cloneCase(caseId: string, adminId: string) {
     const source = await this.getCase(caseId);
     if (!source) throw new Error("Case not found.");
-    return this.saveCase({ ...source, id: "", title: `${source.title} v${(source.version ?? 1) + 1}`, status: "draft", sourceCaseId: source.sourceCaseId ?? source.id, version: (source.version ?? 1) + 1, publishedAt: null, phases: source.phases.map((phase) => ({ ...phase, id: "" })) }, adminId);
+    const version = getNextCaseVersion(await this.listCaseVersions(), source);
+    return this.saveCase({ ...source, id: "", title: getVersionedCaseTitle(source.title, version), status: "draft", sourceCaseId: getCaseLineageId(source), version, publishedAt: null, phases: source.phases.map((phase) => ({ ...phase, id: "" })) }, adminId);
   }
 
   async listAssignments(professorId?: string) {
