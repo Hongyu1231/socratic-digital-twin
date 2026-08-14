@@ -38,7 +38,7 @@
 3. 点击 **Send answer**，或按 Enter 发送；Shift+Enter 换行。
 4. 你的回答会立即出现在对话中，然后显示等待状态，最后出现 tutor 的一个追问。
 
-左侧 **Case attachments** 提供合成教学图片和病例描述朗读。点击麦克风可使用浏览器语音听写；点击 tutor 消息旁的 **Read aloud** 可朗读单条回复，**Auto-read** 可自动朗读新的 tutor 回复。语音能力依赖浏览器支持，并且不应录入真实患者身份资料。
+左侧 **Case attachments** 提供合成教学图片和病例描述朗读。点击麦克风可使用浏览器语音听写；Tutor 的 AI 生成语音回复默认开启，每条新回复到达后会自动朗读。顶部的 **Tutor voice** 可开关自动语音，消息旁的 **Read aloud** 可重播单条回复。OpenAI TTS 不可用时会自动退回设备英文语音；如果浏览器阻止自动播放，点击一次 **Read aloud** 即可授权播放。不应录入真实患者身份资料。
 
 点击 **Pause & return to cases** 会保存当前阶段、对话和学习状态并返回首页。首页卡片随后显示 **Resume paused session**；恢复前 API 不接受新的学生回答。
 
@@ -225,7 +225,7 @@ The home page shows only assignments available through the student's class membe
 
 In the conversation page, read the case and phase goal, enter reasoning in **Your clinical reasoning**, then click **Send answer** or press Enter. The student bubble appears immediately; a waiting state is shown until the tutor returns one follow-up question. Shift+Enter inserts a line break.
 
-**Case attachments** contains synthetic teaching visuals and a narrated case history. The microphone button uses browser-native dictation. **Read aloud** speaks one tutor message, while **Auto-read** speaks new tutor replies automatically. Browser support varies, and real patient identifiers must never be dictated or entered.
+**Case attachments** contains synthetic teaching visuals and a narrated case history. The microphone button uses browser-native dictation. AI-generated Tutor voice replies are on by default and play whenever a new reply arrives. Use **Tutor voice** to toggle automatic playback, or **Read aloud** to replay one message. If OpenAI TTS is unavailable, the app falls back to the device's English voice; if the browser blocks autoplay, click **Read aloud** once to enable playback. Real patient identifiers must never be dictated or entered.
 
 Select **Pause & return to cases** to preserve the current phase, transcript, and learner state. The home card changes to **Resume paused session**. New answers are rejected until the session has been resumed.
 

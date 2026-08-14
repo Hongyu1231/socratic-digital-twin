@@ -178,6 +178,8 @@ button { color: inherit; }
 .mobile-end-button { border-color: #e4aaa4; color: #9a3c36; }
 .voice-toggle { min-height: 30px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 6px 9px; background: white; color: var(--muted); font-size: 9px; font-weight: 750; cursor: pointer; }
 .voice-toggle[aria-pressed="true"] { border-color: #b8d4c0; background: var(--sage-pale); color: #365846; }
+.voice-toggle:disabled { cursor: not-allowed; opacity: .55; }
+.voice-notice { border-bottom: 1px solid #ecd0cc; background: #fff5f3; color: #7d403a; padding: 9px 24px; font-size: 11px; text-align: center; }
 .runtime-badge { border-radius: 999px; background: var(--sage-pale); color: #476555; font-size: 10px; font-weight: 800; padding: 7px 10px; text-transform: uppercase; letter-spacing: .08em; }
 .message-list { padding: 35px clamp(25px, 5vw, 70px); overflow-y: auto; display: flex; flex-direction: column; gap: 27px; }
 .message { max-width: 720px; display: grid; grid-template-columns: 32px 1fr; gap: 12px; }

@@ -1,10 +1,11 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUp, BookOpen, Check, Info, LoaderCircle, Mic, MicOff, PauseCircle, Play, Volume2, VolumeX, X } from "lucide-react";
 import type { SessionBundle, TutorMessage } from "@/lib/domain";
 import { CaseResources } from "@/components/case-resources";
+import { selectPreferredEnglishVoice } from "@/lib/speech";
 
 interface BrowserSpeechRecognitionResult {
   readonly length: number;
@@ -39,13 +40,37 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
   const [optimisticMessage, setOptimisticMessage] = useState<TutorMessage | null>(null);
   const [listening, setListening] = useState(false);
   const [speechInputAvailable, setSpeechInputAvailable] = useState(false);
+  const [speechOutputAvailable, setSpeechOutputAvailable] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
-  const [autoRead, setAutoRead] = useState(false);
+  const [autoRead, setAutoRead] = useState(true);
+  const [voiceNotice, setVoiceNotice] = useState("");
   const [mobileCaseOpen, setMobileCaseOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  const speechRequestRef = useRef<AbortController | null>(null);
   const voiceBaseRef = useRef("");
   const lastAutoReadRef = useRef<string | null>(null);
+
+  const stopTutorSpeech = useCallback(() => {
+    speechRequestRef.current?.abort();
+    speechRequestRef.current = null;
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.removeAttribute("src");
+      audioRef.current = null;
+    }
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+    window.speechSynthesis?.cancel();
+    utteranceRef.current = null;
+    setSpeakingMessageId(null);
+  }, []);
 
   useEffect(() => {
     const speechWindow = window as Window & {
@@ -53,11 +78,115 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
       webkitSpeechRecognition?: SpeechRecognitionConstructor;
     };
     setSpeechInputAvailable(Boolean(speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition));
+    const browserSpeechSupported = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+    const speechOutputSupported = typeof Audio !== "undefined" || browserSpeechSupported;
+    setSpeechOutputAvailable(speechOutputSupported);
+    const loadVoices = () => {
+      voicesRef.current = window.speechSynthesis?.getVoices() ?? [];
+    };
+    if (browserSpeechSupported) {
+      loadVoices();
+      window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+    }
     return () => {
       recognitionRef.current?.abort();
+      speechRequestRef.current?.abort();
+      audioRef.current?.pause();
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
       window.speechSynthesis?.cancel();
+      if (browserSpeechSupported) window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
     };
   }, []);
+
+  const speakWithBrowserVoice = useCallback((message: TutorMessage) => {
+    if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
+      setVoiceNotice("Tutor audio is unavailable right now. You can still read every reply on screen.");
+      return false;
+    }
+
+    const synthesis = window.speechSynthesis;
+    synthesis.cancel();
+    synthesis.resume();
+
+    const utterance = new SpeechSynthesisUtterance(message.content);
+    const preferredVoice = selectPreferredEnglishVoice(voicesRef.current);
+    if (preferredVoice) utterance.voice = preferredVoice;
+    utterance.lang = preferredVoice?.lang ?? "en-GB";
+    utterance.rate = 0.95;
+    utterance.pitch = 1;
+    utteranceRef.current = utterance;
+
+    const finish = () => {
+      if (utteranceRef.current !== utterance) return;
+      utteranceRef.current = null;
+      setSpeakingMessageId(null);
+    };
+    utterance.onstart = () => {
+      setVoiceNotice("");
+      setSpeakingMessageId(message.id);
+    };
+    utterance.onend = finish;
+    utterance.onerror = (event) => {
+      finish();
+      setVoiceNotice(event.error === "not-allowed"
+        ? "Your browser blocked automatic audio. Click Read aloud to start the AI-generated voice."
+        : "Tutor audio could not play. You can retry with Read aloud.");
+    };
+
+    setSpeakingMessageId(message.id);
+    synthesis.speak(utterance);
+    return true;
+  }, []);
+
+  const speakTutorMessage = useCallback(async (message: TutorMessage) => {
+    stopTutorSpeech();
+    setSpeakingMessageId(message.id);
+    setVoiceNotice("Preparing the AI-generated tutor voice…");
+
+    const controller = new AbortController();
+    speechRequestRef.current = controller;
+    try {
+      const response = await fetch("/api/session/speech", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, messageId: message.id }),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error("Server tutor voice is unavailable.");
+      const audioBlob = await response.blob();
+      if (controller.signal.aborted) return false;
+
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+      audio.preload = "auto";
+      audioUrlRef.current = audioUrl;
+      audioRef.current = audio;
+      speechRequestRef.current = null;
+      audio.onplaying = () => setVoiceNotice("");
+      audio.onended = () => {
+        if (audioRef.current !== audio) return;
+        audioRef.current = null;
+        URL.revokeObjectURL(audioUrl);
+        audioUrlRef.current = null;
+        setSpeakingMessageId(null);
+      };
+      audio.onerror = () => {
+        if (audioRef.current !== audio) return;
+        audioRef.current = null;
+        URL.revokeObjectURL(audioUrl);
+        audioUrlRef.current = null;
+        setSpeakingMessageId(null);
+        setVoiceNotice("Tutor audio could not play. Click Read aloud to retry.");
+      };
+      await audio.play();
+      return true;
+    } catch {
+      if (controller.signal.aborted) return false;
+      speechRequestRef.current = null;
+      setVoiceNotice("Using this device's English voice…");
+      return speakWithBrowserVoice(message);
+    }
+  }, [sessionId, speakWithBrowserVoice, stopTutorSpeech]);
 
   useEffect(() => {
     fetch(`/api/session/${sessionId}`)
@@ -78,19 +207,12 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
   }, [bundle?.session.messages.length, optimisticMessage?.id, pending]);
 
   useEffect(() => {
-    if (!autoRead || pending || !bundle || !("speechSynthesis" in window)) return;
+    if (!autoRead || pending || !bundle || !speechOutputAvailable) return;
     const latestTutorMessage = [...bundle.session.messages].reverse().find((message) => message.sender === "ai");
     if (!latestTutorMessage || latestTutorMessage.id === lastAutoReadRef.current) return;
     lastAutoReadRef.current = latestTutorMessage.id;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(latestTutorMessage.content);
-    utterance.lang = "en-SG";
-    utterance.rate = 0.95;
-    utterance.onend = () => setSpeakingMessageId(null);
-    utterance.onerror = () => setSpeakingMessageId(null);
-    setSpeakingMessageId(latestTutorMessage.id);
-    window.speechSynthesis.speak(utterance);
-  }, [autoRead, bundle, pending]);
+    void speakTutorMessage(latestTutorMessage);
+  }, [autoRead, bundle, pending, speakTutorMessage, speechOutputAvailable]);
 
   function toggleSpeechInput() {
     if (listening) {
@@ -131,23 +253,30 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
   }
 
   function readTutorMessage(message: TutorMessage) {
-    if (!("speechSynthesis" in window)) {
-      setError("Read-aloud is not supported by this browser.");
-      return;
-    }
     if (speakingMessageId === message.id) {
-      window.speechSynthesis.cancel();
-      setSpeakingMessageId(null);
+      stopTutorSpeech();
       return;
     }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(message.content);
-    utterance.lang = "en-SG";
-    utterance.rate = 0.95;
-    utterance.onend = () => setSpeakingMessageId(null);
-    utterance.onerror = () => setSpeakingMessageId(null);
-    setSpeakingMessageId(message.id);
-    window.speechSynthesis.speak(utterance);
+    void speakTutorMessage(message);
+  }
+
+  function toggleTutorVoice() {
+    const nextAutoRead = !autoRead;
+    setAutoRead(nextAutoRead);
+    setVoiceNotice("");
+    if (!nextAutoRead) {
+      stopTutorSpeech();
+      return;
+    }
+
+    window.speechSynthesis?.resume();
+    const latestTutorMessage = bundle
+      ? [...bundle.session.messages].reverse().find((message) => message.sender === "ai")
+      : undefined;
+    if (latestTutorMessage) {
+      lastAutoReadRef.current = latestTutorMessage.id;
+      void speakTutorMessage(latestTutorMessage);
+    }
   }
 
   async function submit(event: FormEvent) {
@@ -155,6 +284,10 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
     const message = answer.trim();
     if (!message || pending) return;
     const clientRequestId = crypto.randomUUID();
+
+    // Resume speech from the student's click/keypress so browsers that suspend
+    // synthesis while a tab is idle can play the asynchronous tutor reply.
+    if (autoRead && speechOutputAvailable) window.speechSynthesis?.resume();
 
     setAnswer("");
     setError("");
@@ -271,8 +404,8 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
             <button className="mobile-case-button" type="button" onClick={() => setMobileCaseOpen(true)}><BookOpen size={14} /><span>Case</span></button>
             <button className="mobile-pause-button" type="button" onClick={pauseSession} disabled={pending || Boolean(session.pausedAt)}><PauseCircle size={14} /><span>Pause</span></button>
             <button className="mobile-end-button" type="button" onClick={endSession} disabled={pending}>End</button>
-            <button className="voice-toggle" type="button" aria-pressed={autoRead} onClick={() => { setAutoRead((value) => !value); if (autoRead) { window.speechSynthesis?.cancel(); setSpeakingMessageId(null); } }} title="Automatically read new tutor replies aloud">
-              {autoRead ? <Volume2 size={14} /> : <VolumeX size={14} />} <span>{autoRead ? "Auto-read on" : "Auto-read off"}</span>
+            <button className="voice-toggle" type="button" aria-pressed={autoRead && speechOutputAvailable} onClick={toggleTutorVoice} disabled={!speechOutputAvailable} title={speechOutputAvailable ? "Turn automatic tutor voice replies on or off" : "Tutor voice is not supported by this browser"}>
+              {autoRead && speechOutputAvailable ? <Volume2 size={14} /> : <VolumeX size={14} />} <span>{!speechOutputAvailable ? "Voice unavailable" : speakingMessageId ? "Tutor speaking" : autoRead ? "Tutor voice on" : "Tutor voice off"}</span>
             </button>
             <span className="runtime-badge">
               {bundle.runtime.tutor === "openai"
@@ -283,6 +416,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
             </span>
           </div>
         </header>
+        {voiceNotice ? <div className="voice-notice" role="status">{voiceNotice}</div> : null}
         <div className="message-list" aria-live="polite">
           {visibleMessages.map((message) => (
             <article className={`message ${message.sender}`} key={message.id}>
@@ -314,7 +448,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
               maxLength={2000}
               disabled={pending}
             />
-            <div className="composer-actions"><div className="composer-help"><small>Enter to send · Shift + Enter for a new line</small><small>Voice uses your browser&apos;s speech service. Do not include patient identifiers.</small></div><div className="composer-buttons"><button className={`voice-input-button${listening ? " listening" : ""}`} type="button" onClick={toggleSpeechInput} disabled={pending || !speechInputAvailable} aria-pressed={listening} aria-label={listening ? "Stop voice input" : "Start voice input"} title={speechInputAvailable ? "Dictate your answer" : "Voice input is not supported by this browser"}>{listening ? <MicOff size={17} /> : <Mic size={17} />}</button><button className="send-button" disabled={!answer.trim() || pending} aria-label="Send answer"><ArrowUp size={18} /></button></div></div>
+            <div className="composer-actions"><div className="composer-help"><small>Enter to send · Shift + Enter for a new line</small><small>Tutor audio is AI-generated. Do not include patient identifiers.</small></div><div className="composer-buttons"><button className={`voice-input-button${listening ? " listening" : ""}`} type="button" onClick={toggleSpeechInput} disabled={pending || !speechInputAvailable} aria-pressed={listening} aria-label={listening ? "Stop voice input" : "Start voice input"} title={speechInputAvailable ? "Dictate your answer" : "Voice input is not supported by this browser"}>{listening ? <MicOff size={17} /> : <Mic size={17} />}</button><button className="send-button" disabled={!answer.trim() || pending} aria-label="Send answer"><ArrowUp size={18} /></button></div></div>
           </div>
         </form>}
       </section>

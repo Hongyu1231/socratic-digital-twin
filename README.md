@@ -99,6 +99,8 @@ Start from `.env.example`. Keep secrets in `.env.local`, Vercel Environment Vari
 | `OPENAI_API_KEY` | Optional pair | OpenAI API key, read only on the server |
 | `OPENAI_MODEL` | Optional pair | Account-available model ID that supports Structured Outputs |
 | `OPENAI_PROXY_URL` | Optional | HTTP(S) proxy for the Node.js OpenAI client; standard proxy variables are also honored |
+| `OPENAI_TTS_MODEL` | Optional | Tutor voice model; defaults to `gpt-4o-mini-tts` |
+| `OPENAI_TTS_VOICE` | Optional | Built-in Tutor voice; defaults to `marin` |
 | `ANTHROPIC_API_KEY` | Optional pair | Anthropic API key, read only on the server |
 | `CLAUDE_MODEL` | Optional pair | Account-available Claude model ID that supports structured output |
 
@@ -156,7 +158,8 @@ OpenAI is the preferred provider:
 
 1. Set `OPENAI_API_KEY` in `.env.local`.
 2. Set `OPENAI_MODEL` to a model available to the account and compatible with Structured Outputs.
-3. Restart the development server.
+3. Optionally set `OPENAI_TTS_MODEL` and `OPENAI_TTS_VOICE`; the defaults provide warm English Tutor audio.
+4. Restart the development server.
 
 Claude is the optional second provider:
 
@@ -164,7 +167,7 @@ Claude is the optional second provider:
 2. Set `CLAUDE_MODEL` to an account-available structured-output model.
 3. Restart the development server.
 
-Answer evaluation uses one non-streaming OpenAI Responses API or Claude Messages API request with the shared Zod schema. The result contains a label, confidence, observable reasoning gap, teaching strategy, exactly one follow-up question, and a conservative memory patch. The state machine—not the model—is the authority for phase progression and database state. Session summaries are generated separately; invalid or failed provider output uses the local summary template.
+Answer evaluation uses one non-streaming OpenAI Responses API or Claude Messages API request with the shared Zod schema. The result contains a label, confidence, observable reasoning gap, teaching strategy, exactly one follow-up question, and a conservative memory patch. The state machine—not the model—is the authority for phase progression and database state. Session summaries are generated separately; invalid or failed provider output uses the local summary template. When `OPENAI_API_KEY` is configured, `/api/session/speech` generates MP3 audio only for a Tutor message in the signed-in student's own session. The client automatically plays it, clearly identifies it as AI-generated, and falls back to browser-native English speech if the provider is unavailable.
 
 ## Identity, authorization, and state machine
 
