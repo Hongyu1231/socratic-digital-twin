@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { z } from "zod";
 
-import { DEMO_SESSION_COOKIE_NAME, signSession } from "@/lib/auth";
+import { DEMO_SESSION_COOKIE_NAME, getIdentity, signSession } from "@/lib/auth";
 import { getRepository } from "@/lib/repository";
 
 const roleSwitchSchema = z.object({
@@ -13,10 +13,16 @@ export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    const users = (await getRepository().listUsers()).filter((user) => user.isActive !== false);
-    return NextResponse.json({ users });
+    const [users, identity] = await Promise.all([
+      getRepository().listUsers(),
+      getIdentity(),
+    ]);
+    return NextResponse.json({
+      users: users.filter((user) => user.isActive !== false),
+      identity,
+    });
   } catch {
-    return NextResponse.json({ users: [] });
+    return NextResponse.json({ users: [], identity: null });
   }
 }
 

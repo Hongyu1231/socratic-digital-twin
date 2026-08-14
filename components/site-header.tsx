@@ -12,9 +12,18 @@ export function SiteHeader() {
   const onAdminPage = pathname.startsWith("/admin");
   const [open, setOpen] = useState(false);
   const [users, setUsers] = useState<DemoUser[]>([]);
+  const [identity, setIdentity] = useState<DemoUser | null>(null);
   const [pending, startTransition] = useTransition();
 
-  useEffect(() => { fetch("/api/demo/identity").then((response) => response.json()).then((data) => setUsers(data.users ?? [])).catch(() => undefined); }, []);
+  useEffect(() => {
+    fetch("/api/demo/identity")
+      .then((response) => response.json())
+      .then((data: { users?: DemoUser[]; identity?: DemoUser | null }) => {
+        setUsers(data.users ?? []);
+        setIdentity(data.identity ?? null);
+      })
+      .catch(() => undefined);
+  }, []);
 
   function switchUser(userId: string, role: UserRole) {
     startTransition(async () => {
@@ -40,7 +49,7 @@ export function SiteHeader() {
         <div className="role-menu">
           <button className="role-trigger" type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
             {onAdminPage ? <ShieldCheck size={17} /> : onProfessorPage ? <GraduationCap size={17} /> : <UserRound size={17} />}
-            <span>{onAdminPage ? "Admin" : onProfessorPage ? "Professor" : "Student"}</span>
+            <span>{identity?.name ?? (onAdminPage ? "Admin identity" : onProfessorPage ? "Professor identity" : "Student identity")}</span>
           </button>
           {open ? (
             <div className="role-popover">
