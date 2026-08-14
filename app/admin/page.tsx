@@ -140,7 +140,7 @@ const TABS: Array<{ id: AdminTab; label: string; icon: typeof LayoutDashboard }>
   { id: "classes", label: "Classes", icon: School },
   { id: "cases", label: "Cases", icon: BookOpen },
   { id: "activity", label: "Activity", icon: Activity },
-  { id: "feedback", label: "Feedback lab", icon: FlaskConical },
+  { id: "feedback", label: "Tutor improvement lab", icon: FlaskConical },
 ];
 
 const DEFAULT_PHASES: CasePhaseDraft[] = Array.from({ length: 5 }, (_, index) => ({
@@ -287,7 +287,8 @@ export default function AdminDashboard() {
                 key={id}
                 type="button"
                 onClick={() => setTab(id)}
-                className={`flex shrink-0 items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-bold transition ${tab === id ? "bg-white text-[#4e263f]" : "text-white/65 hover:bg-white/10 hover:text-white"}`}
+                style={tab === id ? { color: "#4e263f" } : undefined}
+                className={`flex min-h-11 shrink-0 items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-bold transition ${tab === id ? "bg-white" : "text-white/65 hover:bg-white/10 hover:text-white"}`}
               >
                 <Icon size={16} /> {label}
               </button>

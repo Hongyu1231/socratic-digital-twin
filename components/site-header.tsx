@@ -43,12 +43,10 @@ export function SiteHeader() {
         <span><strong>Socratic</strong><small>Digital Twin Tutor</small></span>
       </Link>
       <div className="institution"><span>NUS</span><small>Faculty of Dentistry · POC</small></div>
-      <nav className="header-actions" aria-label="Primary navigation">
-        <button className={onProfessorPage ? "nav-link active nav-button" : "nav-link nav-button"} onClick={() => { const user = users.find((item) => item.role === "professor"); if (user) switchUser(user.id, user.role); }}>Professor</button>
-        <button className={onAdminPage ? "nav-link active nav-button" : "nav-link nav-button"} onClick={() => { const user = users.find((item) => item.role === "admin"); if (user) switchUser(user.id, user.role); }}>Admin</button>
+      <nav className="header-actions" aria-label="Demo identity selector">
         <div className="role-menu">
           <button className="role-trigger" type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
-            {onAdminPage ? <ShieldCheck size={17} /> : onProfessorPage ? <GraduationCap size={17} /> : <UserRound size={17} />}
+            {identity?.role === "admin" ? <ShieldCheck size={17} /> : identity?.role === "professor" ? <GraduationCap size={17} /> : <UserRound size={17} />}
             <span>{identity?.name ?? (onAdminPage ? "Admin identity" : onProfessorPage ? "Professor identity" : "Student identity")}</span>
           </button>
           {open ? (
