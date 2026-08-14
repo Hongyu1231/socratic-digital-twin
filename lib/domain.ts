@@ -53,7 +53,21 @@ export interface StudentCaseOffering {
   teachingClass: TeachingClass;
   case: ClinicalCase;
   existingSessionId: string | null;
+  existingSessionStatus?: SessionStatus | null;
+  existingSessionPausedAt?: string | null;
   availability: "upcoming" | "open" | "closed";
+}
+
+export type CaseAttachmentKind = "image" | "audio" | "video";
+
+export interface CaseAttachment {
+  id: string;
+  kind: CaseAttachmentKind;
+  title: string;
+  description: string;
+  url?: string;
+  posterUrl?: string;
+  transcript?: string;
 }
 
 export interface CaseVersionSummary {
@@ -102,6 +116,7 @@ export interface ClinicalCase {
   sourceCaseId?: string | null;
   version?: number;
   publishedAt?: string | null;
+  attachments?: CaseAttachment[];
 }
 
 export interface TutorMessage {
@@ -164,6 +179,7 @@ export interface LearningSession {
   summary: SessionSummary | null;
   createdAt: string;
   completedAt: string | null;
+  pausedAt?: string | null;
   assignmentId?: string | null;
   reviewerId?: string | null;
   messages: TutorMessage[];

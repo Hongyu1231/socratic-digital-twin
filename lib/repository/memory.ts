@@ -110,6 +110,7 @@ export class InMemoryTutorRepository implements TutorRepository {
       summary: null,
       createdAt: now,
       completedAt: null,
+      pausedAt: null,
       assignmentId: assignmentId ?? demoAssignment.id,
       reviewerId: null,
       messages: [
@@ -137,6 +138,7 @@ export class InMemoryTutorRepository implements TutorRepository {
     const current = this.store.sessions.get(input.sessionId);
     if (!current) throw new Error("Session not found.");
     if (current.status !== "active") throw new Error("Session is already complete.");
+    if (current.pausedAt) throw new Error("Resume this session before submitting another answer.");
     if (current.state.version !== input.expectedVersion) {
       throw new Error("Session changed. Refresh before submitting another answer.");
     }
@@ -148,6 +150,7 @@ export class InMemoryTutorRepository implements TutorRepository {
       score: input.score,
       summary: input.summary,
       completedAt: input.completedAt,
+      pausedAt: null,
       messages: [...current.messages, input.studentMessage, input.aiMessage],
       evaluations: [...current.evaluations, input.evaluation],
       state: clone(input.nextState),
@@ -165,8 +168,18 @@ export class InMemoryTutorRepository implements TutorRepository {
       score: summary.overallScore,
       summary: clone(summary),
       completedAt,
+      pausedAt: null,
     };
     this.store.sessions.set(sessionId, next);
+    return this.bundle(next);
+  }
+
+  async setSessionPaused(sessionId: string, pausedAt: string | null) {
+    const current = this.store.sessions.get(sessionId);
+    if (!current) throw new Error("Session not found.");
+    if (current.status !== "active") throw new Error("Completed sessions cannot be paused or resumed.");
+    const next = { ...current, pausedAt };
+    this.store.sessions.set(sessionId, clone(next));
     return this.bundle(next);
   }
 
@@ -334,7 +347,18 @@ export class InMemoryTutorRepository implements TutorRepository {
   async listStudentOfferings(studentId: string): Promise<StudentCaseOffering[]> {
     const now = new Date().toISOString();
     const classes = [...this.store.classes.values()].filter((item) => item.members.some((member) => member.userId === studentId && member.role === "student"));
-    return classes.flatMap((teachingClass) => [...this.store.assignments.values()].filter((item) => item.classId === teachingClass.id).map((assignment) => ({ assignment: clone(assignment), teachingClass: clone(teachingClass), case: clone(this.store.cases.get(assignment.caseId)!), existingSessionId: [...this.store.sessions.values()].find((item) => item.studentId === studentId && item.assignmentId === assignment.id)?.id ?? null, availability: assignment.status !== "open" || (assignment.dueAt && assignment.dueAt <= now) ? "closed" as const : assignment.opensAt > now ? "upcoming" as const : "open" as const })).filter((offering) => offering.availability === "open" || Boolean(offering.existingSessionId)));
+    return classes.flatMap((teachingClass) => [...this.store.assignments.values()].filter((item) => item.classId === teachingClass.id).map((assignment) => {
+      const existing = [...this.store.sessions.values()].find((item) => item.studentId === studentId && item.assignmentId === assignment.id);
+      return {
+        assignment: clone(assignment),
+        teachingClass: clone(teachingClass),
+        case: clone(this.store.cases.get(assignment.caseId)!),
+        existingSessionId: existing?.id ?? null,
+        existingSessionStatus: existing?.status ?? null,
+        existingSessionPausedAt: existing?.pausedAt ?? null,
+        availability: assignment.status !== "open" || (assignment.dueAt && assignment.dueAt <= now) ? "closed" as const : assignment.opensAt > now ? "upcoming" as const : "open" as const,
+      };
+    }).filter((offering) => offering.availability === "open" || Boolean(offering.existingSessionId)));
   }
 
   async listSessionsForProfessor(professorId: string) {

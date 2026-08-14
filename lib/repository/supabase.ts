@@ -199,6 +199,7 @@ export class SupabaseTutorRepository implements TutorRepository {
       summary: (context.summary as SessionSummary | undefined) ?? null,
       createdAt: sessionRow.started_at,
       completedAt: sessionRow.ended_at,
+      pausedAt: context.pausedAt ?? null,
       assignmentId: sessionRow.class_case_assignment_id ?? null,
       reviewerId: sessionRow.professor_id ?? null,
       messages: messageRows.map(mapMessage),
@@ -276,7 +277,7 @@ export class SupabaseTutorRepository implements TutorRepository {
     if (!bundle) throw new Error("Session not found.");
     const phase = bundle.case.phases.find((item) => item.order === bundle.session.currentPhase)!;
     const nextPhase = bundle.case.phases.find((item) => item.order === input.nextPhase)!;
-    const context = { score: input.score, summary: input.summary, reviewStatus: bundle.session.reviewStatus };
+    const context = { score: input.score, summary: input.summary, reviewStatus: bundle.session.reviewStatus, pausedAt: null };
     const { error } = await this.client.rpc("commit_tutor_turn", {
       p_session_id: input.sessionId,
       p_student_sender_id: bundle.session.studentId,
@@ -318,9 +319,21 @@ export class SupabaseTutorRepository implements TutorRepository {
     if (!current) throw new Error("Session not found.");
     const { error } = await this.client.from("sessions").update({
       status: "completed", ended_at: completedAt,
-      context: { score: summary.overallScore, summary, reviewStatus: current.session.reviewStatus },
+      context: { score: summary.overallScore, summary, reviewStatus: current.session.reviewStatus, pausedAt: null },
     }).eq("id", sessionId);
     if (error) throw new Error(`Complete session: ${error.message}`);
+    return (await this.getSession(sessionId))!;
+  }
+
+  async setSessionPaused(sessionId: string, pausedAt: string | null) {
+    const { data, error } = await this.client.from("sessions").select("status, context").eq("id", sessionId).maybeSingle();
+    if (error) throw new Error(`Read session pause state: ${error.message}`);
+    if (!data) throw new Error("Session not found.");
+    if (data.status !== "active") throw new Error("Completed sessions cannot be paused or resumed.");
+    const { error: updateError } = await this.client.from("sessions").update({
+      context: { ...(data.context ?? {}), pausedAt },
+    }).eq("id", sessionId);
+    if (updateError) throw new Error(`Update session pause state: ${updateError.message}`);
     return (await this.getSession(sessionId))!;
   }
 
@@ -512,7 +525,18 @@ export class SupabaseTutorRepository implements TutorRepository {
     const classes = await this.listClasses();
     const sessions = await this.listSessions();
     const now = new Date().toISOString();
-    const offerings = await Promise.all(assignments.map(async (assignment): Promise<StudentCaseOffering> => ({ assignment, teachingClass: classes.find((item) => item.id === assignment.classId)!, case: (await this.getCase(assignment.caseId))!, existingSessionId: sessions.find((item) => item.session.studentId === studentId && item.session.assignmentId === assignment.id)?.session.id ?? null, availability: assignment.status !== "open" || (assignment.dueAt && assignment.dueAt <= now) ? "closed" : assignment.opensAt > now ? "upcoming" : "open" })));
+    const offerings = await Promise.all(assignments.map(async (assignment): Promise<StudentCaseOffering> => {
+      const existing = sessions.find((item) => item.session.studentId === studentId && item.session.assignmentId === assignment.id)?.session;
+      return {
+        assignment,
+        teachingClass: classes.find((item) => item.id === assignment.classId)!,
+        case: (await this.getCase(assignment.caseId))!,
+        existingSessionId: existing?.id ?? null,
+        existingSessionStatus: existing?.status ?? null,
+        existingSessionPausedAt: existing?.pausedAt ?? null,
+        availability: assignment.status !== "open" || (assignment.dueAt && assignment.dueAt <= now) ? "closed" : assignment.opensAt > now ? "upcoming" : "open",
+      };
+    }));
     return offerings.filter((offering) => offering.availability === "open" || Boolean(offering.existingSessionId));
   }
 

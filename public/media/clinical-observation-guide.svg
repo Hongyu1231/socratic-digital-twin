@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Clinical observation guide</title>
+  <desc id="desc">A non-diagnostic teaching diagram showing a structured observe, compare, test, and reflect workflow.</desc>
+  <rect width="1200" height="760" fill="#f6f3ed"/>
+  <rect x="70" y="70" width="1060" height="620" rx="34" fill="#fffdfa" stroke="#ded8d0" stroke-width="4"/>
+  <text x="120" y="155" fill="#21172b" font-family="Georgia, serif" font-size="52">Clinical observation guide</text>
+  <text x="120" y="205" fill="#726c73" font-family="Arial, sans-serif" font-size="23">Teaching simulation · not a diagnostic image</text>
+  <g font-family="Arial, sans-serif" text-anchor="middle">
+    <g transform="translate(225 390)"><circle r="105" fill="#e5ede7"/><text y="-8" fill="#365846" font-size="31" font-weight="700">OBSERVE</text><text y="34" fill="#476555" font-size="19">Describe before</text><text y="60" fill="#476555" font-size="19">interpreting</text></g>
+    <g transform="translate(475 390)"><circle r="105" fill="#f5e9e7"/><text y="-8" fill="#842f2b" font-size="31" font-weight="700">COMPARE</text><text y="34" fill="#842f2b" font-size="19">Use controls and</text><text y="60" fill="#842f2b" font-size="19">contralateral findings</text></g>
+    <g transform="translate(725 390)"><circle r="105" fill="#eeeae3"/><text y="-8" fill="#4e263f" font-size="31" font-weight="700">TEST</text><text y="34" fill="#726c73" font-size="19">Choose proportionate</text><text y="60" fill="#726c73" font-size="19">investigations</text></g>
+    <g transform="translate(975 390)"><circle r="105" fill="#4e263f"/><text y="-8" fill="#fffdfa" font-size="31" font-weight="700">REFLECT</text><text y="34" fill="#f0c0b5" font-size="19">Name uncertainty and</text><text y="60" fill="#f0c0b5" font-size="19">reassessment triggers</text></g>
+  </g>
+  <path d="M330 390h40m210 0h40m210 0h40" stroke="#de695c" stroke-width="7" stroke-linecap="round"/>
+  <text x="600" y="625" fill="#726c73" font-family="Arial, sans-serif" text-anchor="middle" font-size="21">Use this framework to organize the evidence supplied in the case.</text>
+</svg>

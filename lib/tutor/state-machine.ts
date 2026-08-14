@@ -37,6 +37,7 @@ async function performStudentAnswer(
   if (!bundle) throw new Error("Session not found.");
   if (bundle.session.studentId !== studentId) throw new Error("This session belongs to another learner.");
   if (bundle.session.status !== "active") throw new Error("This learning session is already complete.");
+  if (bundle.session.pausedAt) throw new Error("Resume this session before submitting another answer.");
 
   const phase = bundle.case.phases.find((item) => item.order === bundle.session.currentPhase);
   if (!phase) throw new Error("The current teaching phase is invalid.");

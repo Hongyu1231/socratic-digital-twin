@@ -47,6 +47,26 @@ describe("InMemoryTutorRepository class workflows", () => {
     );
   });
 
+  it("persists a paused session and exposes it as resumable from the case list", async () => {
+    const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID, DEMO_ASSIGNMENT_ID);
+    const pausedAt = "2026-08-14T08:00:00.000Z";
+
+    const paused = await repository.setSessionPaused(started.session.id, pausedAt);
+    expect(paused.session.pausedAt).toBe(pausedAt);
+    await expect(repository.listStudentOfferings(DEMO_STUDENT_ID)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          existingSessionId: started.session.id,
+          existingSessionStatus: "active",
+          existingSessionPausedAt: pausedAt,
+        }),
+      ]),
+    );
+
+    const resumed = await repository.setSessionPaused(started.session.id, null);
+    expect(resumed.session.pausedAt).toBeNull();
+  });
+
   it("only exposes sessions from classes where the professor is a member", async () => {
     const privateClass = await repository.saveClass({
       id: "88888888-8888-4888-8888-888888888888",

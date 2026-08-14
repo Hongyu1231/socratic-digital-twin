@@ -35,6 +35,20 @@ describe("Socratic state machine", () => {
     const second = await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "The canine is unerupted and could represent delayed eruption.", requestId);
     expect(second.session.messages).toHaveLength(first.session.messages.length);
   });
+  it("blocks answers while paused and continues from the same state after resume", async () => {
+    const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);
+    const version = started.session.state.version;
+    await repository.setSessionPaused(started.session.id, new Date().toISOString());
+
+    await expect(submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "The eruption is delayed and asymmetric.")).rejects.toThrow(
+      "Resume this session before submitting another answer.",
+    );
+
+    const resumed = await repository.setSessionPaused(started.session.id, null);
+    expect(resumed.session.state.version).toBe(version);
+    const answered = await submitStudentAnswer(resumed.session.id, DEMO_STUDENT_ID, "The unerupted canine and eruption asymmetry make impaction more likely at this age.");
+    expect(answered.session.messages).toHaveLength(3);
+  });
   it("creates a formative partial summary when ended early", async () => {
     const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);
     const completed = await finishSession(started.session.id, DEMO_STUDENT_ID);

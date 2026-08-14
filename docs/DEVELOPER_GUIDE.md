@@ -185,6 +185,8 @@ POST /api/session/message
 }
 ```
 
+`POST /api/session/:id/pause` 与 `POST /api/session/:id/resume` 采用 Next.js 15 异步路由参数，校验学生所有权后在 session context 中持久化 `pausedAt`。暂停不修改状态机版本；暂停期间拒绝新的回答。
+
 ```json
 POST /api/professor/review
 {
@@ -381,6 +383,7 @@ The schema covers users, classes and memberships, versioned cases and phases, as
 - Professors may assign only published cases to their own classes.
 - Closed or expired assignments cannot start new sessions; an existing session may continue.
 - A student has one resumable session per assignment.
+- `POST /api/session/:id/pause` persists `pausedAt` without changing the learner-state version; `POST /api/session/:id/resume` clears it. Answer submission is rejected while paused.
 - Only completed sessions may be reviewed.
 - The first professor to save a draft atomically claims the review; colleagues become read-only.
 - Admin may release or reassign unfinished reviews; completed reviews are locked.

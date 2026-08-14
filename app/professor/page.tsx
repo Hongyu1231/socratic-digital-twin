@@ -69,9 +69,18 @@ function formatDate(value?: string | null, includeTime = false) {
   if (!value) return "No deadline";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, includeTime
+  return new Intl.DateTimeFormat("en-GB", includeTime
     ? { dateStyle: "medium", timeStyle: "short" }
     : { dateStyle: "medium" }).format(date);
+}
+
+function toIsoDateTime(value: string, label: string) {
+  const normalized = value.trim().replace(" ", "T");
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`${label} must use the format YYYY-MM-DD HH:mm.`);
+  }
+  return date.toISOString();
 }
 
 function getClassStudents(item: ProfessorClass) {
@@ -182,8 +191,8 @@ export default function ProfessorDashboard() {
         const payload = {
           classId: draft.classId,
           caseId: draft.caseId,
-          opensAt: new Date(draft.opensAt).toISOString(),
-          dueAt: draft.dueAt ? new Date(draft.dueAt).toISOString() : null,
+          opensAt: toIsoDateTime(draft.opensAt, "Opening time"),
+          dueAt: draft.dueAt ? toIsoDateTime(draft.dueAt, "Deadline") : null,
         };
         await fetch("/api/professor/assignments", {
           method: "POST",
@@ -271,8 +280,8 @@ export default function ProfessorDashboard() {
           {showAssignmentForm ? <div className={styles.assignmentForm}>
             <label><span>Class</span><select value={draft.classId} onChange={(event) => setDraft((current) => ({ ...current, classId: event.target.value }))}><option value="">Select a class</option>{classes.map((item) => <option value={item.id} key={item.id}>{item.code} · {item.name}</option>)}</select></label>
             <label><span>Published case</span><select value={draft.caseId} onChange={(event) => setDraft((current) => ({ ...current, caseId: event.target.value }))}><option value="">Select a case</option>{cases.map((item) => <option value={item.id} key={item.id}>{item.title}{item.version ? ` · v${item.version}` : ""}</option>)}</select></label>
-            <label><span>Opens</span><input type="datetime-local" value={draft.opensAt} onChange={(event) => setDraft((current) => ({ ...current, opensAt: event.target.value }))} /></label>
-            <label><span>Deadline (optional)</span><input type="datetime-local" value={draft.dueAt} onChange={(event) => setDraft((current) => ({ ...current, dueAt: event.target.value }))} /></label>
+            <label><span>Opens</span><input type="text" inputMode="numeric" lang="en" placeholder="YYYY-MM-DD HH:mm" value={draft.opensAt} onChange={(event) => setDraft((current) => ({ ...current, opensAt: event.target.value }))} /><small>Example: 2026-08-14 09:00</small></label>
+            <label><span>Deadline (optional)</span><input type="text" inputMode="numeric" lang="en" placeholder="YYYY-MM-DD HH:mm" value={draft.dueAt} onChange={(event) => setDraft((current) => ({ ...current, dueAt: event.target.value }))} /><small>Leave blank when there is no deadline.</small></label>
             <div className={styles.formActions}><button type="button" className="secondary-button" onClick={() => { setShowAssignmentForm(false); setDraft(EMPTY_DRAFT); }}>Cancel</button><button type="button" className="primary-button" disabled={pending} onClick={createAssignment}>{pending ? <LoaderCircle size={15} className="spin" /> : <BookOpenCheck size={15} />} Publish</button></div>
           </div> : null}
           {assignments.length === 0 ? <Empty title="No assignments yet" text="Publish a case to one of your classes to begin collecting student sessions." /> : <div className={styles.assignmentList}>{assignments.map((item) => {

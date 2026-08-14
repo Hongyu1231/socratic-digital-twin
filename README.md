@@ -9,6 +9,8 @@ The project runs without external services: it uses an in-process repository and
 ## Features
 
 - Students choose a class assignment, work through a five-phase case, and receive a formative summary.
+- Case cards load with explicit skeletons, use equal-width responsive columns, and expose synthetic image/audio teaching attachments inside a session.
+- Students can pause safely, return to the case list, and resume the same phase and transcript. Browser-native dictation and tutor read-aloud remain optional enhancements to text input.
 - Each answer is classified as `correct`, `partial`, `vague`, or `wrong`.
 - The system records reasoning gaps, strengths, weaknesses, phase mastery, and previous errors.
 - Admins manage seeded users, classes, case versions, publication, and review ownership.
@@ -184,6 +186,7 @@ AI scores map to `correct=100`, `partial=70`, `vague=40`, and `wrong=0`; the rou
 - Professors may assign only published cases to their own classes.
 - Closed or expired assignments cannot create new sessions; an existing session may continue.
 - Each student has one resumable session per assignment.
+- Pausing preserves the active session, learner-state version, phase, and transcript; submitting another answer is blocked until the student resumes.
 - Only completed sessions may be claimed and reviewed; in-progress sessions are read-only to professors.
 - The first professor to save a draft atomically claims the review; colleagues become read-only.
 - Admins may release or reassign unfinished reviews; completed reviews are locked.
@@ -208,6 +211,8 @@ Benjamin Lee and Chloe Wong are additional seeded student identities.
 | `POST` | `/api/session/start` |
 | `POST` | `/api/session/message` |
 | `GET` | `/api/session/:id` |
+| `POST` | `/api/session/:id/pause` |
+| `POST` | `/api/session/:id/resume` |
 | `POST` | `/api/session/:id/complete` |
 | `GET` | `/api/professor/sessions` |
 | `GET` | `/api/professor/classes` |
@@ -259,7 +264,7 @@ npm run lint            # ESLint
 npm run build           # Next.js production build
 ```
 
-Tests cover the four classifications and score calculation, three-attempt protection, phase progression and early completion, memory-patch allow-listing, signed-cookie tamper resistance, class and assignment isolation, session resumption, review claiming/conflicts/locking, and valid/invalid OpenAI and Claude output with deterministic fallback.
+Tests cover the four classifications and score calculation, three-attempt protection, phase progression and early completion, memory-patch allow-listing, signed-cookie tamper resistance, class and assignment isolation, persisted pause/resume behavior, review claiming/conflicts/locking, and valid/invalid OpenAI and Claude output with deterministic fallback.
 
 ### Governed tutor evolution
 

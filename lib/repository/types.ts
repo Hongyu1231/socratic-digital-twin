@@ -52,6 +52,7 @@ export interface TutorRepository {
     summary: SessionSummary,
     completedAt: string,
   ): Promise<SessionBundle>;
+  setSessionPaused(sessionId: string, pausedAt: string | null): Promise<SessionBundle>;
   listSessions(): Promise<SessionBundle[]>;
   saveReview(input: SaveReviewInput): Promise<SessionBundle>;
   listUsers(): Promise<DemoUser[]>;

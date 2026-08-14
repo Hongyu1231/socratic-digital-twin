@@ -28,6 +28,7 @@
 
 - **Begin Socratic session**：第一次开始该任务。
 - **Continue session**：恢复该任务已有的会话。
+- **Resume paused session**：恢复之前明确暂停的会话，阶段、对话和学习状态均会保留。
 - 已关闭或过期但已有会话的任务仍可显示，学生可以继续；不能为不可用任务创建新会话。
 
 ### 完成对话
@@ -36,6 +37,10 @@
 2. 在 **Your clinical reasoning** 中输入你的判断及理由。
 3. 点击 **Send answer**，或按 Enter 发送；Shift+Enter 换行。
 4. 你的回答会立即出现在对话中，然后显示等待状态，最后出现 tutor 的一个追问。
+
+左侧 **Case attachments** 提供合成教学图片和病例描述朗读。点击麦克风可使用浏览器语音听写；点击 tutor 消息旁的 **Read aloud** 可朗读单条回复，**Auto-read** 可自动朗读新的 tutor 回复。语音能力依赖浏览器支持，并且不应录入真实患者身份资料。
+
+点击 **Pause & return to cases** 会保存当前阶段、对话和学习状态并返回首页。首页卡片随后显示 **Resume paused session**；恢复前 API 不接受新的学生回答。
 
 请表达推理证据，而不只是最终答案。Tutor 不会直接展示内部分类或推理缺口给学生。
 
@@ -215,9 +220,14 @@ The home page shows only assignments available through the student's class membe
 
 - **Begin Socratic session** starts a new assignment session.
 - **Continue session** resumes the single existing session for that assignment.
+- **Resume paused session** restores an explicitly paused session with the same phase, transcript, and learner state.
 - A closed/expired assignment may remain visible when a session already exists; that session can continue, but a new one cannot start.
 
 In the conversation page, read the case and phase goal, enter reasoning in **Your clinical reasoning**, then click **Send answer** or press Enter. The student bubble appears immediately; a waiting state is shown until the tutor returns one follow-up question. Shift+Enter inserts a line break.
+
+**Case attachments** contains synthetic teaching visuals and a narrated case history. The microphone button uses browser-native dictation. **Read aloud** speaks one tutor message, while **Auto-read** speaks new tutor replies automatically. Browser support varies, and real patient identifiers must never be dictated or entered.
+
+Select **Pause & return to cases** to preserve the current phase, transcript, and learner state. The home card changes to **Resume paused session**. New answers are rejected until the session has been resumed.
 
 There are five reasoning phases. A correct response advances the phase. Other responses receive another Socratic question. After the third unsuccessful attempt in a phase, the unresolved gap is recorded and the flow advances to avoid a loop. Completing phase five generates a summary automatically.
 

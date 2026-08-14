@@ -9,6 +9,7 @@ export default function CaseSelectionPage() {
   const router = useRouter();
   const [offerings, setOfferings] = useState<StudentCaseOffering[]>([]);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -21,13 +22,33 @@ export default function CaseSelectionPage() {
       .then((data) => setOfferings(data.offerings ?? []))
       .catch((reason) => {
         if (reason instanceof Error && reason.name !== "AbortError") setError(reason.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
   }, []);
 
   function startCase(offering: StudentCaseOffering) {
     if (offering.existingSessionId) {
-      router.push(`/session/${offering.existingSessionId}`);
+      if (offering.existingSessionStatus === "completed") {
+        router.push(`/session/${offering.existingSessionId}/summary`);
+        return;
+      }
+      if (!offering.existingSessionPausedAt) {
+        router.push(`/session/${offering.existingSessionId}`);
+        return;
+      }
+      setError("");
+      startTransition(async () => {
+        const response = await fetch(`/api/session/${offering.existingSessionId}/resume`, { method: "POST" });
+        const data = await response.json();
+        if (!response.ok) {
+          setError(data.error ?? "The paused session could not be resumed.");
+          return;
+        }
+        router.push(`/session/${offering.existingSessionId}`);
+      });
       return;
     }
     setError("");
@@ -78,12 +99,17 @@ export default function CaseSelectionPage() {
             <span className="section-kicker">Available simulation</span>
             <h2 id="cases-title">Choose a clinical case</h2>
           </div>
-          <p>Choose from text-only teaching simulations assigned by your professor.</p>
+          <p>Choose from multimedia teaching simulations assigned by your professor.</p>
         </div>
 
         {error ? <div className="error-banner" role="alert">{error}</div> : null}
-        {offerings.length === 0 && !error ? <div className="empty-state"><BookOpen /><h2>No assigned cases yet</h2><p>Your professor&apos;s open class assignments will appear here.</p></div> : null}
-        <div className="case-grid">
+        {loading ? (
+          <div className="case-grid case-grid-loading" aria-label="Loading assigned clinical cases" aria-busy="true">
+            {[0, 1].map((item) => <article className="case-card case-card-skeleton" key={item} aria-hidden="true"><i /><i /><i /><i /><i /></article>)}
+          </div>
+        ) : null}
+        {!loading && offerings.length === 0 && !error ? <div className="empty-state"><BookOpen /><h2>No assigned cases yet</h2><p>Your professor&apos;s open class assignments will appear here.</p></div> : null}
+        {!loading ? <div className="case-grid">
           {offerings.map((offering, index) => {
             const clinicalCase = offering.case;
             const disabled = offering.availability !== "open" && !offering.existingSessionId;
@@ -105,7 +131,7 @@ export default function CaseSelectionPage() {
                 </ul>
               </div>
               <button className="primary-button" onClick={() => startCase(offering)} disabled={pending || disabled}>
-                {pending ? "Preparing session…" : offering.existingSessionId ? "Continue session" : offering.availability === "upcoming" ? "Opens soon" : offering.availability === "closed" ? "Assignment closed" : "Begin Socratic session"}
+                {pending ? "Preparing session…" : offering.existingSessionPausedAt ? "Resume paused session" : offering.existingSessionStatus === "completed" ? "View learning summary" : offering.existingSessionId ? "Continue session" : offering.availability === "upcoming" ? "Opens soon" : offering.availability === "closed" ? "Assignment closed" : "Begin Socratic session"}
                 <ArrowRight size={18} />
               </button>
             </article>
@@ -116,7 +142,7 @@ export default function CaseSelectionPage() {
             <p>Future cases will reuse the same tutor state machine with expert-authored rubrics.</p>
             <div className="preview-lines"><i /><i /><i /></div>
           </div>
-        </div>
+        </div> : null}
       </section>
     </div>
   );

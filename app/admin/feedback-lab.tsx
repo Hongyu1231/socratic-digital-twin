@@ -98,7 +98,7 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 function formatDate(value: string | null | undefined) {
   if (!value) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("en-GB", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function percent(value: number | null | undefined) {
