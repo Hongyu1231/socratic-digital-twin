@@ -179,7 +179,7 @@ button { color: inherit; }
 .voice-toggle { min-height: 30px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 6px 9px; background: white; color: var(--muted); font-size: 9px; font-weight: 750; cursor: pointer; }
 .voice-toggle[aria-pressed="true"] { border-color: #b8d4c0; background: var(--sage-pale); color: #365846; }
 .voice-toggle:disabled { cursor: not-allowed; opacity: .55; }
-.voice-notice { border-bottom: 1px solid #ecd0cc; background: #fff5f3; color: #7d403a; padding: 9px 24px; font-size: 11px; text-align: center; }
+.voice-notice { align-self: stretch; border: 1px solid #ecd0cc; border-radius: 8px; background: #fff5f3; color: #7d403a; padding: 9px 12px; font-size: 10px; text-align: left; }
 .runtime-badge { border-radius: 999px; background: var(--sage-pale); color: #476555; font-size: 10px; font-weight: 800; padding: 7px 10px; text-transform: uppercase; letter-spacing: .08em; }
 .message-list { padding: 35px clamp(25px, 5vw, 70px); overflow-y: auto; display: flex; flex-direction: column; gap: 27px; }
 .message { max-width: 720px; display: grid; grid-template-columns: 32px 1fr; gap: 12px; }
@@ -192,6 +192,7 @@ button { color: inherit; }
 .message.student .message-meta { text-align: right; color: #b9a9b3; }
 .message-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .message-footer button { display: inline-flex; align-items: center; gap: 4px; margin-top: 7px; border: 0; background: transparent; color: var(--muted); font-size: 9px; cursor: pointer; }
+.voice-inline-loading { display: inline-flex; align-items: center; gap: 4px; margin-left: 9px; color: #8d524b; font: 9px/1.2 ui-monospace, monospace; letter-spacing: .04em; white-space: nowrap; vertical-align: middle; }
 .thinking { display: flex; gap: 5px; align-items: center; min-height: 52px; }
 .thinking i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: pulse 1s ease-in-out infinite; }
 .thinking i:nth-child(2) { animation-delay: .15s; }.thinking i:nth-child(3) { animation-delay: .3s; }

@@ -42,6 +42,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
   const [speechInputAvailable, setSpeechInputAvailable] = useState(false);
   const [speechOutputAvailable, setSpeechOutputAvailable] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [preparingVoiceMessageId, setPreparingVoiceMessageId] = useState<string | null>(null);
   const [autoRead, setAutoRead] = useState(true);
   const [voiceNotice, setVoiceNotice] = useState("");
   const [mobileCaseOpen, setMobileCaseOpen] = useState(false);
@@ -70,6 +71,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
     window.speechSynthesis?.cancel();
     utteranceRef.current = null;
     setSpeakingMessageId(null);
+    setPreparingVoiceMessageId(null);
   }, []);
 
   useEffect(() => {
@@ -100,6 +102,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
 
   const speakWithBrowserVoice = useCallback((message: TutorMessage) => {
     if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
+      setPreparingVoiceMessageId(null);
       setVoiceNotice("Tutor audio is unavailable right now. You can still read every reply on screen.");
       return false;
     }
@@ -122,11 +125,13 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
       setSpeakingMessageId(null);
     };
     utterance.onstart = () => {
+      setPreparingVoiceMessageId(null);
       setVoiceNotice("");
       setSpeakingMessageId(message.id);
     };
     utterance.onend = finish;
     utterance.onerror = (event) => {
+      setPreparingVoiceMessageId(null);
       finish();
       setVoiceNotice(event.error === "not-allowed"
         ? "Your browser blocked automatic audio. Click Read aloud to start the AI-generated voice."
@@ -141,7 +146,8 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
   const speakTutorMessage = useCallback(async (message: TutorMessage) => {
     stopTutorSpeech();
     setSpeakingMessageId(message.id);
-    setVoiceNotice("Preparing the AI-generated tutor voice…");
+    setPreparingVoiceMessageId(message.id);
+    setVoiceNotice("");
 
     const controller = new AbortController();
     speechRequestRef.current = controller;
@@ -162,7 +168,10 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
       audioUrlRef.current = audioUrl;
       audioRef.current = audio;
       speechRequestRef.current = null;
-      audio.onplaying = () => setVoiceNotice("");
+      audio.onplaying = () => {
+        setPreparingVoiceMessageId(null);
+        setVoiceNotice("");
+      };
       audio.onended = () => {
         if (audioRef.current !== audio) return;
         audioRef.current = null;
@@ -176,6 +185,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
         URL.revokeObjectURL(audioUrl);
         audioUrlRef.current = null;
         setSpeakingMessageId(null);
+        setPreparingVoiceMessageId(null);
         setVoiceNotice("Tutor audio could not play. Click Read aloud to retry.");
       };
       await audio.play();
@@ -183,7 +193,6 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
     } catch {
       if (controller.signal.aborted) return false;
       speechRequestRef.current = null;
-      setVoiceNotice("Using this device's English voice…");
       return speakWithBrowserVoice(message);
     }
   }, [sessionId, speakWithBrowserVoice, stopTutorSpeech]);
@@ -405,7 +414,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
             <button className="mobile-pause-button" type="button" onClick={pauseSession} disabled={pending || Boolean(session.pausedAt)}><PauseCircle size={14} /><span>Pause</span></button>
             <button className="mobile-end-button" type="button" onClick={endSession} disabled={pending}>End</button>
             <button className="voice-toggle" type="button" aria-pressed={autoRead && speechOutputAvailable} onClick={toggleTutorVoice} disabled={!speechOutputAvailable} title={speechOutputAvailable ? "Turn automatic tutor voice replies on or off" : "Tutor voice is not supported by this browser"}>
-              {autoRead && speechOutputAvailable ? <Volume2 size={14} /> : <VolumeX size={14} />} <span>{!speechOutputAvailable ? "Voice unavailable" : speakingMessageId ? "Tutor speaking" : autoRead ? "Tutor voice on" : "Tutor voice off"}</span>
+              {autoRead && speechOutputAvailable ? <Volume2 size={14} /> : <VolumeX size={14} />} <span>{!speechOutputAvailable ? "Voice unavailable" : preparingVoiceMessageId ? "Preparing voice" : speakingMessageId ? "Tutor speaking" : autoRead ? "Tutor voice on" : "Tutor voice off"}</span>
             </button>
             <span className="runtime-badge">
               {bundle.runtime.tutor === "openai"
@@ -416,13 +425,16 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
             </span>
           </div>
         </header>
-        {voiceNotice ? <div className="voice-notice" role="status">{voiceNotice}</div> : null}
         <div className="message-list" aria-live="polite">
+          {voiceNotice ? <div className="voice-notice" role="status">{voiceNotice}</div> : null}
           {visibleMessages.map((message) => (
             <article className={`message ${message.sender}`} key={message.id}>
               {message.sender === "ai" ? <div className="message-avatar">S</div> : null}
               <div>
-                <div className="message-bubble">{message.content}</div>
+                <div className="message-bubble">
+                  {message.content}
+                  {preparingVoiceMessageId === message.id ? <span className="voice-inline-loading" role="status"><LoaderCircle className="spin" size={12} /> Preparing voice…</span> : null}
+                </div>
                 <div className="message-footer"><span className="message-meta">{message.sender === "ai" ? "Socratic tutor" : "Your reasoning"}</span>{message.sender === "ai" ? <button type="button" onClick={() => readTutorMessage(message)} aria-label={`${speakingMessageId === message.id ? "Stop reading" : "Read aloud"} tutor message`}>{speakingMessageId === message.id ? <VolumeX size={13} /> : <Volume2 size={13} />}{speakingMessageId === message.id ? "Stop" : "Read aloud"}</button> : null}</div>
               </div>
               {message.sender === "student" ? <div className="message-avatar">A</div> : null}
