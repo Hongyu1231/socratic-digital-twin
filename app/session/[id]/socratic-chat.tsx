@@ -2,10 +2,16 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUp, BookOpen, Check, Info, LoaderCircle, Mic, MicOff, PauseCircle, Play, Volume2, VolumeX, X } from "lucide-react";
+import { AlertCircle, ArrowUp, BookOpen, Check, Info, LoaderCircle, Mic, MicOff, PauseCircle, Play, RotateCw, Volume2, VolumeX, X } from "lucide-react";
 import type { SessionBundle, TutorMessage } from "@/lib/domain";
 import { CaseResources } from "@/components/case-resources";
 import { selectPreferredEnglishVoice } from "@/lib/speech";
+import { describeRequestFailure, readJsonBody, requestSignal } from "@/lib/client-request";
+
+// Ending a session generates the summary through the tutor model, so the
+// request needs a deadline that is generous but not unbounded.
+const END_SESSION_TIMEOUT_MS = 45_000;
+const SLOW_NOTICE_MS = 8_000;
 
 interface BrowserSpeechRecognitionResult {
   readonly length: number;
@@ -48,6 +54,9 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
   const [autoRead, setAutoRead] = useState(true);
   const [voiceNotice, setVoiceNotice] = useState("");
   const [mobileCaseOpen, setMobileCaseOpen] = useState(false);
+  const [endNotice, setEndNotice] = useState("");
+  const [failedSend, setFailedSend] = useState<{ content: string; clientRequestId: string; error: string } | null>(null);
+  const messageListRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
@@ -200,22 +209,33 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
   }, [sessionId, speakWithBrowserVoice, stopTutorSpeech]);
 
   useEffect(() => {
+    // Warm the summary route so ending the session does not stall on a cold
+    // client-side transition.
+    router.prefetch(`/session/${sessionId}/summary`);
     fetch(`/api/session/${sessionId}`)
       .then(async (response) => {
-        const data = await response.json();
+        const data = await readJsonBody<SessionBundle & { error?: string }>(response, "Session could not be loaded.");
         if (!response.ok) throw new Error(data.error ?? "Session could not be loaded.");
-        return data as SessionBundle;
+        return data;
       })
       .then((data) => {
         setBundle(data);
         if (data.session.status === "completed") router.replace(`/session/${sessionId}/summary`);
       })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : "Session could not be loaded."));
+      .catch((reason) => setError(describeRequestFailure(reason, "Session could not be loaded.", "The session is taking longer than expected to load.")));
   }, [router, sessionId]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [bundle?.session.messages.length, optimisticMessage?.id, pending]);
+    const list = messageListRef.current;
+    const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    // On the desktop layout the list is its own scroll container; on the narrow
+    // layout the document scrolls instead, so fall back to the end sentinel.
+    if (list && list.scrollHeight > list.clientHeight) {
+      list.scrollTo({ top: list.scrollHeight, behavior });
+      return;
+    }
+    bottomRef.current?.scrollIntoView({ block: "end", behavior });
+  }, [bundle?.session.messages.length, optimisticMessage?.id, failedSend, pending]);
 
   useEffect(() => {
     if (!autoRead || pending || !bundle || !speechOutputAvailable) return;
@@ -290,18 +310,15 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
     }
   }
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    const message = answer.trim();
-    if (!message || pending) return;
-    const clientRequestId = crypto.randomUUID();
+  async function sendMessage(message: string, clientRequestId: string) {
+    if (pending) return;
 
     // Resume speech from the student's click/keypress so browsers that suspend
     // synthesis while a tab is idle can play the asynchronous tutor reply.
     if (autoRead && speechOutputAvailable) window.speechSynthesis?.resume();
 
-    setAnswer("");
     setError("");
+    setFailedSend(null);
     setOptimisticMessage({
       id: `optimistic-${clientRequestId}`,
       sessionId,
@@ -317,33 +334,51 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId, message, clientRequestId }),
       });
-      const data = await response.json();
+      const data = await readJsonBody<SessionBundle & { error?: string }>(response, "Your answer could not be evaluated.");
       if (!response.ok) {
         throw new Error(data.error ?? "Your answer could not be evaluated.");
       }
-      setBundle(data as SessionBundle);
+      setBundle(data);
       if (data.session.status === "completed") router.push(`/session/${sessionId}/summary`);
     } catch (reason) {
-      setAnswer(message);
-      setError(reason instanceof Error ? reason.message : "Your answer could not be evaluated.");
+      // Keep the answer in the transcript as a failed message. It used to be
+      // removed and reported only in the composer, which sits below the fold.
+      setFailedSend({
+        content: message,
+        clientRequestId,
+        error: describeRequestFailure(reason, "Your answer could not be evaluated.", "The tutor did not reply in time."),
+      });
     } finally {
       setOptimisticMessage(null);
       setPendingAction(null);
     }
   }
 
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    const message = answer.trim();
+    if (!message || pending) return;
+    setAnswer("");
+    // The same id on a retry lets the server treat it as one attempt.
+    void sendMessage(message, crypto.randomUUID());
+  }
+
   async function endSession() {
     if (!window.confirm("End this session now? Your summary will reflect the phases completed so far.")) return;
     setPendingAction("end");
     setError("");
+    const slowNotice = setTimeout(() => setEndNotice("Writing your learning summary. This can take up to a minute."), SLOW_NOTICE_MS);
     try {
-      const response = await fetch(`/api/session/${sessionId}/complete`, { method: "POST" });
-      const data = await response.json();
+      const response = await fetch(`/api/session/${sessionId}/complete`, { method: "POST", signal: requestSignal(END_SESSION_TIMEOUT_MS) });
+      const data = await readJsonBody<{ error?: string }>(response, "The session could not be ended.");
       if (!response.ok) throw new Error(data.error ?? "The session could not be ended.");
       router.push(`/session/${sessionId}/summary`);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The session could not be ended.");
+      setError(describeRequestFailure(reason, "The session could not be ended.", "Your summary is taking longer than expected to generate. Your progress is saved — please try again."));
+      setEndNotice("");
       setPendingAction(null);
+    } finally {
+      clearTimeout(slowNotice);
     }
   }
 
@@ -355,11 +390,11 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
     window.speechSynthesis?.cancel();
     try {
       const response = await fetch(`/api/session/${sessionId}/pause`, { method: "POST" });
-      const data = await response.json();
+      const data = await readJsonBody<{ error?: string }>(response, "The session could not be paused.");
       if (!response.ok) throw new Error(data.error ?? "The session could not be paused.");
       router.push("/");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The session could not be paused.");
+      setError(describeRequestFailure(reason, "The session could not be paused.", "Pausing is taking longer than expected. Please try again."));
       setPendingAction(null);
     }
   }
@@ -369,11 +404,11 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
     setError("");
     try {
       const response = await fetch(`/api/session/${sessionId}/resume`, { method: "POST" });
-      const data = await response.json();
+      const data = await readJsonBody<SessionBundle & { error?: string }>(response, "The session could not be resumed.");
       if (!response.ok) throw new Error(data.error ?? "The session could not be resumed.");
-      setBundle(data as SessionBundle);
+      setBundle(data);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The session could not be resumed.");
+      setError(describeRequestFailure(reason, "The session could not be resumed.", "Resuming is taking longer than expected. Please try again."));
     } finally {
       setPendingAction(null);
     }
@@ -385,7 +420,10 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
 
   const { session, case: clinicalCase } = bundle;
   const currentPhase = clinicalCase.phases.find((phase) => phase.order === session.currentPhase)!;
-  const progress = Math.round((session.currentPhase / clinicalCase.phases.length) * 100);
+  // The current phase is in progress, not finished: the phase checklist below
+  // marks a phase done only once currentPhase has moved past it.
+  const completedPhases = session.status === "completed" ? clinicalCase.phases.length : session.currentPhase - 1;
+  const progress = Math.round((completedPhases / clinicalCase.phases.length) * 100);
   const visibleMessages = optimisticMessage
     ? [...session.messages, optimisticMessage]
     : session.messages;
@@ -427,7 +465,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
             </span>
           </div>
         </header>
-        <div className="message-list" aria-live="polite">
+        <div className="message-list" aria-live="polite" ref={messageListRef}>
           {voiceNotice ? <div className="voice-notice" role="status">{voiceNotice}</div> : null}
           {visibleMessages.map((message) => (
             <article className={`message ${message.sender}`} key={message.id}>
@@ -442,6 +480,21 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
               {message.sender === "student" ? <div className="message-avatar">A</div> : null}
             </article>
           ))}
+          {failedSend ? (
+            <article className="message student failed">
+              <div>
+                <div className="message-bubble">{failedSend.content}</div>
+                <div className="message-failure" role="alert">
+                  <span><AlertCircle size={13} /> Not sent — {failedSend.error}</span>
+                  <div>
+                    <button type="button" disabled={pending} onClick={() => void sendMessage(failedSend.content, failedSend.clientRequestId)}><RotateCw size={12} /> Try again</button>
+                    <button type="button" disabled={pending} onClick={() => { setAnswer(failedSend.content); setFailedSend(null); }}>Edit message</button>
+                  </div>
+                </div>
+              </div>
+              <div className="message-avatar">A</div>
+            </article>
+          ) : null}
           {pendingAction === "message" ? <article className="message"><div className="message-avatar">S</div><div><div className="message-bubble thinking"><i /><i /><i /></div><span className="message-meta">Examining your reasoning</span></div></article> : null}
           <div ref={bottomRef} />
         </div>
@@ -474,6 +527,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
         <div className="session-control-stack">
           {session.pausedAt ? <button className="pause-session" onClick={resumeSession} disabled={pending}>{pendingAction === "resume" ? <LoaderCircle className="spin" size={16} /> : <Play size={16} />} {pendingAction === "resume" ? "Resuming…" : "Resume session"}</button> : <button className="pause-session" onClick={pauseSession} disabled={pending}>{pendingAction === "pause" ? <LoaderCircle className="spin" size={16} /> : <PauseCircle size={16} />} {pendingAction === "pause" ? "Pausing…" : "Pause & return to cases"}</button>}
           <button className="end-session" onClick={endSession} disabled={pending}>{pendingAction === "end" ? <LoaderCircle className="spin" size={16} /> : null}{pendingAction === "end" ? "Ending session…" : "End session & view summary"}</button>
+          {endNotice ? <p className="loading-notice" role="status">{endNotice}</p> : null}
         </div>
       </aside>
       {mobileCaseOpen ? <div className="mobile-case-backdrop"><aside className="mobile-case-drawer" aria-label="Case details and attachments"><button className="mobile-case-close" type="button" onClick={() => setMobileCaseOpen(false)} aria-label="Close case details"><X size={18} /></button><span className="sidebar-label">Active case</span><h2>{clinicalCase.title}</h2><p>{clinicalCase.description}</p><ul className="goal-list" aria-label="Learning phases">{clinicalCase.phases.map((phase) => <li key={phase.id} className={phase.order < session.currentPhase ? "done" : phase.order === session.currentPhase ? "active" : ""}><span className="goal-number">{phase.order < session.currentPhase ? <Check size={11} /> : phase.order}</span><span>{phase.title}</span></li>)}</ul><CaseResources clinicalCase={clinicalCase} /></aside></div> : null}
