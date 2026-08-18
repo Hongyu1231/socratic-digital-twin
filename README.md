@@ -22,7 +22,15 @@ The project runs without external services: it uses an in-process repository and
 
 - User Guide: [English](docs/USER_GUIDE.md) · [中文](docs/USER_GUIDE_ZH.md)
 - Developer Guide: [English](docs/DEVELOPER_GUIDE.md) · [中文](docs/DEVELOPER_GUIDE_ZH.md)
+- [System Architecture](docs/ARCHITECTURE.md) — source map, frontend/backend boundaries, data flows, and engineering decisions
+- [Contributing](CONTRIBUTING.md) — branch, testing, pull-request, security, and review expectations
 - [Tutor Humanization & Professor Feedback Loop](docs/HUMANIZATION_PLAN.md)
+
+### Collaborator start here
+
+1. Read the [Developer Guide](docs/DEVELOPER_GUIDE.md) and run the credential-free demo.
+2. Use [System Architecture](docs/ARCHITECTURE.md) to identify the correct frontend, backend, repository, or data owner before editing.
+3. Follow [Contributing](CONTRIBUTING.md), including the automated gates and role-based browser verification, before opening a pull request.
 
 ## Quick start
 
@@ -80,6 +88,7 @@ Session summaries use the same OpenAI-then-Claude preference and fall back to a 
 | `lib/auth.ts` | Cookie signing, verification, and role guards |
 | `lib/repository/` | Repository interface, memory adapter, and Supabase adapter |
 | `lib/tutor/` | OpenAI/Claude adapters, deterministic fallback, summaries, humanization prompt, metrics, and state machine |
+| `lib/experiments/` | De-identification, frozen evaluations, shadow/A-B assignment, faculty approval, release, and rollback |
 | `lib/**/*.test.ts` | Vitest unit and integration tests |
 | `supabase/migrations/` | Versioned database schema |
 | `supabase/seed.sql` | Idempotent demo fixtures |
@@ -192,7 +201,7 @@ AI scores map to `correct=100`, `partial=70`, `vague=40`, and `wrong=0`; the rou
 - Pausing preserves the active session, learner-state version, phase, and transcript; submitting another answer is blocked until the student resumes.
 - Only completed sessions may be claimed and reviewed; in-progress sessions are read-only to professors.
 - The first professor to save a draft atomically claims the review; colleagues become read-only.
-- Admins may release or reassign unfinished reviews; completed reviews are locked.
+- Admins may release or reassign unfinished reviews. The UI treats completed reviews as final; the remaining same-reviewer API hardening item is documented in `docs/ARCHITECTURE.md`.
 
 ## Recommended three-role demo
 
@@ -213,6 +222,7 @@ Benjamin Lee and Chloe Wong are additional seeded student identities.
 | `GET` | `/api/cases` |
 | `POST` | `/api/session/start` |
 | `POST` | `/api/session/message` |
+| `POST` | `/api/session/speech` |
 | `GET` | `/api/session/:id` |
 | `POST` | `/api/session/:id/pause` |
 | `POST` | `/api/session/:id/resume` |
