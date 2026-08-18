@@ -4,21 +4,21 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { GraduationCap, LoaderCircle, ShieldCheck, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { DemoUser, UserRole } from "@/lib/domain";
+import type { PublicDemoIdentity, UserRole } from "@/lib/domain";
 
 export function SiteHeader() {
   const pathname = usePathname();
   const onProfessorPage = pathname.startsWith("/professor");
   const onAdminPage = pathname.startsWith("/admin");
   const [open, setOpen] = useState(false);
-  const [users, setUsers] = useState<DemoUser[]>([]);
-  const [identity, setIdentity] = useState<DemoUser | null>(null);
+  const [users, setUsers] = useState<PublicDemoIdentity[]>([]);
+  const [identity, setIdentity] = useState<PublicDemoIdentity | null>(null);
   const [switchingUserId, setSwitchingUserId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/demo/identity")
       .then((response) => response.json())
-      .then((data: { users?: DemoUser[]; identity?: DemoUser | null }) => {
+      .then((data: { users?: PublicDemoIdentity[]; identity?: PublicDemoIdentity | null }) => {
         setUsers(data.users ?? []);
         setIdentity(data.identity ?? null);
       })
@@ -56,6 +56,7 @@ export function SiteHeader() {
           {open ? (
             <div className="role-popover">
               <span>Demo identity</span>
+              <p>All roles are open in this synthetic-data demo. This is not production authentication.</p>
               {users.map((user) => <button key={user.id} disabled={Boolean(switchingUserId)} onClick={() => void switchUser(user.id, user.role)}>{switchingUserId === user.id ? <LoaderCircle size={16} className="spin" /> : user.role === "admin" ? <ShieldCheck size={16} /> : user.role === "professor" ? <GraduationCap size={16} /> : <UserRound size={16} />} {user.name} <small>{switchingUserId === user.id ? "switching…" : user.role}</small></button>)}
             </div>
           ) : null}

@@ -15,7 +15,7 @@ import type {
   TutorTurnReview,
 } from "@/lib/domain";
 import { demoAssignment, demoAssignments, demoCases, demoClass, demoUsers, getDemoUser } from "@/lib/seed";
-import type { CommitTurnInput, SaveReviewInput, TutorRepository } from "@/lib/repository/types";
+import { ArchivedCaseError, type CommitTurnInput, type SaveReviewInput, type TutorRepository } from "@/lib/repository/types";
 import { getCaseLineageId, getNextCaseVersion, getVersionedCaseTitle } from "@/lib/repository/case-version";
 
 interface MemoryStore {
@@ -71,12 +71,16 @@ export class InMemoryTutorRepository implements TutorRepository {
     const assignment = assignmentId ? this.store.assignments.get(assignmentId) : undefined;
     if (assignmentId && (!assignment || assignment.caseId !== caseId)) throw new Error("Case assignment not found.");
     if (assignment) {
-      const existing = [...this.store.sessions.values()].find((item) => item.studentId === studentId && item.assignmentId === assignmentId);
-      if (existing) return this.bundle(existing);
       const teachingClass = this.store.classes.get(assignment.classId);
       const isMember = teachingClass?.members.some((item) => item.userId === studentId && item.role === "student");
+      if (!isMember) throw new Error("This case assignment is not available to you.");
+      const clinicalCase = this.store.cases.get(caseId);
+      if (clinicalCase?.status === "archived") throw new ArchivedCaseError();
+      if (!clinicalCase || clinicalCase.status !== "available") throw new Error("This case is not currently available.");
+      const existing = [...this.store.sessions.values()].find((item) => item.studentId === studentId && item.assignmentId === assignmentId);
+      if (existing) return this.bundle(existing);
       const now = new Date().toISOString();
-      if (!isMember || assignment.status !== "open" || assignment.opensAt > now || (assignment.dueAt && assignment.dueAt <= now)) {
+      if (assignment.status !== "open" || assignment.opensAt > now || (assignment.dueAt && assignment.dueAt <= now)) {
         throw new Error("This case assignment is not currently available.");
       }
     }
@@ -85,6 +89,8 @@ export class InMemoryTutorRepository implements TutorRepository {
     if (!clinicalCase || !student || student.role !== "student") {
       throw new Error("Unable to create session for the selected case and learner.");
     }
+    if (clinicalCase.status === "archived") throw new ArchivedCaseError();
+    if (clinicalCase.status !== "available") throw new Error("This case is not currently available.");
 
     const now = new Date().toISOString();
     const sessionId = crypto.randomUUID();
@@ -128,6 +134,17 @@ export class InMemoryTutorRepository implements TutorRepository {
     };
     this.store.sessions.set(sessionId, clone(session));
     return this.bundle(session);
+  }
+
+  async createSessionForAssignment(studentId: string, assignmentId: string) {
+    const assignment = this.store.assignments.get(assignmentId);
+    const teachingClass = assignment ? this.store.classes.get(assignment.classId) : undefined;
+    const isMember = teachingClass?.members.some((item) => item.userId === studentId && item.role === "student");
+    if (!assignment || !teachingClass || !isMember) throw new Error("This case assignment is not available to you.");
+    const clinicalCase = this.store.cases.get(assignment.caseId);
+    if (clinicalCase?.status === "archived") throw new ArchivedCaseError();
+    if (!clinicalCase || clinicalCase.status !== "available") throw new Error("This case is not currently available.");
+    return this.createSession(studentId, assignment.caseId, assignmentId);
   }
 
   async getSession(sessionId: string) {
@@ -317,6 +334,11 @@ export class InMemoryTutorRepository implements TutorRepository {
     if (!current) throw new Error("Case not found.");
     const next: ClinicalCase = { ...current, status: "archived" };
     this.store.cases.set(caseId, next);
+    for (const [assignmentId, assignment] of this.store.assignments) {
+      if (assignment.caseId === caseId && assignment.status === "open") {
+        this.store.assignments.set(assignmentId, clone({ ...assignment, status: "closed" }));
+      }
+    }
     return clone(next);
   }
 
@@ -340,8 +362,11 @@ export class InMemoryTutorRepository implements TutorRepository {
     if (!teachingClass?.members.some((item) => item.userId === professorId && item.role === "professor")) throw new Error("Professor is outside this class.");
     const clinicalCase = this.store.cases.get(input.caseId);
     if (!clinicalCase || clinicalCase.status !== "available") throw new Error("Only published cases can be assigned.");
-    const current = input.id ? this.store.assignments.get(input.id) : undefined;
-    const next: CaseAssignment = { ...input, id: input.id || crypto.randomUUID(), assignedBy: professorId, createdAt: current?.createdAt ?? new Date().toISOString(), className: teachingClass.name, caseTitle: clinicalCase.title };
+    const idempotencyKey = input.idempotencyKey?.trim() || null;
+    if (input.idempotencyKey !== undefined && input.idempotencyKey !== null && !idempotencyKey) throw new Error("Assignment idempotency key cannot be blank.");
+    const existingByKey = idempotencyKey ? [...this.store.assignments.values()].find((item) => item.idempotencyKey === idempotencyKey) : undefined;
+    const current = input.id ? this.store.assignments.get(input.id) : existingByKey;
+    const next: CaseAssignment = { ...input, id: input.id || existingByKey?.id || crypto.randomUUID(), idempotencyKey, assignedBy: professorId, createdAt: current?.createdAt ?? new Date().toISOString(), className: teachingClass.name, caseTitle: clinicalCase.title };
     this.store.assignments.set(next.id, clone(next));
     return clone(next);
   }
@@ -349,18 +374,21 @@ export class InMemoryTutorRepository implements TutorRepository {
   async listStudentOfferings(studentId: string): Promise<StudentCaseOffering[]> {
     const now = new Date().toISOString();
     const classes = [...this.store.classes.values()].filter((item) => item.members.some((member) => member.userId === studentId && member.role === "student"));
-    return classes.flatMap((teachingClass) => [...this.store.assignments.values()].filter((item) => item.classId === teachingClass.id).map((assignment) => {
+    return classes.flatMap((teachingClass): StudentCaseOffering[] => [...this.store.assignments.values()].filter((item) => item.classId === teachingClass.id).flatMap((assignment) => {
+      const clinicalCase = this.store.cases.get(assignment.caseId);
+      if (!clinicalCase || clinicalCase.status === "archived" || (clinicalCase as ClinicalCase & { isTestFixture?: boolean }).isTestFixture) return [];
       const existing = [...this.store.sessions.values()].find((item) => item.studentId === studentId && item.assignmentId === assignment.id);
-      return {
+      const offering: StudentCaseOffering = {
         assignment: clone(assignment),
         teachingClass: clone(teachingClass),
-        case: clone(this.store.cases.get(assignment.caseId)!),
+        case: clone(clinicalCase),
         existingSessionId: existing?.id ?? null,
         existingSessionStatus: existing?.status ?? null,
         existingSessionPausedAt: existing?.pausedAt ?? null,
         availability: assignment.status !== "open" || (assignment.dueAt && assignment.dueAt <= now) ? "closed" as const : assignment.opensAt > now ? "upcoming" as const : "open" as const,
       };
-    }).filter((offering) => offering.availability === "open" || Boolean(offering.existingSessionId)));
+      return offering.availability === "open" || Boolean(offering.existingSessionId) ? [offering] : [];
+    }));
   }
 
   async listSessionsForProfessor(professorId: string) {
@@ -402,6 +430,7 @@ export class InMemoryTutorRepository implements TutorRepository {
         .filter((review): review is TutorTurnReview => Boolean(review)),
       sessionReview: this.store.sessionReviews.get(session.id) ?? null,
       runtime: { storage: "memory", tutor: "deterministic" },
+      summaryGenerationStatus: session.status === "completed" && !session.summary ? "pending" as const : "ready" as const,
       assignment: session.assignmentId ? this.store.assignments.get(session.assignmentId) ?? null : null,
       teachingClass: this.classForAssignment(session.assignmentId) ?? null,
       reviewClaim: { reviewerId: session.reviewerId ?? null, reviewerName: session.reviewerId ? this.store.users.get(session.reviewerId)?.name ?? null : null, state: session.reviewStatus === "completed" ? "completed" : !session.reviewerId ? "unclaimed" : session.reviewerId === viewerId ? "mine" : "other", canEdit: session.reviewStatus !== "completed" && (!session.reviewerId || session.reviewerId === viewerId) },

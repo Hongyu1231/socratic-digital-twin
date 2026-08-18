@@ -175,6 +175,8 @@ Selection rules:
 
 New persistence behavior must be added to the interface and both adapters. Contract-level behavior should be tested against the memory implementation, and Supabase-specific constraints should be expressed in a new migration.
 
+The student catalogue is a bounded five-query path in Supabase mode: the current student's memberships with related classes, assignments for those classes, that student's lightweight session rows, unique cases, and phases. It never hydrates full sessions, repeats a case query per assignment, or reads unrelated students' memberships/sessions. Archived and `is_test_fixture` cases are filtered before an offering is returned.
+
 ### 4.6 Tutor engine and state machine
 
 | Path | Responsibility |
@@ -185,13 +187,15 @@ New persistence behavior must be added to the interface and both adapters. Contr
 | `lib/tutor/claude.ts` | Claude structured-output adapter |
 | `lib/tutor/deterministic.ts` | Credential-free teaching rules |
 | `lib/tutor/prompt.ts` | Versioned shared Tutor behavior contract |
-| `lib/tutor/summary-ai.ts` | Provider-backed summary selection and fallback |
 | `lib/tutor/summary.ts` | Deterministic summary template |
+| `supabase/functions/session-summary-worker/` | Optional asynchronous summary enhancement |
 | `lib/tutor/speech.ts` | Server-side OpenAI text-to-speech adapter |
 
 Selection uses OpenAI when its complete key/model pair exists; otherwise it uses Claude when that pair exists; otherwise it uses deterministic rules. A configured network provider that times out, refuses, or returns invalid output falls directly to deterministic behavior for that request. It does not silently switch to the other network provider. Provider errors are logged using provider, request ID, and error type only.
 
 The model is not allowed to mutate application state. It returns a validated proposal containing a classification, confidence, observable reasoning gap, strategy, feedback, one follow-up question, and an allow-listed memory patch. `state-machine.ts` decides phase completion, updates learner state, calculates metadata, and passes one atomic commit to the repository.
+
+Both automatic and manual completion synchronously save the deterministic summary and return `200`. A database trigger idempotently creates one `session_summary_jobs` row when a session first enters `completed`. Supabase Cron invokes the Edge worker every minute using a dedicated Vault-backed secret. Workers claim rows with `FOR UPDATE SKIP LOCKED`, perform provider I/O outside the transaction, and atomically apply a validated enhancement or retry after 30/60 seconds. After three failures, the deterministic summary remains available and `summaryGenerationStatus` becomes `failed`.
 
 ### 4.7 Answer submission sequence
 
@@ -227,6 +231,7 @@ sequenceDiagram
 - Identity and organization: `users`, `classes`, `class_memberships`
 - Content and scheduling: `cases`, `case_phases`, `class_case_assignments`
 - Learning record: `sessions`, `messages`, `evaluations`, `session_state`
+- Asynchronous enhancement: `session_summary_jobs`
 - Faculty review: `answer_reviews`, `tutor_turn_reviews`, `session_reviews`
 
 ### 5.2 Tutor improvement data
@@ -260,6 +265,8 @@ Engineering rules:
 - Professors assign only published cases to classes they teach.
 - Each student has at most one session per class assignment.
 - Closed or expired assignments cannot start a new session, but an existing session may continue.
+- Archived cases atomically close open assignments, return `410` for stale starts, and leave historical sessions readable.
+- Test fixtures are explicitly flagged and excluded from student catalogues; assignment creation may use an optional stable idempotency key.
 - A paused session rejects new answers until it is resumed.
 - `correct` advances a phase; the third unsuccessful attempt also advances to prevent a dead end.
 - Only completed sessions can be reviewed.

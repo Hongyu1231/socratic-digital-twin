@@ -19,7 +19,7 @@ import type {
   TutorTurnReview,
 } from "@/lib/domain";
 import { CLASSIFICATION_SCORES } from "@/lib/domain";
-import type { CommitTurnInput, SaveReviewInput, TutorRepository } from "@/lib/repository/types";
+import { ArchivedCaseError, type CommitTurnInput, type SaveReviewInput, type TutorRepository } from "@/lib/repository/types";
 import { buildCaseVersionSlug, getCaseLineageId, getNextCaseVersion, getVersionedCaseTitle } from "@/lib/repository/case-version";
 import { getTutorMode } from "@/lib/tutor";
 
@@ -59,6 +59,7 @@ function mapCase(row: Row, phases: Row[]): ClinicalCase {
     sourceCaseId: row.source_case_id ?? null,
     version: row.version ?? 1,
     publishedAt: row.published_at ?? null,
+    isTestFixture: row.is_test_fixture === true,
   };
 }
 
@@ -67,7 +68,53 @@ function mapUser(row: Row): DemoUser {
 }
 
 function mapAssignment(row: Row): CaseAssignment {
-  return { id: row.id, classId: row.class_id, caseId: row.case_id, assignedBy: row.assigned_by, status: row.status, opensAt: row.opens_at, dueAt: row.due_at, createdAt: row.created_at, className: row.classes?.name, caseTitle: row.cases?.title };
+  return { id: row.id, classId: row.class_id, caseId: row.case_id, assignedBy: row.assigned_by, status: row.status, opensAt: row.opens_at, dueAt: row.due_at, createdAt: row.created_at, idempotencyKey: row.idempotency_key ?? null, className: row.classes?.name, caseTitle: row.cases?.title };
+}
+
+function mapClass(row: Row, memberRows: Row[]): TeachingClass {
+  const members: ClassMembership[] = memberRows.map((member) => ({
+    classId: member.class_id,
+    userId: member.user_id,
+    role: member.role,
+    isLead: member.is_lead,
+    user: member.users ? mapUser(member.users) : undefined,
+  }));
+  return {
+    id: row.id,
+    name: row.name,
+    code: row.code,
+    term: row.term,
+    status: row.status,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    members,
+  };
+}
+
+type SummaryGenerationStatus = "pending" | "ready" | "failed";
+
+function summaryGenerationStatus(sessionRow: Row, context: Row, jobRow: Row | null): SummaryGenerationStatus {
+  const explicit = context.summaryGenerationStatus ?? context.summary_generation_status;
+  if (explicit === "pending" || explicit === "ready" || explicit === "failed") return explicit;
+  if (sessionRow.summary_generation_status === "pending" || sessionRow.summary_generation_status === "ready" || sessionRow.summary_generation_status === "failed") {
+    return sessionRow.summary_generation_status;
+  }
+  if (sessionRow.status !== "completed") return "ready";
+  switch (jobRow?.status) {
+    case "failed":
+      return "failed";
+    case "completed":
+    case "succeeded":
+    case "ready":
+      return "ready";
+    case "pending":
+    case "queued":
+    case "processing":
+    case "retrying":
+      return "pending";
+    default:
+      return context.summary ? "ready" : "pending";
+  }
 }
 
 function mapMessage(row: Row): TutorMessage {
@@ -129,16 +176,63 @@ export class SupabaseTutorRepository implements TutorRepository {
   }
 
   async createSession(studentId: string, caseId: string, assignmentId?: string) {
+    let assignmentRow: Row | null = null;
     if (assignmentId) {
-      const offerings = await this.listStudentOfferings(studentId);
-      const offering = offerings.find((item) => item.assignment.id === assignmentId);
-      if (!offering || offering.case.id !== caseId) throw new Error("This case assignment is not currently available.");
-      if (offering.existingSessionId) return (await this.getSession(offering.existingSessionId))!;
-      if (offering.availability !== "open") throw new Error("This case assignment is not currently available.");
+      assignmentRow = await this.getStudentAssignment(studentId, assignmentId);
+      if (!assignmentRow || assignmentRow.case_id !== caseId) throw new Error("This case assignment is not currently available.");
     }
-    const clinicalCase = await this.getCase(caseId);
+    return this.createSessionFromCase(studentId, caseId, assignmentId, assignmentRow);
+  }
+
+  async createSessionForAssignment(studentId: string, assignmentId: string) {
+    const assignmentRow = await this.getStudentAssignment(studentId, assignmentId);
+    if (!assignmentRow) throw new Error("This case assignment is not available to you.");
+    return this.createSessionFromCase(studentId, assignmentRow.case_id, assignmentId, assignmentRow);
+  }
+
+  private async getStudentAssignment(studentId: string, assignmentId: string): Promise<Row | null> {
+    const { data: assignment, error: assignmentError } = await this.client
+      .from("class_case_assignments")
+      .select("*, cases(*)")
+      .eq("id", assignmentId)
+      .maybeSingle();
+    if (assignmentError) throw new Error(`Get case assignment: ${assignmentError.message}`);
+    if (!assignment) return null;
+    const { data: membership, error: membershipError } = await this.client
+      .from("class_memberships")
+      .select("class_id")
+      .eq("class_id", assignment.class_id)
+      .eq("user_id", studentId)
+      .eq("role", "student")
+      .maybeSingle();
+    if (membershipError) throw new Error(`Check case assignment membership: ${membershipError.message}`);
+    return membership ? assignment : null;
+  }
+
+  private async createSessionFromCase(studentId: string, caseId: string, assignmentId?: string, assignmentRow?: Row | null) {
+    const caseRow = assignmentRow?.cases ?? null;
+    const clinicalCase = caseRow
+      ? mapCase(caseRow, await this.getPhaseRows(caseId))
+      : await this.getCase(caseId);
     if (!clinicalCase) throw new Error("Case not found.");
+    if (clinicalCase.status === "archived") throw new ArchivedCaseError();
+    if (clinicalCase.status !== "available") throw new Error("This case is not currently available.");
+    if (assignmentId) {
+      const { data: existing, error: existingError } = await this.client
+        .from("sessions")
+        .select("id")
+        .eq("student_id", studentId)
+        .eq("class_case_assignment_id", assignmentId)
+        .maybeSingle();
+      if (existingError) throw new Error(`Check existing session: ${existingError.message}`);
+      if (existing) return (await this.getSession(existing.id))!;
+      const now = new Date().toISOString();
+      if (!assignmentRow || assignmentRow.case_id !== caseId || assignmentRow.status !== "open" || assignmentRow.opens_at > now || (assignmentRow.due_at && assignmentRow.due_at <= now)) {
+        throw new Error("This case assignment is not currently available.");
+      }
+    }
     const firstPhase = clinicalCase.phases[0];
+    if (!firstPhase) throw new Error("This case has no phases.");
     const now = new Date().toISOString();
     const state: LearnerState = {
       sessionId: "",
@@ -171,7 +265,7 @@ export class SupabaseTutorRepository implements TutorRepository {
     const { data: sessionRow, error } = await this.client.from("sessions").select("*").eq("id", sessionId).maybeSingle();
     if (error) throw new Error(`Get session: ${error.message}`);
     if (!sessionRow) return null;
-    const [caseRowResult, phaseRows, userResult, messageResult, evaluationResult, stateResult, sessionReviewResult, tutorReviewResult] = await Promise.all([
+    const [caseRowResult, phaseRows, userResult, messageResult, evaluationResult, stateResult, sessionReviewResult, tutorReviewResult, summaryJobResult] = await Promise.all([
       this.client.from("cases").select("*").eq("id", sessionRow.case_id).single(),
       this.getPhaseRows(sessionRow.case_id),
       this.client.from("users").select("*").eq("id", sessionRow.student_id).single(),
@@ -180,6 +274,7 @@ export class SupabaseTutorRepository implements TutorRepository {
       this.client.from("session_state").select("*").eq("session_id", sessionId).single(),
       this.client.from("session_reviews").select("*").eq("session_id", sessionId).maybeSingle(),
       this.client.from("tutor_turn_reviews").select("*").eq("session_id", sessionId).order("created_at"),
+      this.client.from("session_summary_jobs").select("status").eq("session_id", sessionId).maybeSingle(),
     ]);
     const caseRow = must(caseRowResult.data, caseRowResult.error, "Get session case");
     const userRow = must(userResult.data, userResult.error, "Get session student");
@@ -267,6 +362,7 @@ export class SupabaseTutorRepository implements TutorRepository {
       tutorTurnReviews,
       sessionReview,
       runtime: { storage: "supabase", tutor: getTutorMode() },
+      summaryGenerationStatus: summaryGenerationStatus(sessionRow, context, summaryJobResult.data ?? null),
       assignment,
       teachingClass,
       reviewClaim: { reviewerId: sessionRow.professor_id ?? null, reviewerName: sessionRow.professor_id ? (await this.listUsers()).find((item) => item.id === sessionRow.professor_id)?.name ?? null : null, state: sessionReview?.status === "completed" ? "completed" : sessionRow.professor_id ? "other" : "unclaimed", canEdit: !sessionRow.professor_id && sessionReview?.status !== "completed" },
@@ -442,11 +538,19 @@ export class SupabaseTutorRepository implements TutorRepository {
     const query = this.client.from("classes").select("*").order("created_at");
     const { data, error } = await query;
     const rows = must(data, error, "List classes");
-    const result = await Promise.all(rows.map(async (row) => {
-      const { data: members, error: memberError } = await this.client.from("class_memberships").select("*, users(*)").eq("class_id", row.id);
-      const mapped: ClassMembership[] = must(members, memberError, "List class members").map((member) => ({ classId: member.class_id, userId: member.user_id, role: member.role, isLead: member.is_lead, user: member.users ? mapUser(member.users) : undefined }));
-      return { id: row.id, name: row.name, code: row.code, term: row.term, status: row.status, createdBy: row.created_by, createdAt: row.created_at, members: mapped } as TeachingClass;
-    }));
+    if (!rows.length) return [];
+    const { data: members, error: memberError } = await this.client
+      .from("class_memberships")
+      .select("*, users(*)")
+      .in("class_id", rows.map((row) => row.id));
+    const memberRows = must(members, memberError, "List class members");
+    const membersByClass = new Map<string, Row[]>();
+    for (const member of memberRows) {
+      const current = membersByClass.get(member.class_id) ?? [];
+      current.push(member);
+      membersByClass.set(member.class_id, current);
+    }
+    const result = rows.map((row) => mapClass(row, membersByClass.get(row.id) ?? []));
     return userId ? result.filter((item) => item.members.some((member) => member.userId === userId)) : result;
   }
 
@@ -494,7 +598,7 @@ export class SupabaseTutorRepository implements TutorRepository {
   }
 
   async archiveCase(caseId: string) {
-    const { error } = await this.client.from("cases").update({ status: "archived" }).eq("id", caseId);
+    const { error } = await this.client.rpc("archive_case", { p_case_id: caseId });
     if (error) throw new Error(`Archive case: ${error.message}`);
     return (await this.getCase(caseId))!;
   }
@@ -516,31 +620,101 @@ export class SupabaseTutorRepository implements TutorRepository {
     if (!(await this.listClasses(professorId)).some((item) => item.id === input.classId)) throw new Error("Professor is outside this class.");
     const clinicalCase = await this.getCase(input.caseId);
     if (!clinicalCase || clinicalCase.status !== "available") throw new Error("Only published cases can be assigned.");
-    const payload = { class_id: input.classId, case_id: input.caseId, assigned_by: professorId, status: input.status, opens_at: input.opensAt, due_at: input.dueAt };
-    const operation = input.id ? this.client.from("class_case_assignments").update(payload).eq("id", input.id).select("id").single() : this.client.from("class_case_assignments").insert(payload).select("id").single();
+    if (input.idempotencyKey !== undefined && input.idempotencyKey !== null && !input.idempotencyKey.trim()) {
+      throw new Error("Assignment idempotency key cannot be blank.");
+    }
+    const payload = {
+      class_id: input.classId,
+      case_id: input.caseId,
+      assigned_by: professorId,
+      status: input.status,
+      opens_at: input.opensAt,
+      due_at: input.dueAt,
+      ...(input.idempotencyKey === undefined ? {} : { idempotency_key: input.idempotencyKey?.trim() || null }),
+    };
+    const operation = input.id
+      ? this.client.from("class_case_assignments").update(payload).eq("id", input.id).select("id").single()
+      : input.idempotencyKey
+      ? this.client.from("class_case_assignments").upsert(payload, { onConflict: "idempotency_key" }).select("id").single()
+      : this.client.from("class_case_assignments").insert(payload).select("id").single();
     const { data, error } = await operation;
     const id = must(data, error, "Save assignment").id;
     return (await this.listAssignments(professorId)).find((item) => item.id === id)!;
   }
 
   async listStudentOfferings(studentId: string): Promise<StudentCaseOffering[]> {
-    const classIds = new Set((await this.listClasses(studentId)).map((item) => item.id));
-    const assignments = (await this.listAssignments()).filter((item) => classIds.has(item.classId));
-    const classes = await this.listClasses();
-    const sessions = await this.listSessions();
+    // Load only this student's memberships and their related classes. This is
+    // both a fixed query count and a fixed tenant boundary: the catalogue path
+    // never reads unrelated classes, memberships, students, or sessions.
+    const { data: membershipRows, error: membershipError } = await this.client
+      .from("class_memberships")
+      .select("*, users(*), classes(*)")
+      .eq("user_id", studentId)
+      .eq("role", "student");
+    const memberships = must(membershipRows, membershipError, "List student class memberships");
+    const classes = memberships.flatMap((membership) =>
+      membership.classes ? [mapClass(membership.classes, [membership])] : [],
+    );
+    const classIds = classes.map((item) => item.id);
+    if (!classIds.length) return [];
+
+    const { data: assignmentRows, error: assignmentError } = await this.client
+      .from("class_case_assignments")
+      .select("*, classes(name), cases(title)")
+      .in("class_id", classIds)
+      .order("created_at", { ascending: false });
+    const assignments = must(assignmentRows, assignmentError, "List student assignments").map(mapAssignment);
+    if (!assignments.length) return [];
+
+    const assignmentIds = assignments.map((item) => item.id);
+    const { data: sessionRows, error: sessionError } = await this.client
+      .from("sessions")
+      .select("id, class_case_assignment_id, status, context")
+      .eq("student_id", studentId)
+      .in("class_case_assignment_id", assignmentIds);
+    const sessions = must(sessionRows, sessionError, "List student sessions");
+    const sessionByAssignment = new Map<string, Row>();
+    for (const session of sessions) {
+      if (session.class_case_assignment_id && !sessionByAssignment.has(session.class_case_assignment_id)) {
+        sessionByAssignment.set(session.class_case_assignment_id, session);
+      }
+    }
+
+    const caseIds = [...new Set(assignments.map((item) => item.caseId))];
+    const [{ data: caseRows, error: caseError }, { data: phaseRows, error: phaseError }] = await Promise.all([
+      this.client.from("cases").select("*").in("id", caseIds),
+      this.client.from("case_phases").select("*").in("case_id", caseIds).order("phase_order"),
+    ]);
+    const cases = must(caseRows, caseError, "List student cases");
+    const phases = must(phaseRows, phaseError, "List student case phases");
+    const phasesByCase = new Map<string, Row[]>();
+    for (const phase of phases) {
+      const current = phasesByCase.get(phase.case_id) ?? [];
+      current.push(phase);
+      phasesByCase.set(phase.case_id, current);
+    }
+    const caseById = new Map(cases.map((row) => [row.id, row]));
+    const classById = new Map(classes.map((item) => [item.id, item]));
     const now = new Date().toISOString();
-    const offerings = await Promise.all(assignments.map(async (assignment): Promise<StudentCaseOffering> => {
-      const existing = sessions.find((item) => item.session.studentId === studentId && item.session.assignmentId === assignment.id)?.session;
-      return {
+    const offerings: StudentCaseOffering[] = [];
+    for (const assignment of assignments) {
+      const caseRow = caseById.get(assignment.caseId);
+      const teachingClass = classById.get(assignment.classId);
+      // Archived cases and explicit test fixtures are never startable or
+      // visible to a student, even if an old assignment/session remains.
+      if (!caseRow || caseRow.status !== "active" || caseRow.is_test_fixture === true || !teachingClass) continue;
+      const existing = sessionByAssignment.get(assignment.id);
+      const offering: StudentCaseOffering = {
         assignment,
-        teachingClass: classes.find((item) => item.id === assignment.classId)!,
-        case: (await this.getCase(assignment.caseId))!,
+        teachingClass,
+        case: mapCase(caseRow, phasesByCase.get(assignment.caseId) ?? []),
         existingSessionId: existing?.id ?? null,
         existingSessionStatus: existing?.status ?? null,
-        existingSessionPausedAt: existing?.pausedAt ?? null,
+        existingSessionPausedAt: existing?.context?.pausedAt ?? null,
         availability: assignment.status !== "open" || (assignment.dueAt && assignment.dueAt <= now) ? "closed" : assignment.opensAt > now ? "upcoming" : "open",
       };
-    }));
+      if (offering.availability === "open" || offering.availability === "upcoming" || offering.existingSessionId) offerings.push(offering);
+    }
     return offerings.filter((offering) => offering.availability === "open" || Boolean(offering.existingSessionId));
   }
 

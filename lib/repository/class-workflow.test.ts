@@ -207,4 +207,42 @@ describe("InMemoryTutorRepository class workflows", () => {
     const archived = await repository.archiveCase(draft.id);
     expect(archived).toMatchObject({ status: "archived", publishedAt: null });
   });
+
+  it("closes assignments and rejects a new session when a case is archived", async () => {
+    const assignment = await repository.saveAssignment({
+      classId: DEMO_CLASS_ID,
+      caseId: IMPACTED_CANINE_CASE_ID,
+      status: "open",
+      opensAt: "2026-08-09T00:00:00.000Z",
+      dueAt: null,
+    }, DEMO_PROFESSOR_ID);
+
+    await repository.archiveCase(IMPACTED_CANINE_CASE_ID);
+
+    expect((await repository.listAssignments()).find((item) => item.id === assignment.id)?.status).toBe("closed");
+    await expect(repository.listStudentOfferings(DEMO_STUDENT_ID)).resolves.not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ assignment: expect.objectContaining({ id: assignment.id }) })]),
+    );
+    await expect(repository.createSessionForAssignment(DEMO_STUDENT_ID, assignment.id)).rejects.toMatchObject({
+      name: "ArchivedCaseError",
+      message: expect.stringContaining("archived"),
+    });
+  });
+
+  it("upserts repeated assignment writes that use the same idempotency key", async () => {
+    const input = {
+      classId: DEMO_CLASS_ID,
+      caseId: IMPACTED_CANINE_CASE_ID,
+      status: "open" as const,
+      opensAt: "2026-08-09T00:00:00.000Z",
+      dueAt: null,
+      idempotencyKey: "e2e:assignment:canine:student-1",
+    };
+    const first = await repository.saveAssignment(input, DEMO_PROFESSOR_ID);
+    const second = await repository.saveAssignment({ ...input, dueAt: "2026-12-31T00:00:00.000Z" }, DEMO_PROFESSOR_ID);
+
+    expect(second.id).toBe(first.id);
+    expect((await repository.listAssignments()).filter((item) => item.idempotencyKey === input.idempotencyKey)).toHaveLength(1);
+    expect(second.dueAt).toBe("2026-12-31T00:00:00.000Z");
+  });
 });

@@ -6,7 +6,7 @@ This guide explains how to use Socratic Digital Twin AI Tutor as a Student, Prof
 
 ## 1. Getting started
 
-Open the application and use the identity button in the top-right corner. Select a specific seeded user from **Demo identity**. The server derives that user's role; the browser cannot declare its own permissions. Available names, classes, and assignments depend on the current deployment data. Inactive users are unavailable.
+Open the application and use the identity button in the top-right corner. Select a specific seeded user from **Demo identity**. Every listed role is intentionally open for this synthetic-data POC; the selector is not real authentication and must never be used with real student or patient data. The server derives that user's role, and inactive or non-allow-listed database users are unavailable.
 
 ## 2. Student guide
 
@@ -25,7 +25,7 @@ Select **Pause & return to cases** to preserve the current phase, transcript, an
 
 There are five reasoning phases. A correct response advances the phase. Other responses receive another Socratic question. After the third unsuccessful attempt in a phase, the unresolved gap is recorded and the flow advances to avoid a loop. Completing phase five generates a summary automatically.
 
-Use **End session & view summary** to finish early. The summary includes a reasoning score, strengths, reasoning gaps, next steps, and an incomplete indicator when not all phases were finished. **Choose another case** returns home. In the demo, **Open professor review** selects an available professor and opens the same submission.
+Use **End session & view summary** to finish early. A reliable local summary and completed state are saved immediately. When Supabase is enabled, optional AI wording is generated in the background and the page refreshes it automatically; a provider failure leaves the local summary intact. The summary includes a reasoning score, strengths, reasoning gaps, next steps, and an incomplete indicator when not all phases were finished. **Choose another case** returns home.
 
 ## 3. Professor guide
 

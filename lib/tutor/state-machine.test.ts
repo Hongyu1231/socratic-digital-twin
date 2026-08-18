@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InMemoryTutorRepository } from "@/lib/repository/memory";
 import { resetRepositoryForTests } from "@/lib/repository";
 import { DEMO_PROFESSOR_ID, DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID, impactedCanineCase } from "@/lib/seed";
@@ -54,6 +54,15 @@ describe("Socratic state machine", () => {
     const completed = await finishSession(started.session.id, DEMO_STUDENT_ID);
     expect(completed.session.status).toBe("completed");
     expect(completed.session.summary?.completedAllPhases).toBe(false);
+  });
+  it("does not call an external model while completing a session", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);
+
+    await finishSession(started.session.id, DEMO_STUDENT_ID);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
   });
   it("completes all five phases and generates a full summary", async () => {
     let bundle = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);

@@ -2,7 +2,7 @@ import type { Evaluation, LearnerState, SessionBundle, TutorMessage } from "@/li
 import { calculateScore } from "@/lib/domain";
 import { getRepository } from "@/lib/repository";
 import { evaluateWithFallback, getTutorMode } from "@/lib/tutor";
-import { generateSessionSummary } from "@/lib/tutor/summary-ai";
+import { buildSessionSummary } from "@/lib/tutor/summary";
 import { withIdempotency } from "@/lib/idempotency";
 import { TUTOR_PROMPT_VERSION } from "@/lib/tutor/prompt";
 import { applyHumanizationExperiment } from "@/lib/experiments/shadow";
@@ -115,7 +115,9 @@ async function performStudentAnswer(
     createdAt: now,
   };
   const allEvaluations = [...bundle.session.evaluations, evaluation];
-  const summary = sessionComplete ? await generateSessionSummary(allEvaluations, nextState, true) : null;
+  // Completion must never wait for an external model. The database enqueues an
+  // optional LLM enhancement after this deterministic summary is committed.
+  const summary = sessionComplete ? buildSessionSummary(allEvaluations, nextState, true) : null;
   const nextQuestion = sessionComplete
     ? "You have completed all five phases. Open your learning summary and reflect on what you would test next."
     : result.nextQuestion;
@@ -157,7 +159,7 @@ export async function finishSession(sessionId: string, studentId: string) {
   if (!bundle) throw new Error("Session not found.");
   if (bundle.session.studentId !== studentId) throw new Error("This session belongs to another learner.");
   const summary =
-    bundle.session.summary ?? await generateSessionSummary(bundle.session.evaluations, bundle.session.state, false);
+    bundle.session.summary ?? buildSessionSummary(bundle.session.evaluations, bundle.session.state, false);
   const completed = await repository.completeSession(sessionId, summary, new Date().toISOString());
   completed.runtime.tutor = getTutorMode();
   return completed;

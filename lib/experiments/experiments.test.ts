@@ -203,6 +203,7 @@ function governedBundle(): SessionBundle {
     tutorTurnReviews: evaluations.map((evaluation, index) => ({ evaluationId: evaluation.id, tutorMessageId: `tutor-${index}`, professorId: index % 2 ? "22222222-2222-4222-8222-222222222222" : "33333333-3333-4333-8333-333333333333", naturalness: 5, specificity: 5, nonLeading: 5, challengeFit: 5, helpfulness: 5, failureTags: [], preferredRewrite: "", comments: "", updatedAt: new Date(0).toISOString() })),
     sessionReview: { sessionId, professorId: "22222222-2222-4222-8222-222222222222", overallFeedback: "Complete", status: "completed", finalScore: 100, updatedAt: new Date(0).toISOString() },
     runtime: { storage: "memory", tutor: "deterministic" },
+    summaryGenerationStatus: "ready",
   };
 }
 

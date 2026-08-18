@@ -56,6 +56,7 @@ export const assignmentInputSchema = z.object({
   // previously persisted assignment can be closed or reopened.
   opensAt: z.string().datetime({ offset: true }),
   dueAt: z.string().datetime({ offset: true }).nullable().default(null),
+  idempotencyKey: z.string().trim().min(1).max(160).optional(),
 }).refine((value) => !value.dueAt || value.dueAt > value.opensAt, {
   message: "Due date must be after the opening date.",
 });
@@ -135,7 +136,7 @@ export const tutorOutputSchema = z.object({
 export const summaryOutputSchema = z.object({
   headline: z.string().min(1).max(120),
   narrative: z.string().min(1).max(900),
-  strengths: z.array(z.string().min(1).max(180)).max(5),
+  strengths: z.array(z.string().min(1).max(180)).min(1).max(5),
   weaknesses: z.array(z.string().min(1).max(180)).max(5),
   nextSteps: z.array(z.string().min(1).max(180)).min(1).max(5),
 });

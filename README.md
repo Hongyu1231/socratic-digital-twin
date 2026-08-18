@@ -4,7 +4,7 @@ Teaching proof of concept for the NUS Faculty of Dentistry. The tutor uses progr
 
 The project runs without external services: it uses an in-process repository and a deterministic tutor when credentials are absent. Supabase, OpenAI, and Claude can be enabled independently through environment variables.
 
-> **Teaching simulation only.** This POC does not contain real patient data, clinical images, or diagnostic functionality. It has no production sign-up, OAuth, or Supabase Auth flow.
+> **Teaching simulation only.** This POC does not contain real patient data, clinical images, or diagnostic functionality. Its role selector intentionally grants access to every seeded demo role and is not real authentication. Deploy it only with synthetic, resettable data; it has no production sign-up, OAuth, or Supabase Auth flow.
 
 ## Features
 
@@ -75,7 +75,7 @@ Database and tutor providers are selected independently:
 4. If OpenAI is not configured, both `ANTHROPIC_API_KEY` and `CLAUDE_MODEL` select the Claude Messages API.
 5. With no complete AI pair, or when one AI request times out, is rejected, or returns invalid structured output, that request falls back to the deterministic tutor.
 
-Session summaries use the same OpenAI-then-Claude preference and fall back to a local template. Student answers are treated as untrusted quoted data; model output is validated and only the state machine may merge its allow-listed memory patch.
+Session completion always commits a deterministic summary immediately. In Supabase mode, a restricted background job may later replace its wording with a validated OpenAI-or-Claude enhancement; provider latency or failure never rolls back completion. Student answers are treated as untrusted quoted data; model output is validated and only the state machine may merge its allow-listed memory patch.
 
 ### Repository layout
 
@@ -123,6 +123,8 @@ Database assets are in `supabase/`:
 - `migrations/20260813043101_restrict_rls_auto_enable.sql` removes browser-role access to the schema-maintenance helper after the Supabase security advisor identified it.
 - `migrations/20260813064021_humanization_feedback_loop.sql` adds immutable de-identified datasets, prompt/model candidates, offline runs, shadow and limited A/B evidence, append-only faculty decisions, controlled releases, and rollback audit events.
 - `migrations/20260813131710_add_demo_clinical_cases.sql` adds three text-only, five-phase clinical reasoning simulations and opens them for the default demo class.
+- `migrations/20260819010000_harden_summary_jobs_and_data_integrity.sql` adds fixture and assignment-idempotency metadata, archived-case guards, the restricted summary job queue, retry/claim RPCs, and safe legacy cleanup.
+- `functions/session-summary-worker/` contains the short-lived Edge worker; `cron/session-summary-worker.sql` schedules it every minute after the project URL and dedicated cron secret are stored in Vault.
 - `seed.sql` contains deterministic, idempotent fixtures.
 - `config.toml` enables the seed file for Supabase CLI workflows.
 
@@ -176,11 +178,11 @@ Claude is the optional second provider:
 2. Set `CLAUDE_MODEL` to an account-available structured-output model.
 3. Restart the development server.
 
-Answer evaluation uses one non-streaming OpenAI Responses API or Claude Messages API request with the shared Zod schema. The result contains a label, confidence, observable reasoning gap, teaching strategy, exactly one follow-up question, and a conservative memory patch. The state machine—not the model—is the authority for phase progression and database state. Session summaries are generated separately; invalid or failed provider output uses the local summary template. When `OPENAI_API_KEY` is configured, `/api/session/speech` generates MP3 audio only for a Tutor message in the signed-in student's own session. The client automatically plays it, clearly identifies it as AI-generated, and falls back to browser-native English speech if the provider is unavailable.
+Answer evaluation uses one non-streaming OpenAI Responses API or Claude Messages API request with the shared Zod schema. The result contains a label, confidence, observable reasoning gap, teaching strategy, exactly one follow-up question, and a conservative memory patch. The state machine—not the model—is the authority for phase progression and database state. Session completion never calls a provider: it saves deterministic feedback, while the Edge worker may later apply a validated enhancement using a leased, three-attempt job. When `OPENAI_API_KEY` is configured, `/api/session/speech` generates MP3 audio only for a Tutor message in the signed-in student's own session. The client automatically plays it, clearly identifies it as AI-generated, and falls back to browser-native English speech if the provider is unavailable.
 
 ## Identity, authorization, and state machine
 
-`GET /api/demo/identity` lists active seeded users. `POST /api/demo/identity` accepts only a seeded `userId`; the server derives that user's role and stores a signed HttpOnly cookie, so a client cannot submit `role=admin` to elevate itself. Route handlers use `requireStudent`, `requireProfessor`, or `requireAdmin`, then perform resource checks:
+`GET /api/demo/identity` lists only the allow-listed seeded users and exposes only `id`, `name`, and `role`. `POST /api/demo/identity` accepts only an allow-listed seeded `userId`; the server derives that user's role and stores a signed HttpOnly cookie, so a client cannot submit `role=admin` to elevate itself. This open selector provides full demo-role access and is not a security boundary. Route handlers use `requireStudent`, `requireProfessor`, or `requireAdmin`, then perform resource checks:
 
 - Students may access their own sessions and assignments in their classes.
 - Professors may access assignments and sessions for classes they teach.
@@ -197,6 +199,7 @@ AI scores map to `correct=100`, `partial=70`, `vague=40`, and `wrong=0`; the rou
 - Published cases are immutable; clone a new draft version to edit.
 - Professors may assign only published cases to their own classes.
 - Closed or expired assignments cannot create new sessions; an existing session may continue.
+- Archiving a case closes its open assignments. It disappears from new offerings and a stale start request receives `410 Gone`; historical sessions remain readable.
 - Each student has one resumable session per assignment.
 - Pausing preserves the active session, learner-state version, phase, and transcript; submitting another answer is blocked until the student resumes.
 - Only completed sessions may be claimed and reviewed; in-progress sessions are read-only to professors.
@@ -332,7 +335,7 @@ For Vercel:
 5. Deploy and run the Student → Professor → Admin smoke test.
 6. Review Vercel Runtime Logs for persistent 4xx/5xx responses or provider configuration errors.
 
-Do not place production secrets in `vercel.json`, Docker images, source code, screenshots, or browser-visible variables. Replace the demo identity mechanism with an institutional identity provider and complete privacy, audit, retention, and educational-data compliance work before production use.
+Do not place production secrets in `vercel.json`, Docker images, source code, screenshots, or browser-visible variables. This public POC must contain only synthetic, resettable teaching data. Replace the demo identity mechanism with an institutional identity provider and complete privacy, audit, retention, and educational-data compliance work before any real student or patient data is introduced.
 
 ## Troubleshooting
 

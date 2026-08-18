@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "check:e2e-target": "node scripts/assert-e2e-target.mjs",
     "lint": "eslint ."
   },
   "dependencies": {

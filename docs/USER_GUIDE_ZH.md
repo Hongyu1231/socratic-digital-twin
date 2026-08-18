@@ -11,7 +11,7 @@
 切换用户：
 
 1. 点击右上角当前身份，例如 **Student**、**Professor** 或 **Admin**。
-2. 在 **Demo identity** 列表中选择具体预置用户。
+2. 在 **Demo identity** 列表中选择具体预置用户。该合成数据 POC 故意开放全部演示角色，这不是正式身份认证；禁止录入真实学生或患者数据。
 3. 系统会根据该用户在服务器中的真实角色进入对应页面。
 
 常用演示身份包括 Alicia Tan、Benjamin Lee、Chloe Wong、Prof. Marcus Lim、Prof. Sarah Ng 和 Dr. Elaine Koh。可见用户、班级名称和任务以当前部署数据为准。停用用户不会出现在可用身份列表中。
@@ -49,7 +49,7 @@
 
 ### 提前结束与总结
 
-点击 **End session & view summary** 并确认，可以提前结束。总结会明确反映尚未完成全部阶段。
+点击 **End session & view summary** 并确认，可以提前结束。系统会立即保存确定性总结和完成状态；可选 AI 润色在后台执行，失败时仍保留可靠的本地总结。总结会明确反映尚未完成全部阶段。
 
 总结页包含：
 

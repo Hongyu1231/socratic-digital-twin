@@ -18,18 +18,27 @@ export function SessionSummaryView({ sessionId }: { sessionId: string }) {
   }, []);
   useEffect(() => {
     const controller = new AbortController();
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     fetch(`/api/session/${sessionId}`, { signal: requestSignal(SUMMARY_TIMEOUT_MS, controller) })
       .then(async (response) => {
         const data = await readJsonBody<SessionBundle & { error?: string }>(response, "Summary could not be loaded.");
         if (!response.ok) throw new Error(data.error ?? "Summary could not be loaded.");
         return data;
       })
-      .then(setBundle)
+      .then((nextBundle) => {
+        setBundle(nextBundle);
+        if (nextBundle.summaryGenerationStatus === "pending") {
+          refreshTimer = setTimeout(() => setReloadToken((token) => token + 1), 10_000);
+        }
+      })
       .catch((reason) => {
         if (controller.signal.aborted) return;
         setError(describeRequestFailure(reason, "Summary could not be loaded.", "Your summary is taking longer than expected to load."));
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      if (refreshTimer) clearTimeout(refreshTimer);
+    };
   }, [sessionId, reloadToken]);
   // A failed load is its own state: the spinner used to keep turning forever
   // with the error printed underneath it.
@@ -52,6 +61,11 @@ export function SessionSummaryView({ sessionId }: { sessionId: string }) {
         <div className="score-disc"><div><strong>{summary.overallScore}</strong><small>Reasoning score</small></div></div>
         <div><span className="section-kicker">Tutor synthesis</span><h2>{summary.headline}</h2><p>{summary.narrative}</p></div>
       </section>
+      {bundle.summaryGenerationStatus === "pending" ? (
+        <p className="summary-generation-note" role="status">Your reliable summary is ready. The optional AI wording is still being refined.</p>
+      ) : bundle.summaryGenerationStatus === "failed" ? (
+        <p className="summary-generation-note" role="status">AI refinement was unavailable, so this page is using the reliable local summary.</p>
+      ) : null}
       <div className="summary-grid">
         <InsightCard icon={<ShieldCheck />} title="Strengths" items={summary.strengths} emptyMessage="The tutor did not single out a specific strength this time. That is a comment on one short session, not on you — work through the next steps and they are what the next summary will draw on." />
         <InsightCard icon={<Target />} title="Reasoning gaps" items={summary.weaknesses} emptyMessage="No specific gaps were recorded in this session. Keep making each step of your reasoning explicit so the tutor has something to test." />

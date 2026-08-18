@@ -26,15 +26,12 @@ $$;
 alter table public.cases
   add column if not exists is_test_fixture boolean not null default false;
 
-create index if not exists cases_teaching_catalogue_idx
-  on public.cases (status, created_at)
-  where is_test_fixture = false;
-
 comment on column public.cases.is_test_fixture is
   'True for disposable automated-test content. Student catalogue queries must exclude these rows.';
 
 update public.cases
    set is_test_fixture = true,
+       status = 'archived'::public.case_status,
        updated_at = greatest(updated_at, timezone('utc', now()))
  where is_test_fixture = false
    and (
@@ -513,7 +510,10 @@ begin
          updated_at = v_now
    where id = v_job.id;
 
-  select * into v_job from public.session_summary_jobs where id = v_job.id;
+  select job.*
+    into v_job
+    from public.session_summary_jobs as job
+   where job.id = v_job.id;
   return v_job;
 end;
 $$;
@@ -599,7 +599,10 @@ begin
          )
    where id = v_job.session_id;
 
-  select * into v_job from public.session_summary_jobs where id = v_job.id;
+  select job.*
+    into v_job
+    from public.session_summary_jobs as job
+   where job.id = v_job.id;
   return v_job;
 end;
 $$;
@@ -646,6 +649,26 @@ select s.id
   from public.sessions as s
  where s.status = 'completed'::public.session_status
 on conflict (session_id) do nothing;
+
+-- Close legacy duplicate open assignments without deleting their historical
+-- sessions. Keep the most recently created row for each class/case pair. This
+-- is a one-time cleanup, not a global uniqueness rule, so a professor may
+-- intentionally assign the same case again in a future teaching period.
+with ranked_open_assignments as (
+  select id,
+         row_number() over (
+           partition by class_id, case_id
+           order by created_at desc, id desc
+         ) as duplicate_rank
+    from public.class_case_assignments
+   where status = 'open'
+)
+update public.class_case_assignments as assignment
+   set status = 'closed',
+       updated_at = timezone('utc', now())
+  from ranked_open_assignments as ranked
+ where assignment.id = ranked.id
+   and ranked.duplicate_rank > 1;
 
 -- Archive is a state transition even when called outside archive_case(); make
 -- existing archived data obey the same assignment invariant.

@@ -116,16 +116,17 @@ async function fetchJson(
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, { ...init, signal: controller.signal });
-    const text = await response.text();
+    const responseText = await response.text();
     let body: unknown = null;
     try {
-      body = text ? JSON.parse(text) : null;
+      body = responseText ? JSON.parse(responseText) : null;
     } catch {
-      body = text;
+      body = responseText;
     }
     if (!response.ok) {
-      const detail = typeof body === "string" ? body : JSON.stringify(body);
-      throw new Error(`Summary provider returned ${response.status}: ${detail.slice(0, 500)}`);
+      // Do not persist or return provider response bodies: they can contain
+      // request details that are inappropriate for job error telemetry.
+      throw new Error(`Summary provider returned HTTP ${response.status}`);
     }
     return body;
   } finally {
@@ -336,13 +337,14 @@ Deno.serve(async (request) => {
 
   const serviceRoleKey = env("SUPABASE_SERVICE_ROLE_KEY");
   const supabaseUrl = env("SUPABASE_URL");
-  if (!serviceRoleKey || !supabaseUrl) {
+  const cronSecret = env("SUMMARY_WORKER_CRON_SECRET");
+  if (!serviceRoleKey || !supabaseUrl || !cronSecret) {
     return jsonResponse({ error: "Worker secrets are not configured" }, 500);
   }
 
-  // Supabase Cron should invoke the function with the service-role bearer
-  // token.  No browser/session JWT may claim queue work.
-  if (request.headers.get("authorization") !== `Bearer ${serviceRoleKey}`) {
+  // Supabase Cron uses a dedicated shared secret. Never expose the database
+  // service-role key to the scheduler request or accept a browser/session JWT.
+  if (request.headers.get("x-summary-worker-secret") !== cronSecret) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
 

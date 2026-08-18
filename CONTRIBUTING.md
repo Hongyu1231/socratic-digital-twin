@@ -11,12 +11,12 @@ Before starting, read:
 ## 1. Development workflow
 
 1. Pull the latest `master`.
-2. Create a focused branch such as `feat/assignment-filters`, `fix/review-claim`, or `docs/backend-map`.
+2. Create a focused feature branch such as `codex/assignment-filters`, `fix/review-claim`, or `docs/backend-map`. Do not work directly on `master`.
 3. Keep the change scoped to one behavior or refactor.
 4. Add or update tests with the implementation.
 5. Run all quality gates.
 6. Perform role-based browser verification when the change is user-facing or stateful.
-7. Open a pull request; do not use direct production changes as a substitute for reviewed source control.
+7. Open a pull request. `master` accepts changes only through a PR with the required `verify` check passing.
 
 ## 2. Commit guidance
 
@@ -78,6 +78,8 @@ npm run build
 ```
 
 If a migration changed, also run the appropriate Supabase dry run and lint against the development project.
+
+E2E tests that write data must target a disposable Supabase project. Set `E2E_DATA_ENVIRONMENT=test`, `E2E_BASE_URL`, and `E2E_SUPABASE_URL`, then run `npm run check:e2e-target` before the suite. The guard rejects the production Vercel aliases and a configured `PRODUCTION_SUPABASE_URL`.
 
 ## 5. Pull-request checklist
 

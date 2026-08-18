@@ -2,7 +2,7 @@
 
 This function is intended to be invoked by Supabase Cron (or an equivalent
 server-side scheduler) once per minute with a `POST` request and an
-`Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>` header. It claims at most
+`x-summary-worker-secret` header. It claims at most
 20 rows from `public.session_summary_jobs`, performs the external model call
 without holding a database lock, and atomically applies or fails each claim.
 
@@ -10,6 +10,7 @@ Required secrets:
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `SUMMARY_WORKER_CRON_SECRET` (a random value used only to authenticate Cron)
 - `OPENAI_API_KEY` + `OPENAI_MODEL`, or `ANTHROPIC_API_KEY` + `CLAUDE_MODEL`
 
 Optional environment variables are `SUMMARY_WORKER_BATCH_SIZE` (default `5`)
@@ -24,6 +25,13 @@ The SQL migration owns the queue lease and retry policy: a claim increments
 the attempt counter, failures retry after 30 seconds then 60 seconds, and the
 third failure is terminal. `claim_token` prevents a stale worker from writing
 after its lease was reclaimed.
+
+After deploying the function, store the same random cron secret in Supabase
+Vault as `session_summary_worker_cron_secret`, store the project URL as
+`project_url`, and run `supabase/cron/session-summary-worker.sql`. That script
+creates or replaces the once-per-minute job without placing either value in
+source control. The function has JWT verification disabled because it performs
+its own dedicated-secret check before creating a service-role client.
 
 For local verification, inspect the queue with a service-role SQL session:
 

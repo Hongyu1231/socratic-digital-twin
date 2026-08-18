@@ -3,6 +3,7 @@ export type Classification = "correct" | "partial" | "vague" | "wrong";
 export type TutorStrategy = "probe" | "challenge" | "clarify" | "scaffold" | "reflect";
 export type SessionStatus = "active" | "completed" | "abandoned";
 export type ReviewStatus = "pending" | "in_review" | "completed";
+export type SummaryGenerationStatus = "pending" | "ready" | "failed";
 
 export interface DemoUser {
   id: string;
@@ -12,6 +13,9 @@ export interface DemoUser {
   isActive?: boolean;
   profile?: Record<string, unknown>;
 }
+
+/** The deliberately minimal identity shape exposed by the public demo API. */
+export type PublicDemoIdentity = Pick<DemoUser, "id" | "name" | "role">;
 
 export type ClassStatus = "active" | "archived";
 export type AssignmentStatus = "draft" | "open" | "closed";
@@ -46,6 +50,7 @@ export interface CaseAssignment {
   createdAt: string;
   className?: string;
   caseTitle?: string;
+  idempotencyKey?: string | null;
 }
 
 export interface StudentCaseOffering {
@@ -117,6 +122,7 @@ export interface ClinicalCase {
   version?: number;
   publishedAt?: string | null;
   attachments?: CaseAttachment[];
+  isTestFixture?: boolean;
 }
 
 export interface TutorMessage {
@@ -241,6 +247,7 @@ export interface SessionBundle {
   assignment?: CaseAssignment | null;
   teachingClass?: TeachingClass | null;
   reviewClaim?: ReviewClaim;
+  summaryGenerationStatus: SummaryGenerationStatus;
 }
 
 export interface MemoryPatch {
