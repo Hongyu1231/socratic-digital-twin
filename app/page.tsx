@@ -1,42 +1,63 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, BookOpen, Brain, Check, Clock3, LoaderCircle, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpen, Brain, Check, Clock3, LoaderCircle, RotateCw, Sparkles } from "lucide-react";
 import type { StudentCaseOffering } from "@/lib/domain";
+import { describeRequestFailure, readJsonBody, requestSignal } from "@/lib/client-request";
+import { groupByCase, sessionLabel } from "@/lib/case-catalogue";
+
+// The offerings query is slow enough on a cold backend that an aggressive
+// deadline would abort requests that were about to succeed.
+const CASES_TIMEOUT_MS = 30_000;
+const SLOW_NOTICE_MS = 6_000;
 
 export default function CaseSelectionPage() {
   const router = useRouter();
   const [offerings, setOfferings] = useState<StudentCaseOffering[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [slow, setSlow] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
   const [pendingAssignmentId, setPendingAssignmentId] = useState<string | null>(null);
+  const groups = useMemo(() => groupByCase(offerings), [offerings]);
+
+  const retry = useCallback(() => {
+    setLoading(true);
+    setError("");
+    setSlow(false);
+    setReloadToken((token) => token + 1);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/cases", { signal: controller.signal })
+    const slowNotice = setTimeout(() => setSlow(true), SLOW_NOTICE_MS);
+    fetch("/api/cases", { signal: requestSignal(CASES_TIMEOUT_MS, controller) })
       .then(async (response) => {
-        if (!response.ok) throw new Error("Cases could not be loaded.");
-        return response.json() as Promise<{ offerings: StudentCaseOffering[] }>;
+        const data = await readJsonBody<{ offerings?: StudentCaseOffering[]; error?: string }>(response, "Cases could not be loaded.");
+        if (!response.ok) throw new Error(data.error ?? "Cases could not be loaded.");
+        return data;
       })
       .then((data) => setOfferings(data.offerings ?? []))
       .catch((reason) => {
-        if (reason instanceof Error && reason.name !== "AbortError") setError(reason.message);
+        if (controller.signal.aborted) return;
+        setError(describeRequestFailure(reason, "Cases could not be loaded.", "Your assigned cases are taking longer than expected to load."));
       })
       .finally(() => {
+        clearTimeout(slowNotice);
         if (!controller.signal.aborted) setLoading(false);
       });
-    return () => controller.abort();
-  }, []);
+    return () => {
+      clearTimeout(slowNotice);
+      controller.abort();
+    };
+  }, [reloadToken]);
 
   async function startCase(offering: StudentCaseOffering) {
     if (pendingAssignmentId) return;
     setPendingAssignmentId(offering.assignment.id);
     if (offering.existingSessionId) {
-      if (offering.existingSessionStatus === "completed") {
-        router.push(`/session/${offering.existingSessionId}/summary`);
-        return;
-      }
       if (!offering.existingSessionPausedAt) {
         router.push(`/session/${offering.existingSessionId}`);
         return;
@@ -44,7 +65,7 @@ export default function CaseSelectionPage() {
       setError("");
       try {
         const response = await fetch(`/api/session/${offering.existingSessionId}/resume`, { method: "POST" });
-        const data = await response.json();
+        const data = await readJsonBody<{ error?: string }>(response, "The paused session could not be resumed.");
         if (!response.ok) {
           setError(data.error ?? "The paused session could not be resumed.");
           setPendingAssignmentId(null);
@@ -52,7 +73,7 @@ export default function CaseSelectionPage() {
         }
         router.push(`/session/${offering.existingSessionId}`);
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : "The paused session could not be resumed.");
+        setError(describeRequestFailure(reason, "The paused session could not be resumed.", "Resuming the session is taking longer than expected. Please try again."));
         setPendingAssignmentId(null);
       }
       return;
@@ -64,15 +85,15 @@ export default function CaseSelectionPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ assignmentId: offering.assignment.id }),
       });
-      const data = await response.json();
-      if (!response.ok) {
+      const data = await readJsonBody<{ session?: { id: string }; error?: string }>(response, "The session could not be started.");
+      if (!response.ok || !data.session) {
         setError(data.error ?? "The session could not be started.");
         setPendingAssignmentId(null);
         return;
       }
       router.push(`/session/${data.session.id}`);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The session could not be started.");
+      setError(describeRequestFailure(reason, "The session could not be started.", "Starting the session is taking longer than expected. Please try again."));
       setPendingAssignmentId(null);
     }
   }
@@ -112,22 +133,30 @@ export default function CaseSelectionPage() {
           <p>Choose from multimedia teaching simulations assigned by your professor.</p>
         </div>
 
-        {error ? <div className="error-banner" role="alert">{error}</div> : null}
-        {loading ? (
-          <div className="case-grid case-grid-loading" aria-label="Loading assigned clinical cases" aria-busy="true">
-            {[0, 1].map((item) => <article className="case-card case-card-skeleton" key={item} aria-hidden="true"><i /><i /><i /><i /><i /></article>)}
+        {error ? (
+          <div className="load-failure" role="alert">
+            <div className="error-banner">{error}</div>
+            <button className="secondary-button" type="button" onClick={retry}><RotateCw size={16} /> Try again</button>
           </div>
         ) : null}
-        {!loading && offerings.length === 0 && !error ? <div className="empty-state"><BookOpen /><h2>No assigned cases yet</h2><p>Your professor&apos;s open class assignments will appear here.</p></div> : null}
-        {!loading ? <div className="case-grid">
-          {offerings.map((offering, index) => {
+        {loading ? (
+          <>
+            {slow ? <p className="loading-notice" role="status">Still loading your assigned cases. This can take a moment on the first visit.</p> : null}
+            <div className="case-grid case-grid-loading" aria-label="Loading assigned clinical cases" aria-busy="true">
+              {[0, 1].map((item) => <article className="case-card case-card-skeleton" key={item} aria-hidden="true"><i /><i /><i /><i /><i /></article>)}
+            </div>
+          </>
+        ) : null}
+        {!loading && groups.length === 0 && !error ? <div className="empty-state"><BookOpen /><h2>No assigned cases yet</h2><p>Your professor&apos;s open class assignments will appear here.</p></div> : null}
+        {!loading && !error ? <div className="case-grid">
+          {groups.map(({ primary: offering, extras }, index) => {
             const clinicalCase = offering.case;
             const disabled = offering.availability !== "open" && !offering.existingSessionId;
             return (
-            <article className="case-card" key={offering.assignment.id}>
+            <article className="case-card" key={clinicalCase.id}>
               <div className="case-card-top">
                 <div className="case-index">{String(index + 1).padStart(2, "0")}</div>
-                <span className="difficulty-badge">{offering.availability}</span>
+                <span className="difficulty-badge">{clinicalCase.status === "available" ? offering.availability : `${clinicalCase.status} by your professor`}</span>
               </div>
               <h3>{clinicalCase.title}</h3>
               <p><strong>{offering.teachingClass.name}</strong> · {offering.teachingClass.term}</p>
@@ -140,11 +169,38 @@ export default function CaseSelectionPage() {
                   ))}
                 </ul>
               </div>
-              <button className="primary-button" onClick={() => void startCase(offering)} disabled={Boolean(pendingAssignmentId) || disabled}>
-                {pendingAssignmentId === offering.assignment.id ? <LoaderCircle size={18} className="spin" /> : null}
-                {pendingAssignmentId === offering.assignment.id ? "Preparing session…" : offering.existingSessionPausedAt ? "Resume paused session" : offering.existingSessionStatus === "completed" ? "View learning summary" : offering.existingSessionId ? "Continue session" : offering.availability === "upcoming" ? "Opens soon" : offering.availability === "closed" ? "Assignment closed" : "Begin Socratic session"}
-                {pendingAssignmentId === offering.assignment.id ? null : <ArrowRight size={18} />}
-              </button>
+              {offering.existingSessionStatus === "completed" && offering.existingSessionId ? (
+                // A link rather than a button: the route is prefetched, so the
+                // transition commits immediately instead of stalling on a click.
+                <Link className="primary-button" href={`/session/${offering.existingSessionId}/summary`}>
+                  View learning summary <ArrowRight size={18} />
+                </Link>
+              ) : (
+                <button className="primary-button" onClick={() => void startCase(offering)} disabled={Boolean(pendingAssignmentId) || disabled}>
+                  {pendingAssignmentId === offering.assignment.id ? <LoaderCircle size={18} className="spin" /> : null}
+                  {pendingAssignmentId === offering.assignment.id ? "Preparing session…" : offering.existingSessionPausedAt ? "Resume paused session" : offering.existingSessionId ? "Continue session" : offering.availability === "upcoming" ? "Opens soon" : offering.availability === "closed" ? "Assignment closed" : "Begin Socratic session"}
+                  {pendingAssignmentId === offering.assignment.id ? null : <ArrowRight size={18} />}
+                </button>
+              )}
+              {extras.length ? (
+                <div className="case-extra-sessions">
+                  <span>Your other sessions on this case</span>
+                  <ul>
+                    {extras.map((extra) => (
+                      <li key={extra.assignment.id}>
+                        <span>{sessionLabel(extra)} <small>#{extra.existingSessionId?.slice(0, 6)}</small></span>
+                        {extra.existingSessionStatus === "completed" && extra.existingSessionId ? (
+                          <Link href={`/session/${extra.existingSessionId}/summary`}>View summary</Link>
+                        ) : (
+                          <button type="button" onClick={() => void startCase(extra)} disabled={Boolean(pendingAssignmentId)}>
+                            {pendingAssignmentId === extra.assignment.id ? "Opening…" : extra.existingSessionPausedAt ? "Resume" : "Continue"}
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </article>
           );})}
           <div className="case-preview-card" aria-label="Future cases">
