@@ -7,6 +7,7 @@ import { withIdempotency } from "@/lib/idempotency";
 import { TUTOR_PROMPT_VERSION } from "@/lib/tutor/prompt";
 import { applyHumanizationExperiment } from "@/lib/experiments/shadow";
 import { contentHash } from "@/lib/experiments/privacy";
+import { buildStudentVisibleTutorReply } from "@/lib/tutor/correction-policy";
 
 const uniqueRecent = (existing: string[], additions: string[], limit = 8) =>
   [...new Set([...existing, ...additions])].slice(-limit);
@@ -120,7 +121,7 @@ async function performStudentAnswer(
   const summary = sessionComplete ? buildSessionSummary(allEvaluations, nextState, true) : null;
   const nextQuestion = sessionComplete
     ? "You have completed all five phases. Open your learning summary and reflect on what you would test next."
-    : result.nextQuestion;
+    : buildStudentVisibleTutorReply(result, bundle.session.evaluations, phase.order);
   const aiMessage: TutorMessage = {
     id: crypto.randomUUID(),
     sessionId,

@@ -27,6 +27,10 @@ async function save(request: Request) {
     sourceCaseId: current?.sourceCaseId ?? null,
     version: current?.version ?? 1,
     publishedAt: null,
+    attachments: parsed.data.attachments.map((attachment) => ({
+      ...attachment,
+      id: attachment.id ?? crypto.randomUUID(),
+    })),
     phases: parsed.data.phases.map((phase) => ({ ...phase, id: phase.id ?? "", caseId: id })),
   };
   return Response.json({ case: await getRepository().saveCase(clinicalCase, admin.id) });

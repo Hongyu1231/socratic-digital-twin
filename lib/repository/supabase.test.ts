@@ -51,7 +51,7 @@ describe("SupabaseTutorRepository student catalogue batching", () => {
       ],
       sessions: [{ id: "session-1", class_case_assignment_id: "assignment-1", status: "active", context: { pausedAt: null } }],
       cases: [
-        { id: "case-1", title: "Available", status: "active", presenting_complaint: "", is_test_fixture: false, source_case_id: null, version: 1, published_at: null },
+        { id: "case-1", title: "Available", status: "active", presenting_complaint: "", is_test_fixture: false, source_case_id: null, version: 1, published_at: null, attachments: [{ id: "123e4567-e89b-42d3-a456-426614174000", kind: "image", title: "OPG", description: "A teaching panoramic radiograph.", url: "/media/opg.jpg" }] },
         { id: "case-2", title: "Archived", status: "archived", presenting_complaint: "", is_test_fixture: false, source_case_id: null, version: 1, published_at: null },
         { id: "case-3", title: "Fixture", status: "active", presenting_complaint: "", is_test_fixture: true, source_case_id: null, version: 1, published_at: null },
       ],
@@ -65,6 +65,9 @@ describe("SupabaseTutorRepository student catalogue batching", () => {
 
     expect(offerings).toHaveLength(1);
     expect(offerings[0]).toMatchObject({ assignment: { id: "assignment-1" }, case: { id: "case-1" }, existingSessionId: "session-1" });
+    expect(offerings[0].case.attachments).toEqual([
+      expect.objectContaining({ kind: "image", title: "OPG", url: "/media/opg.jpg" }),
+    ]);
     expect(listSessions).not.toHaveBeenCalled();
     expect(getSession).not.toHaveBeenCalled();
     expect(getCase).not.toHaveBeenCalled();

@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { CasePhase, LearnerState, TutorEvaluationResult } from "@/lib/domain";
 import { tutorOutputSchema } from "@/lib/schemas";
-import { buildTutorInput, TUTOR_INSTRUCTIONS } from "@/lib/tutor/prompt";
+import { buildTutorInput, TUTOR_INSTRUCTIONS, TUTOR_PROMPT_VERSION } from "@/lib/tutor/prompt";
 
 interface EvaluateInput {
   phase: CasePhase;
@@ -22,7 +22,7 @@ export class ClaudeTutor {
     this.client = new Anthropic({ apiKey, maxRetries: 2, timeout: 30_000 });
     this.model = model;
     this.instructions = options?.instructions ?? TUTOR_INSTRUCTIONS;
-    this.promptVersion = options?.promptVersion ?? "human-v1";
+    this.promptVersion = options?.promptVersion ?? TUTOR_PROMPT_VERSION;
   }
 
   async evaluate({ phase, answer, state, attempt }: EvaluateInput): Promise<TutorEvaluationResult> {

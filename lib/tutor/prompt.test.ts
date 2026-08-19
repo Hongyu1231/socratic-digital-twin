@@ -26,6 +26,7 @@ describe("human tutor prompt contract", () => {
     expect(TUTOR_INSTRUCTIONS).toContain("professor would choose the same label");
     expect(TUTOR_INSTRUCTIONS).toContain("one supplied rubric criterion");
     expect(TUTOR_INSTRUCTIONS).toContain("masteryDelta 0");
+    expect(TUTOR_INSTRUCTIONS).toContain("two consecutive high-confidence wrong classifications");
   });
 
   it("serializes bounded memory and keeps the student answer as quoted data", () => {

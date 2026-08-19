@@ -22,6 +22,7 @@ import { CLASSIFICATION_SCORES } from "@/lib/domain";
 import { ArchivedCaseError, type CommitTurnInput, type SaveReviewInput, type TutorRepository } from "@/lib/repository/types";
 import { buildCaseVersionSlug, getCaseLineageId, getNextCaseVersion, getVersionedCaseTitle } from "@/lib/repository/case-version";
 import { getTutorMode } from "@/lib/tutor";
+import { caseAttachmentInputSchema } from "@/lib/schemas";
 
 type Row = Record<string, any>;
 
@@ -48,6 +49,15 @@ function mapPhase(row: Row): CasePhase {
 
 function mapCase(row: Row, phases: Row[]): ClinicalCase {
   const mappedPhases = phases.map(mapPhase).sort((a, b) => a.order - b.order);
+  const rawAttachments = Array.isArray(row.attachments)
+    ? row.attachments
+    : Array.isArray(row.patient_context?.attachments)
+      ? row.patient_context.attachments
+      : [];
+  const attachments = rawAttachments.flatMap((value: unknown) => {
+    const parsed = caseAttachmentInputSchema.safeParse(value);
+    return parsed.success ? [{ ...parsed.data, id: parsed.data.id ?? crypto.randomUUID() }] : [];
+  });
   return {
     id: row.id,
     title: row.title,
@@ -59,6 +69,7 @@ function mapCase(row: Row, phases: Row[]): ClinicalCase {
     sourceCaseId: row.source_case_id ?? null,
     version: row.version ?? 1,
     publishedAt: row.published_at ?? null,
+    attachments,
     isTestFixture: row.is_test_fixture === true,
   };
 }
@@ -581,9 +592,21 @@ export class SupabaseTutorRepository implements TutorRepository {
     if (existing && existing.status !== "draft") throw new Error("Published cases are immutable. Clone a new version.");
     const caseId = input.id || crypto.randomUUID();
     const version = input.version ?? 1;
-    const payload = { title: input.title, slug: buildCaseVersionSlug(input.title, version, caseId), specialty: "dentistry", presenting_complaint: input.description, status: "draft", created_by: adminId, source_case_id: input.sourceCaseId ?? null, version, published_at: null, patient_context: {}, tags: input.learningObjectives };
+    const attachments = input.attachments ?? [];
+    const payload = { title: input.title, slug: buildCaseVersionSlug(input.title, version, caseId), specialty: "dentistry", presenting_complaint: input.description, status: "draft", created_by: adminId, source_case_id: input.sourceCaseId ?? null, version, published_at: null, patient_context: { attachments }, attachments, tags: input.learningObjectives };
     const operation = input.id ? this.client.from("cases").update(payload).eq("id", input.id).select("id").single() : this.client.from("cases").insert({ id: caseId, ...payload }).select("id").single();
-    const { data, error } = await operation;
+    let { data, error } = await operation;
+    // Keep draft authoring available during the backwards-compatible rollout
+    // window before the dedicated attachments column is migrated. The same
+    // validated data is mirrored in the existing patient_context JSONB field.
+    if (error && /attachments.*column|column.*attachments|schema cache/i.test(error.message)) {
+      const legacyPayload: Record<string, unknown> = { ...payload };
+      delete legacyPayload.attachments;
+      const fallback = input.id
+        ? this.client.from("cases").update(legacyPayload).eq("id", input.id).select("id").single()
+        : this.client.from("cases").insert({ id: caseId, ...legacyPayload }).select("id").single();
+      ({ data, error } = await fallback);
+    }
     const savedCaseId = must(data, error, "Save case").id;
     if (input.id) await this.client.from("case_phases").delete().eq("case_id", savedCaseId);
     const { error: phaseError } = await this.client.from("case_phases").insert(input.phases.map((phase, index) => ({ case_id: savedCaseId, phase_order: index + 1, phase_key: `phase_${index + 1}`, title: phase.title, objectives: [phase.goal, ...phase.rubric], questions: [phase.starterQuestion, ...phase.exampleQuestions], teaching_notes: phase.goal, expected_findings: Object.fromEntries(phase.rubric.map((item) => [item, true])), metadata: {} })));

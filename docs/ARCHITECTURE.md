@@ -79,7 +79,7 @@ Dynamic page components follow the Next.js 15 asynchronous `params` convention. 
 | `app/layout.tsx` | Root metadata, global header, page shell |
 | `app/globals.css` | Shared design tokens and global component styles |
 | `components/site-header.tsx` | Seeded identity selector and role-aware navigation |
-| `components/case-resources.tsx` | Synthetic, presentation-only image/audio/video demo resources; these are not persisted clinical media |
+| `components/case-resources.tsx` | Validated, versioned image/audio/video teaching media with synthetic browser-side fallbacks |
 | `components/date-time-select.tsx` | Accessible date and time selection used by assignment forms |
 | `components/date-time-select.module.css` | Styles scoped to the date-time selector |
 
@@ -193,7 +193,7 @@ The student catalogue is a bounded five-query path in Supabase mode: the current
 
 Selection uses OpenAI when its complete key/model pair exists; otherwise it uses Claude when that pair exists; otherwise it uses deterministic rules. A configured network provider that times out, refuses, or returns invalid output falls directly to deterministic behavior for that request. It does not silently switch to the other network provider. Provider errors are logged using provider, request ID, and error type only.
 
-The model is not allowed to mutate application state. It returns a validated proposal containing a classification, confidence, observable reasoning gap, strategy, feedback, one follow-up question, and an allow-listed memory patch. `state-machine.ts` decides phase completion, updates learner state, calculates metadata, and passes one atomic commit to the repository.
+The model is not allowed to mutate application state. It returns a validated proposal containing a classification, confidence, observable reasoning gap, strategy, feedback, one follow-up question, and an allow-listed memory patch. `state-machine.ts` decides phase completion, updates learner state, calculates metadata, and passes one atomic commit to the repository. A deterministic correction policy is the sole exception to question-only delivery: after two consecutive `wrong` labels at confidence `>= 0.85` in the same phase, it prefixes the model's safe question with “That statement is incorrect.” It never fires for `partial` or `vague`.
 
 Both automatic and manual completion synchronously save the deterministic summary and return `200`. A database trigger idempotently creates one `session_summary_jobs` row when a session first enters `completed`. Supabase Cron invokes the Edge worker every minute using a dedicated Vault-backed secret. Workers claim rows with `FOR UPDATE SKIP LOCKED`, perform provider I/O outside the transaction, and atomically apply a validated enhancement or retry after 30/60 seconds. After three failures, the deterministic summary remains available and `summaryGenerationStatus` becomes `failed`.
 
@@ -342,4 +342,4 @@ This repository intentionally does not provide production authentication, real c
 
 The current UI locks a completed review and Admin reassignment rejects it, but the repository API does not yet explicitly reject a resubmission by the same claiming Professor. Treat completed-review immutability as an identified hardening item rather than a fully enforced invariant until both repository adapters and a regression test enforce it.
 
-The attachment panel has browser-side synthetic defaults for demonstration; it is not a durable clinical-media store. Persisted media would require an explicit storage model, authorization policy, migration, and repository mapping.
+Case drafts accept up to 12 validated teaching attachments. Metadata is stored with the immutable case version in `cases.attachments`; the rollout temporarily mirrors the same data under `patient_context.attachments` so authoring remains compatible until the migration is applied. URLs must be HTTPS or site-relative, published sources can carry a citation URL, and binary content remains outside Postgres. The attachment panel falls back to synthetic resources when a case has none. This POC must never contain identifiable patient media.

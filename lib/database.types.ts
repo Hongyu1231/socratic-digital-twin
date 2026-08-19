@@ -145,6 +145,7 @@ export type Database = {
       }
       cases: {
         Row: {
+          attachments: Json
           created_at: string
           created_by: string
           diagnosis: string | null
@@ -162,6 +163,7 @@ export type Database = {
           version: number
         }
         Insert: {
+          attachments?: Json
           created_at?: string
           created_by: string
           diagnosis?: string | null
@@ -179,6 +181,7 @@ export type Database = {
           version?: number
         }
         Update: {
+          attachments?: Json
           created_at?: string
           created_by?: string
           diagnosis?: string | null

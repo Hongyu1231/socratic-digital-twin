@@ -71,12 +71,44 @@ export const phaseInputSchema = z.object({
   exampleQuestions: z.array(z.string().trim().min(3).max(500)).min(1),
 });
 
+const mediaUrlSchema = z.string().trim().max(2_048).refine((value) => {
+  if (value.startsWith("/") && !value.startsWith("//")) return true;
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}, "Media URLs must use HTTPS or a site-relative path.");
+
+export const caseAttachmentInputSchema = z.object({
+  id: z.string().uuid().optional(),
+  kind: z.enum(["image", "audio", "video"]),
+  title: z.string().trim().min(1).max(160),
+  description: z.string().trim().min(1).max(500),
+  url: mediaUrlSchema.optional(),
+  posterUrl: mediaUrlSchema.optional(),
+  transcript: z.string().trim().min(1).max(10_000).optional(),
+  sourceLabel: z.string().trim().min(1).max(240).optional(),
+  sourceUrl: z.string().trim().url().max(2_048).refine(
+    (value) => new URL(value).protocol === "https:",
+    "Source URLs must use HTTPS.",
+  ).optional(),
+}).superRefine((attachment, context) => {
+  if ((attachment.kind === "image" || attachment.kind === "video") && !attachment.url) {
+    context.addIssue({ code: "custom", path: ["url"], message: "Images and videos require a media URL." });
+  }
+  if (attachment.kind === "audio" && !attachment.url && !attachment.transcript) {
+    context.addIssue({ code: "custom", path: ["url"], message: "Audio requires a media URL or transcript." });
+  }
+});
+
 export const caseInputSchema = z.object({
   id: z.string().uuid().optional(),
   title: z.string().trim().min(2).max(160),
   description: z.string().trim().min(5).max(1500),
   difficulty: z.enum(["foundation", "intermediate", "advanced"]),
   learningObjectives: z.array(z.string().trim().min(1).max(250)).min(1),
+  attachments: z.array(caseAttachmentInputSchema).max(12).default([]),
   phases: z.array(phaseInputSchema).length(5),
 });
 

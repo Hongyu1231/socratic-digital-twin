@@ -73,6 +73,8 @@ export interface CaseAttachment {
   url?: string;
   posterUrl?: string;
   transcript?: string;
+  sourceLabel?: string;
+  sourceUrl?: string;
 }
 
 export interface CaseVersionSummary {

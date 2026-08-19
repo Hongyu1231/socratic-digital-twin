@@ -9,9 +9,10 @@ The project runs without external services: it uses an in-process repository and
 ## Features
 
 - Students choose a class assignment, work through a five-phase case, and receive a formative summary.
-- Case cards load with explicit skeletons, use equal-width responsive columns, and expose synthetic image/audio teaching attachments inside a session.
+- Case cards load with explicit skeletons, use equal-width responsive columns, and expose versioned image/audio/video teaching attachments inside a session.
 - Students can pause safely, return to the case list, and resume the same phase and transcript. Browser-native dictation and tutor read-aloud remain optional enhancements to text input.
 - Each answer is classified as `correct`, `partial`, `vague`, or `wrong`.
+- Two consecutive `wrong` classifications at 85% confidence or higher trigger a plain correction before the next Socratic question; `partial` and `vague` never trigger that exception.
 - The system records reasoning gaps, strengths, weaknesses, phase mastery, and previous errors.
 - Admins manage seeded users, classes, case versions, publication, and review ownership.
 - Professors assign published cases, inspect complete transcripts, claim reviews, re-label answers, and rate tutor-intervention quality.
