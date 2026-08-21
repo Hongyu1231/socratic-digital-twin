@@ -690,11 +690,20 @@ export class SupabaseTutorRepository implements TutorRepository {
     if (!assignments.length) return [];
 
     const assignmentIds = assignments.map((item) => item.id);
-    const { data: sessionRows, error: sessionError } = await this.client
-      .from("sessions")
-      .select("id, class_case_assignment_id, status, context")
-      .eq("student_id", studentId)
-      .in("class_case_assignment_id", assignmentIds);
+    const caseIds = [...new Set(assignments.map((item) => item.caseId))];
+    const [
+      { data: sessionRows, error: sessionError },
+      { data: caseRows, error: caseError },
+      { data: phaseRows, error: phaseError },
+    ] = await Promise.all([
+      this.client
+        .from("sessions")
+        .select("id, class_case_assignment_id, status, context")
+        .eq("student_id", studentId)
+        .in("class_case_assignment_id", assignmentIds),
+      this.client.from("cases").select("*").in("id", caseIds),
+      this.client.from("case_phases").select("*").in("case_id", caseIds).order("phase_order"),
+    ]);
     const sessions = must(sessionRows, sessionError, "List student sessions");
     const sessionByAssignment = new Map<string, Row>();
     for (const session of sessions) {
@@ -702,12 +711,6 @@ export class SupabaseTutorRepository implements TutorRepository {
         sessionByAssignment.set(session.class_case_assignment_id, session);
       }
     }
-
-    const caseIds = [...new Set(assignments.map((item) => item.caseId))];
-    const [{ data: caseRows, error: caseError }, { data: phaseRows, error: phaseError }] = await Promise.all([
-      this.client.from("cases").select("*").in("id", caseIds),
-      this.client.from("case_phases").select("*").in("case_id", caseIds).order("phase_order"),
-    ]);
     const cases = must(caseRows, caseError, "List student cases");
     const phases = must(phaseRows, phaseError, "List student case phases");
     const phasesByCase = new Map<string, Row[]>();
