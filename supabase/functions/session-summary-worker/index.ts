@@ -1,14 +1,5 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.112.2";
-
-type Summary = {
-  overallScore: number;
-  headline: string;
-  narrative: string;
-  strengths: string[];
-  weaknesses: string[];
-  nextSteps: string[];
-  completedAllPhases: boolean;
-};
+import { fetchJson, parseJson, validateSummary, type Summary } from "./summary-worker-core.ts";
 
 type SummaryJob = {
   id: string;
@@ -47,92 +38,6 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function parseJson(text: string): unknown {
-  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const start = trimmed.indexOf("{");
-    const end = trimmed.lastIndexOf("}");
-    if (start < 0 || end <= start) throw new Error("Summary provider did not return JSON");
-    return JSON.parse(trimmed.slice(start, end + 1));
-  }
-}
-
-function nonEmptyString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function stringArray(value: unknown, required: boolean): string[] | null {
-  if (!Array.isArray(value)) return null;
-  const result = value
-    .map((item) => nonEmptyString(item))
-    .filter((item): item is string => item !== null);
-  return required && result.length === 0 ? null : result;
-}
-
-function validateSummary(value: unknown): Summary {
-  if (!value || typeof value !== "object") throw new Error("Summary is not an object");
-  const record = value as Record<string, unknown>;
-  const overallScore = record.overallScore;
-  const headline = nonEmptyString(record.headline);
-  const narrative = nonEmptyString(record.narrative);
-  const strengths = stringArray(record.strengths, true);
-  const weaknesses = stringArray(record.weaknesses, false);
-  const nextSteps = stringArray(record.nextSteps, true);
-
-  if (
-    typeof overallScore !== "number" ||
-    !Number.isFinite(overallScore) ||
-    overallScore < 0 ||
-    overallScore > 100 ||
-    !headline ||
-    !narrative ||
-    !strengths ||
-    !weaknesses ||
-    !nextSteps ||
-    typeof record.completedAllPhases !== "boolean"
-  ) {
-    throw new Error("Summary failed schema validation (strengths and nextSteps cannot be empty)");
-  }
-
-  return {
-    overallScore,
-    headline,
-    narrative,
-    strengths,
-    weaknesses,
-    nextSteps,
-    completedAllPhases: record.completedAllPhases,
-  };
-}
-
-async function fetchJson(
-  url: string,
-  init: RequestInit,
-  timeoutMs: number,
-): Promise<unknown> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, { ...init, signal: controller.signal });
-    const responseText = await response.text();
-    let body: unknown = null;
-    try {
-      body = responseText ? JSON.parse(responseText) : null;
-    } catch {
-      body = responseText;
-    }
-    if (!response.ok) {
-      // Do not persist or return provider response bodies: they can contain
-      // request details that are inappropriate for job error telemetry.
-      throw new Error(`Summary provider returned HTTP ${response.status}`);
-    }
-    return body;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
 
 async function generateOpenAiSummary(
   payload: SessionPayload,
