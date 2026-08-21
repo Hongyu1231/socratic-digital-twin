@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -11,31 +11,6 @@ export type Database = {
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.15"
-  }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
   }
   public: {
     Tables: {
@@ -150,6 +125,7 @@ export type Database = {
           created_by: string
           diagnosis: string | null
           id: string
+          is_test_fixture: boolean
           patient_context: Json
           presenting_complaint: string | null
           published_at: string | null
@@ -168,6 +144,7 @@ export type Database = {
           created_by: string
           diagnosis?: string | null
           id?: string
+          is_test_fixture?: boolean
           patient_context?: Json
           presenting_complaint?: string | null
           published_at?: string | null
@@ -186,6 +163,7 @@ export type Database = {
           created_by?: string
           diagnosis?: string | null
           id?: string
+          is_test_fixture?: boolean
           patient_context?: Json
           presenting_complaint?: string | null
           published_at?: string | null
@@ -223,6 +201,7 @@ export type Database = {
           created_at: string
           due_at: string | null
           id: string
+          idempotency_key: string | null
           opens_at: string
           status: string
           updated_at: string
@@ -234,6 +213,7 @@ export type Database = {
           created_at?: string
           due_at?: string | null
           id?: string
+          idempotency_key?: string | null
           opens_at: string
           status?: string
           updated_at?: string
@@ -245,6 +225,7 @@ export type Database = {
           created_at?: string
           due_at?: string | null
           id?: string
+          idempotency_key?: string | null
           opens_at?: string
           status?: string
           updated_at?: string
@@ -936,6 +917,71 @@ export type Database = {
           },
         ]
       }
+      session_summary_jobs: {
+        Row: {
+          attempt_count: number
+          available_at: string
+          claim_token: string | null
+          completed_at: string | null
+          created_at: string
+          failed_at: string | null
+          id: string
+          last_error: string | null
+          locked_at: string | null
+          locked_by: string | null
+          model: string | null
+          provider: string | null
+          session_id: string
+          status: Database["public"]["Enums"]["summary_job_status"]
+          summary: Json | null
+          updated_at: string
+        }
+        Insert: {
+          attempt_count?: number
+          available_at?: string
+          claim_token?: string | null
+          completed_at?: string | null
+          created_at?: string
+          failed_at?: string | null
+          id?: string
+          last_error?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          model?: string | null
+          provider?: string | null
+          session_id: string
+          status?: Database["public"]["Enums"]["summary_job_status"]
+          summary?: Json | null
+          updated_at?: string
+        }
+        Update: {
+          attempt_count?: number
+          available_at?: string
+          claim_token?: string | null
+          completed_at?: string | null
+          created_at?: string
+          failed_at?: string | null
+          id?: string
+          last_error?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          model?: string | null
+          provider?: string | null
+          session_id?: string
+          status?: Database["public"]["Enums"]["summary_job_status"]
+          summary?: Json | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_summary_jobs_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: true
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sessions: {
         Row: {
           case_id: string
@@ -950,6 +996,9 @@ export type Database = {
           started_at: string
           status: Database["public"]["Enums"]["session_status"]
           student_id: string
+          summary_generated_at: string | null
+          summary_generation_error: string | null
+          summary_generation_status: string
           updated_at: string
         }
         Insert: {
@@ -965,6 +1014,9 @@ export type Database = {
           started_at?: string
           status?: Database["public"]["Enums"]["session_status"]
           student_id: string
+          summary_generated_at?: string | null
+          summary_generation_error?: string | null
+          summary_generation_status?: string
           updated_at?: string
         }
         Update: {
@@ -980,6 +1032,9 @@ export type Database = {
           started_at?: string
           status?: Database["public"]["Enums"]["session_status"]
           student_id?: string
+          summary_generated_at?: string | null
+          summary_generation_error?: string | null
+          summary_generation_status?: string
           updated_at?: string
         }
         Relationships: [
@@ -1301,6 +1356,94 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_session_summary_job: {
+        Args: {
+          p_claim_token: string
+          p_job_id: string
+          p_model?: string
+          p_provider: string
+          p_summary: Json
+        }
+        Returns: {
+          attempt_count: number
+          available_at: string
+          claim_token: string | null
+          completed_at: string | null
+          created_at: string
+          failed_at: string | null
+          id: string
+          last_error: string | null
+          locked_at: string | null
+          locked_by: string | null
+          model: string | null
+          provider: string | null
+          session_id: string
+          status: Database["public"]["Enums"]["summary_job_status"]
+          summary: Json | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "session_summary_jobs"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      archive_case: {
+        Args: { p_case_id: string }
+        Returns: {
+          attachments: Json
+          created_at: string
+          created_by: string
+          diagnosis: string | null
+          id: string
+          is_test_fixture: boolean
+          patient_context: Json
+          presenting_complaint: string | null
+          published_at: string | null
+          slug: string
+          source_case_id: string | null
+          specialty: string
+          status: Database["public"]["Enums"]["case_status"]
+          tags: string[]
+          title: string
+          updated_at: string
+          version: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "cases"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      claim_session_summary_jobs: {
+        Args: { p_limit?: number; p_worker_id: string }
+        Returns: {
+          attempt_count: number
+          available_at: string
+          claim_token: string | null
+          completed_at: string | null
+          created_at: string
+          failed_at: string | null
+          id: string
+          last_error: string | null
+          locked_at: string | null
+          locked_by: string | null
+          model: string | null
+          provider: string | null
+          session_id: string
+          status: Database["public"]["Enums"]["summary_job_status"]
+          summary: Json | null
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "session_summary_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       commit_tutor_turn: {
         Args: {
           p_ai_content: string
@@ -1329,6 +1472,33 @@ export type Database = {
           student_message_id: string
         }[]
       }
+      fail_session_summary_job: {
+        Args: { p_claim_token: string; p_error?: string; p_job_id: string }
+        Returns: {
+          attempt_count: number
+          available_at: string
+          claim_token: string | null
+          completed_at: string | null
+          created_at: string
+          failed_at: string | null
+          id: string
+          last_error: string | null
+          locked_at: string | null
+          locked_by: string | null
+          model: string | null
+          provider: string | null
+          session_id: string
+          status: Database["public"]["Enums"]["summary_job_status"]
+          summary: Json | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "session_summary_jobs"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       humanization_require_user_role: {
         Args: { p_expected_role: string; p_user_id: string }
         Returns: undefined
@@ -1350,6 +1520,7 @@ export type Database = {
       message_role: "student" | "tutor" | "assistant" | "system"
       review_status: "pending" | "approved" | "rejected" | "needs_revision"
       session_status: "active" | "completed" | "abandoned"
+      summary_job_status: "pending" | "processing" | "completed" | "failed"
       user_role: "student" | "professor" | "admin"
     }
     CompositeTypes: {
@@ -1476,9 +1647,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       case_status: ["draft", "active", "archived"],
@@ -1493,6 +1661,7 @@ export const Constants = {
       message_role: ["student", "tutor", "assistant", "system"],
       review_status: ["pending", "approved", "rejected", "needs_revision"],
       session_status: ["active", "completed", "abandoned"],
+      summary_job_status: ["pending", "processing", "completed", "failed"],
       user_role: ["student", "professor", "admin"],
     },
   },

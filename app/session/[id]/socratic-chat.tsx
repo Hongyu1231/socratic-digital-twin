@@ -8,8 +8,9 @@ import { CaseResources } from "@/components/case-resources";
 import { selectPreferredEnglishVoice } from "@/lib/speech";
 import { describeRequestFailure, readJsonBody, requestSignal } from "@/lib/client-request";
 
-// Ending a session generates the summary through the tutor model, so the
-// request needs a deadline that is generous but not unbounded.
+// Ending a session commits a deterministic summary immediately. Keep a
+// deadline for network/server failures while optional model enhancement runs
+// asynchronously after completion.
 const END_SESSION_TIMEOUT_MS = 45_000;
 const SLOW_NOTICE_MS = 8_000;
 
@@ -367,14 +368,14 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
     if (!window.confirm("End this session now? Your summary will reflect the phases completed so far.")) return;
     setPendingAction("end");
     setError("");
-    const slowNotice = setTimeout(() => setEndNotice("Writing your learning summary. This can take up to a minute."), SLOW_NOTICE_MS);
+    const slowNotice = setTimeout(() => setEndNotice("Saving your summary. The immediate version is ready; this request is taking longer than expected."), SLOW_NOTICE_MS);
     try {
       const response = await fetch(`/api/session/${sessionId}/complete`, { method: "POST", signal: requestSignal(END_SESSION_TIMEOUT_MS) });
       const data = await readJsonBody<{ error?: string }>(response, "The session could not be ended.");
       if (!response.ok) throw new Error(data.error ?? "The session could not be ended.");
       router.push(`/session/${sessionId}/summary`);
     } catch (reason) {
-      setError(describeRequestFailure(reason, "The session could not be ended.", "Your summary is taking longer than expected to generate. Your progress is saved — please try again."));
+      setError(describeRequestFailure(reason, "The session could not be ended.", "Saving the completed session is taking longer than expected. Your progress may already be saved — please check the summary and try again if needed."));
       setEndNotice("");
       setPendingAction(null);
     } finally {

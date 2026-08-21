@@ -1,5 +1,13 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.112.2";
-import { fetchJson, parseJson, validateSummary, type Summary } from "./summary-worker-core.ts";
+import {
+  buildOpenAiResponsesBody,
+  extractOpenAiResponseText,
+  fetchJson,
+  OPENAI_RESPONSES_URL,
+  parseJson,
+  validateSummary,
+  type Summary,
+} from "./summary-worker-core.ts";
 
 type SummaryJob = {
   id: string;
@@ -26,9 +34,6 @@ type SessionPayload = {
   }>;
 };
 
-const SUMMARY_INSTRUCTIONS =
-  "Create concise formative feedback for a dentistry learner. Describe observable reasoning only. Do not add clinical facts, diagnoses, or hidden chain-of-thought. Return JSON with overallScore, headline, narrative, strengths, weaknesses, nextSteps, and completedAllPhases.";
-
 function env(name: string): string | null {
   const value = Deno.env.get(name)?.trim();
   return value ? value : null;
@@ -45,32 +50,19 @@ async function generateOpenAiSummary(
   model: string,
   timeoutMs: number,
 ): Promise<Summary> {
-  const response = (await fetchJson(
-    "https://api.openai.com/v1/chat/completions",
+  const response = await fetchJson(
+    OPENAI_RESPONSES_URL,
     {
       method: "POST",
       headers: {
         authorization: `Bearer ${apiKey}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({
-        model,
-        temperature: 0.2,
-        max_tokens: 850,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: SUMMARY_INSTRUCTIONS },
-          { role: "user", content: JSON.stringify(payload) },
-        ],
-      }),
+      body: JSON.stringify(buildOpenAiResponsesBody(payload, model)),
     },
     timeoutMs,
-  )) as {
-    choices?: Array<{ message?: { content?: string | null } }>;
-  };
-  const content = response.choices?.[0]?.message?.content;
-  if (!content) throw new Error("OpenAI returned an empty summary");
-  return validateSummary(parseJson(content));
+  );
+  return validateSummary(parseJson(extractOpenAiResponseText(response)));
 }
 
 async function generateClaudeSummary(

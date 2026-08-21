@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  buildOpenAiResponsesBody,
+  extractOpenAiResponseText,
   fetchJson,
+  OPENAI_RESPONSES_URL,
   parseJson,
   validateSummary,
 } from "../../functions/session-summary-worker/summary-worker-core";
@@ -22,6 +25,42 @@ afterEach(() => {
 });
 
 describe("session summary worker core", () => {
+  it("builds a strict Responses API request for a non-empty summary", () => {
+    const body = buildOpenAiResponsesBody({ session: { id: "session-1" } }, "gpt-5.6-luna");
+
+    expect(OPENAI_RESPONSES_URL).toBe("https://api.openai.com/v1/responses");
+    expect(body).toMatchObject({
+      model: "gpt-5.6-luna",
+      store: false,
+      text: {
+        format: {
+          type: "json_schema",
+          name: "session_summary",
+          strict: true,
+          schema: {
+            additionalProperties: false,
+            properties: {
+              strengths: { minItems: 1 },
+              nextSteps: { minItems: 1 },
+            },
+          },
+        },
+      },
+    });
+    expect(JSON.parse(body.input)).toEqual({ session: { id: "session-1" } });
+  });
+
+  it("extracts structured text from both Responses API representations", () => {
+    const text = JSON.stringify(validSummary);
+    expect(extractOpenAiResponseText({ status: "completed", output_text: text })).toBe(text);
+    expect(extractOpenAiResponseText({
+      status: "completed",
+      output: [{ content: [{ type: "output_text", text }] }],
+    })).toBe(text);
+    expect(() => extractOpenAiResponseText({ status: "incomplete", output: [] })).toThrow(/status/i);
+    expect(() => extractOpenAiResponseText({ status: "completed", output: [] })).toThrow(/empty/i);
+  });
+
   it("accepts fenced provider JSON and validates the required arrays", () => {
     expect(validateSummary(parseJson(`\`\`\`json\n${JSON.stringify(validSummary)}\n\`\`\``))).toEqual(validSummary);
     expect(() => validateSummary({ ...validSummary, strengths: [] })).toThrow(/strengths/i);

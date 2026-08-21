@@ -28,3 +28,61 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run build
+      - name: Verify E2E target guard accepts an isolated test target
+        env:
+          E2E_BASE_URL: http://127.0.0.1:3000
+          E2E_SUPABASE_URL: https://isolated-test-project.supabase.co
+          E2E_DATA_ENVIRONMENT: test
+          PRODUCTION_SUPABASE_URL: https://production-project.supabase.co
+        run: npm run check:e2e-target
+      - name: Verify E2E target guard rejects the production Vercel host
+        env:
+          E2E_BASE_URL: https://socratic-digital-twin-poc.vercel.app
+          E2E_SUPABASE_URL: https://isolated-test-project.supabase.co
+          E2E_DATA_ENVIRONMENT: test
+          PRODUCTION_SUPABASE_URL: https://production-project.supabase.co
+        shell: bash
+        run: |
+          if npm run check:e2e-target; then
+            echo "::error::E2E target guard accepted the production Vercel host."
+            exit 1
+          fi
+      - name: Verify E2E target guard rejects the production Supabase project
+        env:
+          E2E_BASE_URL: http://127.0.0.1:3000
+          E2E_SUPABASE_URL: https://production-project.supabase.co
+          E2E_DATA_ENVIRONMENT: test
+          PRODUCTION_SUPABASE_URL: https://production-project.supabase.co
+        shell: bash
+        run: |
+          if npm run check:e2e-target; then
+            echo "::error::E2E target guard accepted the production Supabase project."
+            exit 1
+          fi
+
+  database:
+    name: database
+    runs-on: ubuntu-latest
+    # Docker image pulls and the first migration reset are substantially slower
+    # than the application checks, especially on a cold GitHub-hosted runner.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v2
+        with:
+          version: 2.114.0
+      - name: Confirm Supabase CLI version
+        run: |
+          test "$(supabase --version)" = "2.114.0"
+      - name: Start the isolated local database
+        run: supabase db start
+      - name: Apply all migrations to the local database
+        run: supabase db reset --local --no-seed
+      - name: Run database pgTAP tests
+        run: supabase test db --local supabase/tests/database
+      - name: Stop the isolated local database
+        if: always()
+        run: supabase stop --no-backup

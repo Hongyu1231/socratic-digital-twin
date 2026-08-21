@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(34);
+select plan(35);
 
 select has_column('public', 'cases', 'attachments', 'cases stores teaching attachments');
 select has_column('public', 'cases', 'is_test_fixture', 'cases marks disposable fixtures');
@@ -29,6 +29,10 @@ select ok(
 select ok(
   has_function_privilege('service_role', 'public.claim_session_summary_jobs(text,integer)', 'execute'),
   'service role can claim summary jobs'
+);
+select ok(
+  position('for share' in lower(pg_get_functiondef('public.reject_archived_case_session()'::regprocedure))) > 0,
+  'archived-case guard takes a shared case lock before checking its status'
 );
 
 insert into public.users (id, email, display_name, role)

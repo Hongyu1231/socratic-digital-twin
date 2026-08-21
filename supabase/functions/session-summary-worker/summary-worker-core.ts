@@ -8,6 +8,81 @@ export type Summary = {
   completedAllPhases: boolean;
 };
 
+const SUMMARY_INSTRUCTIONS =
+  "Create concise formative feedback for a dentistry learner. Describe observable reasoning only. Do not add clinical facts, diagnoses, or hidden chain-of-thought. Return the requested structured summary.";
+
+export const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
+
+export const SUMMARY_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    overallScore: { type: "number", minimum: 0, maximum: 100 },
+    headline: { type: "string" },
+    narrative: { type: "string" },
+    strengths: { type: "array", minItems: 1, items: { type: "string" } },
+    weaknesses: { type: "array", items: { type: "string" } },
+    nextSteps: { type: "array", minItems: 1, items: { type: "string" } },
+    completedAllPhases: { type: "boolean" },
+  },
+  required: [
+    "overallScore",
+    "headline",
+    "narrative",
+    "strengths",
+    "weaknesses",
+    "nextSteps",
+    "completedAllPhases",
+  ],
+  additionalProperties: false,
+} as const;
+
+export function buildOpenAiResponsesBody(payload: unknown, model: string) {
+  return {
+    model,
+    store: false,
+    max_output_tokens: 1_200,
+    instructions: SUMMARY_INSTRUCTIONS,
+    input: JSON.stringify(payload),
+    text: {
+      format: {
+        type: "json_schema",
+        name: "session_summary",
+        strict: true,
+        schema: SUMMARY_JSON_SCHEMA,
+      },
+    },
+  };
+}
+
+export function extractOpenAiResponseText(value: unknown): string {
+  if (!value || typeof value !== "object") throw new Error("OpenAI returned an invalid response");
+  const response = value as Record<string, unknown>;
+  if (response.status !== "completed") {
+    throw new Error(`OpenAI returned an unusable response status: ${String(response.status ?? "unknown")}`);
+  }
+
+  if (typeof response.output_text === "string" && response.output_text.trim()) {
+    return response.output_text;
+  }
+
+  if (Array.isArray(response.output)) {
+    for (const output of response.output) {
+      if (!output || typeof output !== "object") continue;
+      const content = (output as Record<string, unknown>).content;
+      if (!Array.isArray(content)) continue;
+      for (const item of content) {
+        if (!item || typeof item !== "object") continue;
+        const record = item as Record<string, unknown>;
+        if (record.type === "output_text" && typeof record.text === "string" && record.text.trim()) {
+          return record.text;
+        }
+      }
+    }
+  }
+
+  throw new Error("OpenAI returned an empty summary");
+}
+
 export function parseJson(text: string): unknown {
   const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
   try {

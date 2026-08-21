@@ -289,13 +289,22 @@ language plpgsql
 security invoker
 set search_path = public, pg_catalog
 as $$
+declare
+  v_case_status public.case_status;
 begin
-  if exists (
-    select 1
-      from public.cases as c
-     where c.id = new.case_id
-       and c.status = 'archived'::public.case_status
-  ) then
+  -- Serialize this check with archive_case() and direct case status updates.
+  -- A shared lock lets concurrent session starts proceed together, while it
+  -- conflicts with the NO KEY UPDATE lock taken by an archive UPDATE.
+  -- Whichever transaction locks the case row first is ordered first: a session
+  -- that gets the lock first is created before the archive, while a session
+  -- that waits for an already-committed archive sees the archived status.
+  select c.status
+    into v_case_status
+    from public.cases as c
+   where c.id = new.case_id
+   for share;
+
+  if v_case_status = 'archived'::public.case_status then
     raise exception using
       errcode = '55000',
       message = 'Cannot start a session for an archived case';
