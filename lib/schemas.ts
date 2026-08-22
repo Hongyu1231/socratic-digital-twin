@@ -62,12 +62,52 @@ export const assignmentInputSchema = z.object({
 
 export const phaseInputSchema = z.object({
   id: z.string().uuid().optional(),
-  order: z.number().int().min(1).max(5),
+  order: z.number().int().min(1).max(12),
   title: z.string().trim().min(1).max(120),
   goal: z.string().trim().min(1).max(500),
   rubric: z.array(z.string().trim().min(1).max(180)).min(1),
   starterQuestion: z.string().trim().min(3).max(500),
   exampleQuestions: z.array(z.string().trim().min(3).max(500)).min(1),
+  tutorGuidance: z.array(z.string().trim().min(3).max(500)).max(20).default([]),
+  tutorMoves: z.array(z.object({
+    id: z.string().trim().min(1).max(80),
+    strategy: strategySchema,
+    question: z.string().trim().min(3).max(500).refine(
+      (question) => (question.match(/[?？]/g) ?? []).length === 1,
+      "A scripted tutor move must contain exactly one question.",
+    ),
+    classifications: z.array(classificationSchema).max(4).optional(),
+    answerIncludesAny: z.array(z.string().trim().min(1).max(80)).max(12).optional(),
+    answerIncludesAll: z.array(z.string().trim().min(1).max(80)).max(12).optional(),
+    answerOmitsAll: z.array(z.string().trim().min(1).max(80)).max(12).optional(),
+    previousErrorIncludesAny: z.array(z.string().trim().min(1).max(120)).max(12).optional(),
+    recordError: z.string().trim().min(1).max(180).optional(),
+    blockAdvancement: z.boolean().optional(),
+  }).strict()).max(20).default([]),
+});
+
+const mediaPathSchema = z.string().trim().max(1_000).refine((value) => {
+  if (!value) return true;
+  if (value.startsWith("/")) return true;
+  try {
+    return ["http:", "https:"].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}, "Use a site-relative path or an HTTP(S) URL.");
+
+export const caseAttachmentInputSchema = z.object({
+  id: z.string().uuid().optional(),
+  kind: z.enum(["image", "audio", "video"]),
+  title: z.string().trim().min(1).max(120),
+  description: z.string().trim().min(1).max(300),
+  url: mediaPathSchema.optional(),
+  posterUrl: mediaPathSchema.optional(),
+  transcript: z.string().trim().max(5_000).optional(),
+}).refine((attachment) => attachment.kind === "audio"
+  ? Boolean(attachment.url || attachment.transcript)
+  : Boolean(attachment.url), {
+  message: "Image and video attachments need a URL; audio needs a URL or transcript.",
 });
 
 export const caseInputSchema = z.object({
@@ -76,7 +116,8 @@ export const caseInputSchema = z.object({
   description: z.string().trim().min(5).max(1500),
   difficulty: z.enum(["foundation", "intermediate", "advanced"]),
   learningObjectives: z.array(z.string().trim().min(1).max(250)).min(1),
-  phases: z.array(phaseInputSchema).length(5),
+  attachments: z.array(caseAttachmentInputSchema).max(12).default([]),
+  phases: z.array(phaseInputSchema).min(1).max(12),
 });
 
 export const reviewReassignSchema = z.object({

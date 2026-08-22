@@ -1,16 +1,9 @@
 import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
-import type { CasePhase, LearnerState, TutorEvaluationResult } from "@/lib/domain";
+import type { TutorEvaluateInput, TutorEvaluationResult } from "@/lib/domain";
 import { tutorOutputSchema } from "@/lib/schemas";
 import { createOpenAIClient } from "@/lib/tutor/openai-client";
-import { buildTutorInput, TUTOR_INSTRUCTIONS } from "@/lib/tutor/prompt";
-
-interface EvaluateInput {
-  phase: CasePhase;
-  answer: string;
-  state: LearnerState;
-  attempt: number;
-}
+import { buildTutorInput, TUTOR_INSTRUCTIONS, TUTOR_PROMPT_VERSION } from "@/lib/tutor/prompt";
 
 /**
  * Responses API tutor adapter.
@@ -32,16 +25,16 @@ export class OpenAITutor {
     this.client = createOpenAIClient(apiKey);
     this.model = model;
     this.instructions = options?.instructions ?? TUTOR_INSTRUCTIONS;
-    this.promptVersion = options?.promptVersion ?? "human-v1";
+    this.promptVersion = options?.promptVersion ?? TUTOR_PROMPT_VERSION;
   }
 
-  async evaluate({ phase, answer, state, attempt }: EvaluateInput): Promise<TutorEvaluationResult> {
+  async evaluate(input: TutorEvaluateInput): Promise<TutorEvaluationResult> {
     const response = await this.client.responses.parse({
       model: this.model,
       store: false,
       max_output_tokens: 900,
       instructions: this.instructions,
-      input: buildTutorInput({ phase, answer, state, attempt }, this.promptVersion),
+      input: buildTutorInput(input, this.promptVersion),
       text: { format: zodTextFormat(tutorOutputSchema, "tutor_evaluation") },
     });
 

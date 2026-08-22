@@ -1,15 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import type { CasePhase, LearnerState, TutorEvaluationResult } from "@/lib/domain";
+import type { TutorEvaluateInput, TutorEvaluationResult } from "@/lib/domain";
 import { tutorOutputSchema } from "@/lib/schemas";
-import { buildTutorInput, TUTOR_INSTRUCTIONS } from "@/lib/tutor/prompt";
-
-interface EvaluateInput {
-  phase: CasePhase;
-  answer: string;
-  state: LearnerState;
-  attempt: number;
-}
+import { buildTutorInput, TUTOR_INSTRUCTIONS, TUTOR_PROMPT_VERSION } from "@/lib/tutor/prompt";
 
 export class ClaudeTutor {
   readonly mode = "claude" as const;
@@ -22,10 +15,10 @@ export class ClaudeTutor {
     this.client = new Anthropic({ apiKey, maxRetries: 2, timeout: 30_000 });
     this.model = model;
     this.instructions = options?.instructions ?? TUTOR_INSTRUCTIONS;
-    this.promptVersion = options?.promptVersion ?? "human-v1";
+    this.promptVersion = options?.promptVersion ?? TUTOR_PROMPT_VERSION;
   }
 
-  async evaluate({ phase, answer, state, attempt }: EvaluateInput): Promise<TutorEvaluationResult> {
+  async evaluate(input: TutorEvaluateInput): Promise<TutorEvaluationResult> {
     const response = await this.client.messages.parse({
       model: this.model,
       max_tokens: 900,
@@ -33,7 +26,7 @@ export class ClaudeTutor {
       messages: [
         {
           role: "user",
-          content: buildTutorInput({ phase, answer, state, attempt }, this.promptVersion),
+          content: buildTutorInput(input, this.promptVersion),
         },
       ],
       output_config: { format: zodOutputFormat(tutorOutputSchema) },

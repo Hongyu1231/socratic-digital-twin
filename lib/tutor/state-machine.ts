@@ -1,4 +1,4 @@
-import type { Evaluation, LearnerState, SessionBundle, TutorMessage } from "@/lib/domain";
+import type { Evaluation, LearnerState, SessionBundle, TutorMessage, TutorMove } from "@/lib/domain";
 import { calculateScore } from "@/lib/domain";
 import { getRepository } from "@/lib/repository";
 import { evaluateWithFallback, getTutorMode } from "@/lib/tutor";
@@ -7,9 +7,8 @@ import { withIdempotency } from "@/lib/idempotency";
 import { TUTOR_PROMPT_VERSION } from "@/lib/tutor/prompt";
 import { applyHumanizationExperiment } from "@/lib/experiments/shadow";
 import { contentHash } from "@/lib/experiments/privacy";
-
-const uniqueRecent = (existing: string[], additions: string[], limit = 8) =>
-  [...new Set([...existing, ...additions])].slice(-limit);
+import { selectTutorMove } from "@/lib/tutor/question-planner";
+import { mergeLearnerEvidence } from "@/lib/tutor/learner-model";
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 
@@ -43,45 +42,91 @@ async function performStudentAnswer(
   if (!phase) throw new Error("The current teaching phase is invalid.");
   const phaseKey = String(phase.order);
   const attempt = (bundle.session.state.phaseAttempts[phaseKey] ?? 0) + 1;
-  const baselineResult = await evaluateWithFallback({
+  const currentQuestion = [...bundle.session.messages].reverse().find((message) => message.sender === "ai")?.content;
+  const recentDialogue = bundle.session.messages.slice(-8).map(({ sender, content: messageContent }) => ({ sender, content: messageContent }));
+  const caseContext = {
+    title: bundle.case.title,
+    description: bundle.case.description,
+    learningObjectives: bundle.case.learningObjectives,
+    attachments: (bundle.case.attachments ?? []).map(({ kind, title, description, transcript }) => ({
+      kind,
+      title,
+      description,
+      ...(transcript ? { transcript } : {}),
+    })),
+  };
+  const tutorInput = {
     phase,
+    caseContext,
     answer: content,
     state: bundle.session.state,
     attempt,
-  });
+    currentQuestion,
+    recentDialogue,
+  };
+  const baselineResult = await evaluateWithFallback(tutorInput);
   const experimentDecision = await applyHumanizationExperiment({
     sessionId,
     turnKey: clientRequestKey(sessionId, bundle.session.state.version),
     phase,
+    caseContext,
     answer: content,
     state: bundle.session.state,
     attempt,
+    currentQuestion,
+    recentDialogue,
     baseline: baselineResult,
   });
   const result = experimentDecision.studentResult;
-  const phaseComplete = result.classification === "correct" || attempt >= 3;
-  const isFinalPhase = phase.order === bundle.case.phases.length;
+  const orderedPhases = [...bundle.case.phases].sort((left, right) => left.order - right.order);
+  const phaseIndex = orderedPhases.findIndex((item) => item.id === phase.id);
+  const isFinalPhase = phaseIndex === orderedPhases.length - 1;
+  const scriptedMove = selectTutorMove(phase, content, bundle.session.state, result.classification);
+  const usedTutorMoves = new Set(bundle.session.state.usedTutorMoves ?? []);
+  const currentQuestionIsReflection = /reflect|looking back|across the whole case|highest[- ]leverage|most important|greatest influence|consequential decision point|assumption|uncertainty|change your (?:reasoning|plan|decision)/i.test(currentQuestion ?? "");
+  const systemReflectionMove: TutorMove | undefined = isFinalPhase
+    && result.classification === "correct"
+    && !scriptedMove
+    && !currentQuestionIsReflection
+    && !usedTutorMoves.has("system-final-reflection")
+    ? {
+      id: "system-final-reflection",
+      strategy: "reflect",
+      question: "Looking back, which finding or uncertainty had the greatest influence on your decision?",
+      blockAdvancement: true,
+    }
+    : undefined;
+  const tutorMove = scriptedMove ?? systemReflectionMove;
+  const phaseComplete = result.classification === "correct" && !tutorMove?.blockAdvancement;
   const sessionComplete = phaseComplete && isFinalPhase;
-  const nextPhase = phaseComplete && !isFinalPhase ? phase.order + 1 : phase.order;
-  const nextPhaseRecord = bundle.case.phases.find((item) => item.order === nextPhase) ?? phase;
+  const nextPhaseRecord = phaseComplete && !isFinalPhase ? orderedPhases[phaseIndex + 1] : phase;
+  const nextPhase = nextPhaseRecord.order;
   const now = new Date().toISOString();
+  const memoryPatch = tutorMove?.recordError
+    ? { ...result.memoryPatch, addErrors: [...result.memoryPatch.addErrors, tutorMove.recordError] }
+    : result.memoryPatch;
+  const evidence = mergeLearnerEvidence(bundle.session.state, memoryPatch, result.classification);
+  const appliedStrategy = tutorMove?.strategy ?? result.strategy;
 
   const nextState: LearnerState = {
     ...bundle.session.state,
     currentGoal: nextPhaseRecord.goal,
-    previousErrors: uniqueRecent(bundle.session.state.previousErrors, result.memoryPatch.addErrors),
-    strengths: uniqueRecent(bundle.session.state.strengths, result.memoryPatch.addStrengths),
-    weaknesses: uniqueRecent(bundle.session.state.weaknesses, result.memoryPatch.addWeaknesses),
-    nextStrategy: result.strategy,
+    previousErrors: evidence.previousErrors,
+    strengths: evidence.strengths,
+    weaknesses: evidence.weaknesses,
+    nextStrategy: appliedStrategy,
     phaseAttempts: {
       ...bundle.session.state.phaseAttempts,
       [phaseKey]: attempt,
-      ...(phaseComplete && !isFinalPhase ? { [String(nextPhase)]: 0 } : {}),
+      ...(phaseComplete && !isFinalPhase ? { [String(nextPhaseRecord.order)]: 0 } : {}),
     },
     mastery: {
       ...bundle.session.state.mastery,
-      [phaseKey]: clamp((bundle.session.state.mastery[phaseKey] ?? 0) + result.memoryPatch.masteryDelta),
+      [phaseKey]: clamp((bundle.session.state.mastery[phaseKey] ?? 0) + memoryPatch.masteryDelta),
     },
+    usedTutorMoves: tutorMove
+      ? [...usedTutorMoves, tutorMove.id].slice(-30)
+      : [...usedTutorMoves].slice(-30),
     version: bundle.session.state.version + 1,
     updatedAt: now,
   };
@@ -99,26 +144,29 @@ async function performStudentAnswer(
     classification: result.classification,
     confidence: result.confidence,
     reasoningGap: result.reasoningGap,
-    strategy: result.strategy,
+    strategy: appliedStrategy,
     phaseComplete,
     feedback: result.feedback,
     phaseOrder: phase.order,
     attempt,
     provider: result.source,
+    fallbackFrom: result.fallbackFrom,
     model: experimentDecision.model ?? (result.source === "openai"
       ? process.env.OPENAI_MODEL ?? "unknown"
       : result.source === "claude"
         ? process.env.CLAUDE_MODEL ?? "unknown"
-        : "deterministic-rules-v1"),
+        : "deterministic-rules-v2"),
     promptVersion: experimentDecision.promptVersion
-      ?? (result.source === "deterministic" ? "deterministic-v1" : TUTOR_PROMPT_VERSION),
+      ?? (result.source === "deterministic" ? "deterministic-v2" : TUTOR_PROMPT_VERSION),
     createdAt: now,
   };
   const allEvaluations = [...bundle.session.evaluations, evaluation];
   const summary = sessionComplete ? await generateSessionSummary(allEvaluations, nextState, true) : null;
   const nextQuestion = sessionComplete
-    ? "You have completed all five phases. Open your learning summary and reflect on what you would test next."
-    : result.nextQuestion;
+    ? `You have completed all ${orderedPhases.length} phases. Your learning summary is ready.`
+    : phaseComplete
+      ? nextPhaseRecord.starterQuestion
+      : tutorMove?.question ?? result.nextQuestion;
   const aiMessage: TutorMessage = {
     id: crypto.randomUUID(),
     sessionId,
@@ -142,6 +190,7 @@ async function performStudentAnswer(
     completedAt: sessionComplete ? now : null,
   });
   committed.runtime.tutor = result.source;
+  committed.runtime.fallbackFrom = result.fallbackFrom;
   return committed;
 }
 

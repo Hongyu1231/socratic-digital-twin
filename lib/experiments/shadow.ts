@@ -1,4 +1,4 @@
-import type { CasePhase, LearnerState, TutorEvaluationResult } from "@/lib/domain";
+import type { CasePhase, LearnerState, TutorEvaluateInput, TutorEvaluationResult } from "@/lib/domain";
 import { getHumanizationStore } from "@/lib/experiments/store";
 import { outputSafetyCheck } from "@/lib/experiments/core";
 import { ClaudeTutor } from "@/lib/tutor/claude";
@@ -8,9 +8,12 @@ interface ShadowInput {
   sessionId: string;
   turnKey: string;
   phase: CasePhase;
+  caseContext?: TutorEvaluateInput["caseContext"];
   answer: string;
   state: LearnerState;
   attempt: number;
+  currentQuestion?: string;
+  recentDialogue?: Array<{ sender: "student" | "ai"; content: string }>;
   baseline: TutorEvaluationResult;
 }
 
@@ -41,7 +44,15 @@ export async function applyHumanizationExperiment(input: ShadowInput): Promise<E
   const engine = candidateEngine(active.candidate.provider, active.candidate.model, active.candidate.instructions, active.candidate.promptVersion);
   if (!engine) return { studentResult: input.baseline, experimentId: active.experiment.id, arm: "baseline" };
   let candidate: TutorEvaluationResult;
-  try { candidate = await engine.evaluate({ phase: input.phase, answer: input.answer, state: input.state, attempt: input.attempt }); }
+  try { candidate = await engine.evaluate({
+    phase: input.phase,
+    caseContext: input.caseContext,
+    answer: input.answer,
+    state: input.state,
+    attempt: input.attempt,
+    currentQuestion: input.currentQuestion,
+    recentDialogue: input.recentDialogue,
+  }); }
   catch { return { studentResult: input.baseline, experimentId: active.experiment.id, arm: "baseline" }; }
   const safety = outputSafetyCheck(candidate.nextQuestion);
   void store.saveShadowResult({ experimentId: active.experiment.id, turnKey: input.turnKey, arm: active.arm, baselineOutput: input.baseline, candidateOutput: candidate, safetyPassed: safety.passed }).catch(() => undefined);

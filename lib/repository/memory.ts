@@ -17,6 +17,7 @@ import type {
 import { demoAssignment, demoAssignments, demoCases, demoClass, demoUsers, getDemoUser } from "@/lib/seed";
 import type { CommitTurnInput, SaveReviewInput, TutorRepository } from "@/lib/repository/types";
 import { getCaseLineageId, getNextCaseVersion, getVersionedCaseTitle } from "@/lib/repository/case-version";
+import { reconcileLearnerStateEvidence } from "@/lib/tutor/learner-model";
 
 interface MemoryStore {
   sessions: Map<string, LearningSession>;
@@ -97,6 +98,7 @@ export class InMemoryTutorRepository implements TutorRepository {
       nextStrategy: "probe",
       phaseAttempts: { "1": 0 },
       mastery: Object.fromEntries(clinicalCase.phases.map((phase) => [String(phase.order), 0])),
+      usedTutorMoves: [],
       version: 1,
       updatedAt: now,
     };
@@ -390,8 +392,9 @@ export class InMemoryTutorRepository implements TutorRepository {
     const clinicalCase = this.store.cases.get(session.caseId);
     const student = this.store.users.get(session.studentId) ?? getDemoUser(session.studentId);
     if (!clinicalCase || !student) throw new Error("Seed relationship is invalid.");
+    const reconciledSession = { ...session, state: reconcileLearnerStateEvidence(session.state) };
     return clone({
-      session,
+      session: reconciledSession,
       case: clinicalCase,
       student,
       answerReviews: session.evaluations
@@ -401,7 +404,11 @@ export class InMemoryTutorRepository implements TutorRepository {
         .map((evaluation) => this.store.tutorTurnReviews.get(evaluation.id))
         .filter((review): review is TutorTurnReview => Boolean(review)),
       sessionReview: this.store.sessionReviews.get(session.id) ?? null,
-      runtime: { storage: "memory", tutor: "deterministic" },
+      runtime: {
+        storage: "memory",
+        tutor: "deterministic",
+        fallbackFrom: session.evaluations.at(-1)?.fallbackFrom,
+      },
       assignment: session.assignmentId ? this.store.assignments.get(session.assignmentId) ?? null : null,
       teachingClass: this.classForAssignment(session.assignmentId) ?? null,
       reviewClaim: { reviewerId: session.reviewerId ?? null, reviewerName: session.reviewerId ? this.store.users.get(session.reviewerId)?.name ?? null : null, state: session.reviewStatus === "completed" ? "completed" : !session.reviewerId ? "unclaimed" : session.reviewerId === viewerId ? "mine" : "other", canEdit: session.reviewStatus !== "completed" && (!session.reviewerId || session.reviewerId === viewerId) },

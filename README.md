@@ -8,10 +8,10 @@ The project runs without external services: it uses an in-process repository and
 
 ## Features
 
-- Students choose a class assignment, work through a five-phase case, and receive a formative summary.
+- Students choose a class assignment, work through a case with 1–12 teaching phases, and receive a formative summary.
 - Case cards load with explicit skeletons, use equal-width responsive columns, and expose synthetic image/audio teaching attachments inside a session.
 - Students can pause safely, return to the case list, and resume the same phase and transcript. Browser-native dictation and tutor read-aloud remain optional enhancements to text input.
-- Each answer is classified as `correct`, `partial`, `vague`, or `wrong`.
+- Each answer is classified as `correct`, `partial`, `vague`, or `wrong`; a correct conclusion with flawed or absent reasoning is deliberately recorded as `partial` so it cannot advance.
 - The system records reasoning gaps, strengths, weaknesses, phase mastery, and previous errors.
 - Admins manage seeded users, classes, case versions, publication, and review ownership.
 - Professors assign published cases, inspect complete transcripts, claim reviews, re-label answers, and rate tutor-intervention quality.
@@ -71,11 +71,11 @@ Database and tutor providers are selected independently:
 
 1. `FORCE_MEMORY_REPOSITORY=true` always selects the in-memory repository.
 2. Otherwise, both `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` select the Supabase repository; if either is missing, memory storage is used.
-3. Both `OPENAI_API_KEY` and `OPENAI_MODEL` select the OpenAI Responses API first.
-4. If OpenAI is not configured, both `ANTHROPIC_API_KEY` and `CLAUDE_MODEL` select the Claude Messages API.
-5. With no complete AI pair, or when one AI request times out, is rejected, or returns invalid structured output, that request falls back to the deterministic tutor.
+3. `TUTOR_PROVIDER` explicitly locks the POC to `openai`, `claude`, or `deterministic`.
+4. A live provider requires its matching key/model pair; configuration never switches to the other live provider.
+5. When one live request times out, is rejected, or returns invalid structured output, only that turn falls back to the deterministic tutor and records a student-visible disclosure.
 
-Session summaries use the same OpenAI-then-Claude preference and fall back to a local template. Student answers are treated as untrusted quoted data; model output is validated and only the state machine may merge its allow-listed memory patch.
+Session summaries use the same locked provider and fall back to a local template. Student answers are treated as untrusted quoted data; model output is validated and only the state machine may merge its allow-listed memory patch. The decision is recorded in [ADR-001](docs/ADR-001-POC-TUTOR-MODEL.md).
 
 ### Repository layout
 
@@ -105,6 +105,7 @@ Start from `.env.example`. Keep secrets in `.env.local`, Vercel Environment Vari
 | `SUPABASE_SERVICE_ROLE_KEY` | Optional; server-only | Supabase database key; never use a `NEXT_PUBLIC_` prefix |
 | `FORCE_MEMORY_REPOSITORY` | Optional | Set to `true` to force memory mode, useful for local acceptance checks |
 | `EXPERIMENT_PSEUDONYM_SECRET` | Required for production feedback datasets | Server-only HMAC secret for stable one-way evaluation pseudonyms; local demos may fall back to `DEMO_SESSION_SECRET` |
+| `TUTOR_PROVIDER` | Required POC lock; defaults to `deterministic` | Select exactly one of `deterministic`, `openai`, or `claude` |
 | `OPENAI_API_KEY` | Optional pair | OpenAI API key, read only on the server |
 | `OPENAI_MODEL` | Optional pair | Account-available model ID that supports Structured Outputs |
 | `OPENAI_PROXY_URL` | Optional | HTTP(S) proxy for the Node.js OpenAI client; standard proxy variables are also honored |
@@ -123,6 +124,7 @@ Database assets are in `supabase/`:
 - `migrations/20260813043101_restrict_rls_auto_enable.sql` removes browser-role access to the schema-maintenance helper after the Supabase security advisor identified it.
 - `migrations/20260813064021_humanization_feedback_loop.sql` adds immutable de-identified datasets, prompt/model candidates, offline runs, shadow and limited A/B evidence, append-only faculty decisions, controlled releases, and rollback audit events.
 - `migrations/20260813131710_add_demo_clinical_cases.sql` adds three text-only, five-phase clinical reasoning simulations and opens them for the default demo class.
+- `migrations/20260818054338_add_impacted_second_molar_case.sql` adds the faculty-scripted six-phase second-molar case and the scripted canine correction, revisit, counterargument, and reflection moves.
 - `seed.sql` contains deterministic, idempotent fixtures.
 - `config.toml` enables the seed file for Supabase CLI workflows.
 
@@ -159,24 +161,24 @@ Generate TypeScript database types when needed:
 npx supabase@latest gen types typescript --local > lib/database.types.ts
 ```
 
-The fixtures create six demo users (Alicia Tan, Benjamin Lee, Chloe Wong, Prof. Marcus Lim, Prof. Sarah Ng, and Dr. Elaine Koh), a default class, and four published five-phase assignments: Impacted Maxillary Canine, Acute Posterior Tooth Pain, Periodontal Risk and Bone Loss, and Fractured Immature Maxillary Incisor. They are text-only teaching simulations and contain no real patient records. The seed intentionally does not create `auth.users` rows; real authentication can be linked later.
+The memory fixtures create six demo users, a default class, and five assignments. Impacted Maxillary Canine has five phases and Impacted Mandibular Second Molar has six; the three additional demo cases have five phases. They contain no real patient records. The seed intentionally does not create `auth.users` rows; real authentication can be linked later.
 
 ## OpenAI and Claude setup
 
-OpenAI is the preferred provider:
+To lock the POC to OpenAI:
 
-1. Set `OPENAI_API_KEY` in `.env.local`.
-2. Set `OPENAI_MODEL` to a model available to the account and compatible with Structured Outputs.
+1. Set `TUTOR_PROVIDER=openai` in `.env.local`.
+2. Set `OPENAI_API_KEY` and an approved `OPENAI_MODEL` compatible with Structured Outputs.
 3. Optionally set `OPENAI_TTS_MODEL` and `OPENAI_TTS_VOICE`; the defaults provide warm English Tutor audio.
 4. Restart the development server.
 
-Claude is the optional second provider:
+To lock the POC to Claude:
 
-1. Set `ANTHROPIC_API_KEY` in `.env.local`.
-2. Set `CLAUDE_MODEL` to an account-available structured-output model.
+1. Set `TUTOR_PROVIDER=claude` in `.env.local`.
+2. Set `ANTHROPIC_API_KEY` and the approved structured-output `CLAUDE_MODEL`.
 3. Restart the development server.
 
-Answer evaluation uses one non-streaming OpenAI Responses API or Claude Messages API request with the shared Zod schema. The result contains a label, confidence, observable reasoning gap, teaching strategy, exactly one follow-up question, and a conservative memory patch. The state machine—not the model—is the authority for phase progression and database state. Session summaries are generated separately; invalid or failed provider output uses the local summary template. When `OPENAI_API_KEY` is configured, `/api/session/speech` generates MP3 audio only for a Tutor message in the signed-in student's own session. The client automatically plays it, clearly identifies it as AI-generated, and falls back to browser-native English speech if the provider is unavailable.
+Answer evaluation uses one non-streaming OpenAI Responses API or Claude Messages API request with the shared Zod schema. The versioned prompt receives the authoritative case narrative, learning objectives, attachment descriptions/transcripts, phase rubric and guidance, scripted moves, recent dialogue, and bounded learner memory. These details ground evaluation but must not be volunteered as answers. The result contains a label, confidence, observable reasoning gap, teaching strategy, exactly one follow-up question, and a conservative memory patch. The state machine—not the model—is the authority for phase progression and database state. Session summaries are generated separately; invalid or failed provider output uses the local summary template. When `OPENAI_API_KEY` is configured, `/api/session/speech` generates MP3 audio only for a Tutor message in the signed-in student's own session. The client automatically plays it, clearly identifies it as AI-generated, and falls back to browser-native English speech if the provider is unavailable.
 
 ## Identity, authorization, and state machine
 
@@ -187,13 +189,13 @@ Answer evaluation uses one non-streaming OpenAI Responses API or Claude Messages
 - Admins manage users, classes, case versions, and review ownership.
 - Inactive users cannot switch identity or call protected APIs.
 
-For each student answer, `lib/tutor/state-machine.ts` loads and authorizes the session, resolves the phase and attempt, invokes the selected tutor, creates the student message/evaluation/follow-up, merges only allow-listed memory fields, and commits the turn atomically with an expected state version. A `correct` answer advances the phase; after the third unsuccessful attempt the phase also advances to prevent a dead end. Phase five completes automatically, while early exit generates a summary with `completedAllPhases=false`.
+For each student answer, `lib/tutor/state-machine.ts` loads and authorizes the session, resolves the phase and attempt, invokes the selected tutor, applies any matching faculty-scripted move, creates the student message/evaluation/follow-up, reconciles learner evidence, and commits the turn atomically. Only a `correct` answer advances; attempt count never substitutes for competence. The final phase requires a reflection question before completion, while early exit generates a summary with `completedAllPhases=false`.
 
 AI scores map to `correct=100`, `partial=70`, `vague=40`, and `wrong=0`; the rounded average is the formative score. Professor labels and final scores are stored independently and never overwrite the original AI evaluation.
 
 ## Core business rules
 
-- A case draft must contain exactly five complete phases.
+- A case draft must contain 1–12 complete phases and may include case-specific image, audio, or video attachments.
 - Published cases are immutable; clone a new draft version to edit.
 - Professors may assign only published cases to their own classes.
 - Closed or expired assignments cannot create new sessions; an existing session may continue.
@@ -206,7 +208,7 @@ AI scores map to `correct=100`, `partial=70`, `vague=40`, and `wrong=0`; the rou
 ## Recommended three-role demo
 
 1. Switch to **Admin — Dr. Elaine Koh** and inspect the six users, default class, and case versions.
-2. As Admin, adjust class membership, publish the five-phase case, or clone a new draft version.
+2. As Admin, adjust class membership, publish a flexible-phase case, or clone a new draft version.
 3. Switch to **Professor — Prof. Marcus Lim** and assign the published case to his class.
 4. Switch to **Student — Alicia Tan**, open the class assignment, and submit answers. The submitted student message appears immediately before the tutor follow-up.
 5. Complete or end the session, then return to Marcus's **Review queue**. The first **Save draft** atomically claims the review.

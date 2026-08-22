@@ -89,7 +89,7 @@ export default function CaseSelectionPage() {
           </p>
           <div className="hero-meta" aria-label="Session attributes">
             <span><Clock3 size={16} /> 15–20 minutes</span>
-            <span><Brain size={16} /> 5 reasoning phases</span>
+            <span><Brain size={16} /> Flexible reasoning phases</span>
             <span><BookOpen size={16} /> Formative assessment</span>
           </div>
         </div>

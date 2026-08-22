@@ -58,9 +58,9 @@ flowchart LR
 
 1. `FORCE_MEMORY_REPOSITORY=true` 强制内存模式。
 2. 否则同时存在 `SUPABASE_URL` 和 `SUPABASE_SERVICE_ROLE_KEY` 时使用 Supabase。
-3. 同时存在 `OPENAI_API_KEY` 和 `OPENAI_MODEL` 时优先使用 OpenAI。
-4. OpenAI 未配置且同时存在 `ANTHROPIC_API_KEY` 和 `CLAUDE_MODEL` 时使用 Claude。
-5. AI 未配置，或单次调用失败、超时、拒答、输出不合法时使用确定性 tutor。
+3. `TUTOR_PROVIDER` 必须显式锁定为 `openai`、`claude` 或 `deterministic`。
+4. 网络 provider 必须同时配置对应的 key 与 model；不会静默切换到另一个网络 provider。
+5. 单次调用失败、超时、拒答或输出不合法时，仅该轮使用确定性 tutor，并记录和向学生提示降级。
 
 ## 5. 环境变量
 
@@ -70,6 +70,7 @@ flowchart LR
 | `SUPABASE_URL` | 可选 | Supabase Project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | 可选 | 仅服务端使用；绝不能添加 `NEXT_PUBLIC_` 前缀 |
 | `FORCE_MEMORY_REPOSITORY` | 可选 | `true` 时忽略 Supabase 配置 |
+| `TUTOR_PROVIDER` | POC 必需 | 锁定 `deterministic`、`openai` 或 `claude` |
 | `OPENAI_API_KEY` | 可选 | 仅服务端读取 |
 | `OPENAI_MODEL` | 与 OpenAI key 配套 | 账号可用并支持 Structured Outputs 的模型 ID |
 | `OPENAI_PROXY_URL` | 可选 | Node.js 访问 OpenAI 的 HTTP(S) 代理 |
@@ -115,12 +116,14 @@ flowchart LR
 
 1. 读取会话并校验所有权与状态。
 2. 读取当前阶段和该阶段尝试次数。
-3. 调用 AI tutor；失败则回退到确定性 tutor。
-4. 生成一条学生消息、评价、学习记忆补丁和一个追问。
+3. 把权威病例叙述、附件说明/文字稿、阶段 rubric/guidance、近期对话与有界学习者记忆交给 AI tutor；失败则回退到确定性 tutor。
+4. 先按分类应用匹配的脚本化 tutor move，再生成一条学生消息、评价、学习记忆补丁和一个追问；这些隐藏教学内容不能直接作为答案透露给学生。
 5. 仅合并白名单字段：错误、强项、弱项、掌握度和下一策略。
 6. 使用 `expectedVersion` 做乐观并发控制并原子持久化本轮。
-7. `correct` 推进阶段；否则继续追问。第三次仍未掌握也推进，防止死循环。
-8. 第五阶段完成后自动生成总结；学生也可以提前结束并生成 `completedAllPhases=false` 的总结。
+7. 只有满足当前目标的 `correct` 推理才能推进；作答次数不会代替胜任度。
+8. 最终阶段先完成反思性追问再生成总结；学生也可以提前结束并生成 `completedAllPhases=false` 的总结。
+
+结论正确但推理错误或缺失时映射为 `partial`，不能推进。学生在同一次回答中明确自我纠正时，以其最终立场进行评价，不把已放弃的前半句当作最终错误。
 
 AI 评分映射为 `correct=100`、`partial=70`、`vague=40`、`wrong=0`，最后取平均并四舍五入。教授最终评分独立保存，不覆盖 AI 原始评价。
 
@@ -154,7 +157,7 @@ npx supabase@latest db push --include-seed
 
 ## 10. 病例、任务与复核规则
 
-- 病例草稿必须完整包含五个阶段。
+- 病例草稿必须完整包含 1–12 个阶段，并可添加病例专用影像、音频或视频附件。
 - 已发布病例不可原地编辑；修改时 Clone 为下一版本草稿。
 - 教授只能把已发布病例布置给自己的班级。
 - 截止或关闭后不能创建新会话；已开始的会话仍可继续。

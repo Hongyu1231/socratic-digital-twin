@@ -104,12 +104,13 @@ Persistence and Tutor providers are selected independently.
 | --- | --- | --- |
 | No credentials | Memory | Deterministic |
 | Supabase pair only | Supabase | Deterministic |
-| OpenAI pair | Existing persistence selection | OpenAI with deterministic request fallback |
-| Claude pair without OpenAI pair | Existing persistence selection | Claude with deterministic request fallback |
+| `TUTOR_PROVIDER=openai` plus OpenAI pair | Existing persistence selection | Locked OpenAI with disclosed deterministic request fallback |
+| `TUTOR_PROVIDER=claude` plus Claude pair | Existing persistence selection | Locked Claude with disclosed deterministic request fallback |
 | `FORCE_MEMORY_REPOSITORY=true` | Memory | Normal Tutor selection |
 
 Required pairs:
 
+- Tutor lock: `TUTOR_PROVIDER=deterministic|openai|claude`
 - Supabase: `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`
 - OpenAI: `OPENAI_API_KEY` and `OPENAI_MODEL`
 - Claude: `ANTHROPIC_API_KEY` and `CLAUDE_MODEL`
@@ -172,6 +173,8 @@ Never silently support a feature in only one adapter. The credential-free mode i
 ### Tutor changes
 
 Tutor provider output is untrusted. Keep the shared Zod output schema small and closed, validate it after the SDK parses it, and let the state machine merge only approved memory fields.
+
+The versioned Tutor input must remain grounded in the authoritative case narrative, attachment descriptions/transcripts, phase rubric/guidance, recent dialogue, and bounded learner memory. Do not give a live provider less clinical context than the deterministic/scripted path, and do not expose those hidden teaching details to the student as an answer. Map a correct conclusion with flawed or absent reasoning to `partial`, and evaluate an explicit within-answer self-correction by the learner's final position.
 
 Do not:
 

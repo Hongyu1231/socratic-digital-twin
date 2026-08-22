@@ -10,6 +10,7 @@ export const IMPACTED_CANINE_CASE_ID = "33333333-3333-4333-8333-333333333333";
 export const ACUTE_TOOTH_PAIN_CASE_ID = "33333333-3333-4333-8333-333333333334";
 export const PERIODONTAL_RISK_CASE_ID = "33333333-3333-4333-8333-333333333335";
 export const FRACTURED_INCISOR_CASE_ID = "33333333-3333-4333-8333-333333333336";
+export const IMPACTED_SECOND_MOLAR_CASE_ID = "33333333-3333-4333-8333-333333333337";
 export const DEMO_CLASS_ID = "55555555-5555-4555-8555-555555555555";
 export const DEMO_ASSIGNMENT_ID = "66666666-6666-4666-8666-666666666666";
 
@@ -38,7 +39,7 @@ export const impactedCanineCase: ClinicalCase = {
   id: IMPACTED_CANINE_CASE_ID,
   title: "Impacted Maxillary Canine",
   description:
-    "A 12-year-old patient presents with an unerupted upper right permanent canine. Clinical examination shows asymmetry in eruption timing; a panoramic radiograph is available for structured discussion.",
+    "A 12-year-old patient is referred by a general dental practitioner because the upper right permanent canine has not erupted. The primary canine on that side remains present. The patient has a Class I molar relationship with mild upper-arch crowding, and a panoramic radiograph is available.",
   difficulty: "intermediate",
   status: "available",
   sourceCaseId: null,
@@ -64,6 +65,7 @@ export const impactedCanineCase: ClinicalCase = {
         "What makes delayed eruption clinically significant in this patient?",
         "Which finding supports impaction rather than normal variation?",
       ],
+      tutorGuidance: ["Withhold the diagnosis, distinguish observation from clinical significance, and use a spatial cue before naming adjacent-root harm."],
     },
     {
       id: "44444444-4444-4444-8444-444444444442",
@@ -77,6 +79,27 @@ export const impactedCanineCase: ClinicalCase = {
         "What could palpation tell you before requesting further imaging?",
         "Why might CBCT not always be the first investigation?",
       ],
+      tutorGuidance: ["Challenge premature advanced imaging, begin with clinical examination, and deliberately return to an earlier CBCT jump after first-line imaging has been discussed."],
+      tutorMoves: [
+        {
+          id: "canine-premature-cbct",
+          strategy: "challenge",
+          question: "Before requesting any imaging, what could you learn from examining the patient?",
+          classifications: ["correct", "partial", "vague", "wrong"],
+          answerIncludesAny: ["cbct"],
+          answerOmitsAll: ["clinical", "palpation", "palpate", "opg", "panoramic", "parallax"],
+          recordError: "Premature CBCT escalation before clinical examination and first-line imaging",
+          blockAdvancement: true,
+        },
+        {
+          id: "canine-revisit-cbct",
+          strategy: "probe",
+          question: "You mentioned CBCT earlier. What remaining uncertainty would justify it after clinical examination and first-line imaging?",
+          classifications: ["correct"],
+          previousErrorIncludesAny: ["premature cbct"],
+          blockAdvancement: true,
+        },
+      ],
     },
     {
       id: "44444444-4444-4444-8444-444444444443",
@@ -84,11 +107,31 @@ export const impactedCanineCase: ClinicalCase = {
       order: 3,
       title: "Risk Assessment & Decision Making",
       goal: "Relate position, development and adjacent anatomy to treatment risk.",
-      rubric: ["root resorption", "adjacent incisor", "space", "angulation", "age", "prognosis"],
+      rubric: ["root resorption", "adjacent incisor", "space", "angulation", "patient age and root development", "prognosis"],
       starterQuestion: "Which risks would change the urgency or direction of your management plan?",
       exampleQuestions: [
         "How would proximity to an incisor root alter your priorities?",
         "Which uncertainties still matter before committing to treatment?",
+      ],
+      tutorGuidance: ["An OPG cannot establish bucco-palatal position. Expose that assumption, then force a patient-specific commitment after weighing age, root development, space, angulation and adjacent-root risk."],
+      tutorMoves: [
+        {
+          id: "canine-opg-palatal-assumption",
+          strategy: "challenge",
+          question: "How do you know the canine is palatally displaced from an OPG alone?",
+          classifications: ["correct", "partial", "vague", "wrong"],
+          answerIncludesAny: ["palatal", "palatally"],
+          answerOmitsAll: ["parallax", "cbct", "tube shift", "cannot tell", "can't tell", "cannot show", "can't show", "does not show", "doesn't show", "2d", "two-dimensional"],
+          recordError: "Inferred a bucco-palatal position from a two-dimensional OPG",
+          blockAdvancement: true,
+        },
+        {
+          id: "canine-management-commitment",
+          strategy: "challenge",
+          question: "For this patient, would you observe after primary-canine extraction or create orthodontic space at the same time, and why?",
+          classifications: ["correct"],
+          blockAdvancement: true,
+        },
       ],
     },
     {
@@ -103,6 +146,19 @@ export const impactedCanineCase: ClinicalCase = {
         "What assumptions must be true for interceptive treatment to succeed?",
         "When would observation no longer be a defensible option?",
       ],
+      tutorGuidance: ["Require the direction of traction and anchorage consequences, not only the procedure name. If the crown overlaps the lateral root, cue the learner to move it away before bringing it into the arch."],
+      tutorMoves: [
+        {
+          id: "canine-unsafe-traction-vector",
+          strategy: "challenge",
+          question: "Where is the canine crown relative to the lateral incisor root before you pull it down?",
+          classifications: ["correct", "partial", "vague", "wrong"],
+          answerIncludesAny: ["down into the arch", "straight down", "pull it down", "vertically into the arch"],
+          answerOmitsAll: ["distal", "away from", "clear the root"],
+          recordError: "Proposed pulling the canine across the lateral incisor root",
+          blockAdvancement: true,
+        },
+      ],
     },
     {
       id: "44444444-4444-4444-8444-444444444445",
@@ -111,10 +167,172 @@ export const impactedCanineCase: ClinicalCase = {
       title: "Reflection & Synthesis",
       goal: "Make the reasoning process explicit and identify what could change the decision.",
       rubric: ["evidence", "uncertainty", "assumption", "alternative", "reassessment", "reflection"],
-      starterQuestion: "Looking back, which assumption had the greatest influence on your decision?",
+      starterQuestion: "Why not extract the impacted canine and place an implant later?",
       exampleQuestions: [
         "What new evidence would make you revise your plan?",
         "Where were you most at risk of jumping to a conclusion?",
+      ],
+      tutorGuidance: ["Begin with a plausible alternative viewpoint, then end with a metacognitive question about the highest-leverage decision point."],
+      tutorMoves: [
+        {
+          id: "canine-metacognitive-closure",
+          strategy: "reflect",
+          question: "Looking back at the whole case, where was the highest-leverage decision point, and what should a general dentist know?",
+          classifications: ["correct"],
+          blockAdvancement: true,
+        },
+      ],
+    },
+  ],
+};
+
+export const impactedSecondMolarCase: ClinicalCase = {
+  id: IMPACTED_SECOND_MOLAR_CASE_ID,
+  title: "Impacted Mandibular Second Molar",
+  description: "A 14-year-old patient is referred because the mandibular right second molar has not erupted. The first molars and premolars are fully erupted; the patient has a Class I molar relationship, a well-aligned upper arch, and mild lower-arch crowding. A panoramic radiograph shows about 40 degrees of mesial inclination, the crown contacting the distal surface of the first molar, three-quarters root formation, and a developing third-molar bud distally.",
+  difficulty: "advanced",
+  status: "available",
+  sourceCaseId: null,
+  version: 1,
+  publishedAt: "2026-08-18T00:00:00.000Z",
+  learningObjectives: [
+    "Distinguish delayed eruption from impaction",
+    "Assess spontaneous eruption potential using multiple variables",
+    "Plan space around the developing third molar",
+    "Specify force systems and anchorage",
+    "Coordinate surgical access with orthodontic mechanics",
+    "Defend and reflect on a patient-specific decision",
+  ],
+  phases: [
+    {
+      id: "44444444-4444-4444-8444-444444444481",
+      caseId: IMPACTED_SECOND_MOLAR_CASE_ID,
+      order: 1,
+      title: "Problem Identification",
+      goal: "Distinguish a delayed second molar from an impacted tooth and explain why the distinction matters.",
+      rubric: ["eruption timing and normal variation", "mesial angulation", "diagnostic criteria", "risk to the first molar", "pericoronal pathology"],
+      starterQuestion: "What stands out to you in this case?",
+      exampleQuestions: ["What would need to be true for you to call this impacted rather than delayed?"],
+      tutorGuidance: ["Challenge premature diagnostic labels and use spatial cues to explore consequences for the adjacent first molar."],
+      tutorMoves: [{
+        id: "molar-premature-diagnosis",
+        strategy: "challenge",
+        question: "What would need to be true for you to call it impacted rather than delayed?",
+        classifications: ["correct", "partial", "vague", "wrong"],
+        answerIncludesAny: ["impacted", "impaction"],
+        answerOmitsAll: ["age", "eruption", "angulation", "root development"],
+        recordError: "Called the second molar impacted before establishing diagnostic criteria",
+        blockAdvancement: true,
+      }],
+    },
+    {
+      id: "44444444-4444-4444-8444-444444444482",
+      caseId: IMPACTED_SECOND_MOLAR_CASE_ID,
+      order: 2,
+      title: "Assessing Eruption Potential",
+      goal: "Judge observation versus intervention by integrating eruption potential rather than relying on one variable.",
+      rubric: ["angulation severity", "root development", "patient age", "available space", "spontaneous correction", "observation threshold"],
+      starterQuestion: "Does this tooth need treatment now, or could it still erupt on its own?",
+      exampleQuestions: ["What if the angulation were 15 degrees rather than 40 degrees?"],
+      tutorGuidance: ["Use a 15-degree hypothetical to expose single-variable reasoning and compare age, root development and space before forcing a decision."],
+      tutorMoves: [{
+        id: "molar-single-variable-angulation",
+        strategy: "challenge",
+        question: "What if the angulation were 15 degrees rather than 40 degrees; how would your decision change?",
+        classifications: ["correct", "partial", "vague", "wrong"],
+        answerIncludesAny: ["40 degrees", "40-degree", "angulation", "angle"],
+        answerOmitsAll: ["age", "root", "space"],
+        recordError: "Based the intervention decision on angulation alone",
+        blockAdvancement: true,
+      }],
+    },
+    {
+      id: "44444444-4444-4444-8444-444444444483",
+      caseId: IMPACTED_SECOND_MOLAR_CASE_ID,
+      order: 3,
+      title: "Space Assessment and Treatment Planning",
+      goal: "Assess the space required for uprighting and account for the developing third molar.",
+      rubric: ["space distal to the first molar", "third molar position", "distal uprighting path", "irreversible trade-off", "consent"],
+      starterQuestion: "Before uprighting, what must be true about the space distal to the first molar?",
+      exampleQuestions: ["What is sitting directly behind the second molar?"],
+      tutorGuidance: ["If the third molar is omitted, use the spatial cue from the script rather than naming it."],
+      tutorMoves: [{
+        id: "molar-third-molar-omission",
+        strategy: "scaffold",
+        question: "Looking at the radiograph, what is sitting directly behind the second molar?",
+        classifications: ["correct", "partial", "vague", "wrong"],
+        answerOmitsAll: ["third molar", "third-molar", "wisdom tooth"],
+        recordError: "Omitted the developing third molar from the space assessment",
+        blockAdvancement: true,
+      }],
+    },
+    {
+      id: "44444444-4444-4444-8444-444444444484",
+      caseId: IMPACTED_SECOND_MOLAR_CASE_ID,
+      order: 4,
+      title: "Biomechanics",
+      goal: "Specify a safe uprighting force system, its moment and anchorage consequences.",
+      rubric: ["distally directed crown force", "moment and tipping", "centre of resistance", "reactive mesial force", "anchorage reinforcement", "direct or indirect anchorage"],
+      starterQuestion: "Describe the force system you would use to upright the second molar.",
+      exampleQuestions: ["What force and moment do you need, and what controls the reaction?"],
+      tutorGuidance: ["Ask for force, moment and anchorage specificity. Allow visible mid-sentence self-correction before intervening."],
+      tutorMoves: [{
+        id: "molar-vague-biomechanics",
+        strategy: "clarify",
+        question: "When you say upright it, what force, moment and anchorage control do you need?",
+        classifications: ["correct", "partial", "vague", "wrong"],
+        answerIncludesAny: ["upright", "spring", "elastic", "tip"],
+        answerOmitsAll: ["force", "moment", "anchorage"],
+        recordError: "Described uprighting without specifying force, moment or anchorage",
+        blockAdvancement: true,
+      }],
+    },
+    {
+      id: "44444444-4444-4444-8444-444444444485",
+      caseId: IMPACTED_SECOND_MOLAR_CASE_ID,
+      order: 5,
+      title: "Surgical Considerations",
+      goal: "Determine whether surgical access is required and communicate the mechanical requirements to the surgeon.",
+      rubric: ["crown accessibility", "surgical exposure", "conservative bone removal", "attachment placement", "force direction", "flap design"],
+      starterQuestion: "Can you always bond an attachment to the second molar and start treatment?",
+      exampleQuestions: ["Can you see the crown in the patient's mouth?"],
+      tutorGuidance: ["Expose a false assumption about access with a spatial question; do not announce the need for surgery."],
+      tutorMoves: [{
+        id: "molar-false-access-assumption",
+        strategy: "challenge",
+        question: "The crown is tipped under the distal surface of the first molar; can you see it in the patient's mouth?",
+        classifications: ["correct", "partial", "vague", "wrong"],
+        answerIncludesAny: ["bond", "attachment", "bracket", "button"],
+        answerOmitsAll: ["surgical", "exposure", "flap", "bone"],
+        recordError: "Assumed the second-molar crown was accessible for bonding",
+        blockAdvancement: true,
+      }],
+    },
+    {
+      id: "44444444-4444-4444-8444-444444444486",
+      caseId: IMPACTED_SECOND_MOLAR_CASE_ID,
+      order: 6,
+      title: "Reflection and Synthesis",
+      goal: "Evaluate a plausible extraction alternative and identify the most consequential decision point.",
+      rubric: ["second-molar prognosis", "third-molar position and development", "patient age", "eruption potential", "alternative viewpoint", "consequential decision point", "cross-case principle"],
+      starterQuestion: "Why not extract the impacted second molar and let the third molar drift forward?",
+      exampleQuestions: ["Are there situations where that alternative might be reasonable?"],
+      tutorGuidance: ["Push back on blanket dismissal of the extraction alternative, then close with a highest-leverage reflection and cross-case integration."],
+      tutorMoves: [
+        {
+          id: "molar-nuance-alternative",
+          strategy: "challenge",
+          question: "In what situation might extracting the second molar and relying on the third molar be reasonable?",
+          classifications: ["partial", "vague", "wrong"],
+          answerIncludesAny: ["no guarantee", "would not extract", "wouldn't extract", "too risky", "gambling"],
+        },
+        {
+          id: "molar-metacognitive-closure",
+          strategy: "reflect",
+          question: "Across the whole case, where was the single most consequential decision point, and why?",
+          classifications: ["correct"],
+          blockAdvancement: true,
+        },
       ],
     },
   ],
@@ -188,7 +406,7 @@ export const fracturedIncisorCase = buildDemoCase(
   ],
 );
 
-export const demoCases = [impactedCanineCase, acuteToothPainCase, periodontalRiskCase, fracturedIncisorCase];
+export const demoCases = [impactedCanineCase, impactedSecondMolarCase, acuteToothPainCase, periodontalRiskCase, fracturedIncisorCase];
 
 export const demoClass: TeachingClass = {
   id: DEMO_CLASS_ID,
@@ -226,6 +444,7 @@ export const demoAssignments: CaseAssignment[] = [
     ["66666666-6666-4666-8666-666666666667", acuteToothPainCase],
     ["66666666-6666-4666-8666-666666666668", periodontalRiskCase],
     ["66666666-6666-4666-8666-666666666669", fracturedIncisorCase],
+    ["66666666-6666-4666-8666-666666666670", impactedSecondMolarCase],
   ].map(([id, clinicalCase]) => ({
     id: id as string,
     classId: DEMO_CLASS_ID,

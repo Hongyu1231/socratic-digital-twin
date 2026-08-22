@@ -17,16 +17,16 @@ describe("Socratic state machine", () => {
     expect(updated.session.currentPhase).toBe(2);
     expect(updated.session.state.strengths.length).toBe(1);
     expect(updated.session.messages).toHaveLength(3);
-    expect(updated.session.messages.at(-1)?.content).toBe("What assumption in that reasoning would be most important to verify?");
-    expect(updated.session.messages.at(-1)?.content).not.toBe(impactedCanineCase.phases[1].starterQuestion);
+    expect(updated.session.messages.at(-1)?.content).toBe(impactedCanineCase.phases[1].starterQuestion);
   });
-  it("moves on after three unresolved attempts without losing the gap", async () => {
+  it("does not advance after three unresolved attempts and keeps the gap", async () => {
     let bundle = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);
     for (const answer of ["I am unsure.", "Maybe something is wrong.", "I still do not know."]) {
       bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, answer);
     }
-    expect(bundle.session.currentPhase).toBe(2);
+    expect(bundle.session.currentPhase).toBe(1);
     expect(bundle.session.state.phaseAttempts["1"]).toBe(3);
+    expect(bundle.session.evaluations.every((evaluation) => !evaluation.phaseComplete)).toBe(true);
   });
   it("returns the same committed turn for a duplicate request id", async () => {
     const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);
@@ -61,13 +61,15 @@ describe("Socratic state machine", () => {
       "The unerupted canine and eruption asymmetry matter because age and eruption timing make an impaction clinically significant rather than normal variation.",
       "I would begin with clinical palpation, then use a panoramic radiograph and parallax to determine position before justifying CBCT for unresolved anatomy.",
       "Root resorption of the adjacent incisor, available space, angulation, patient age and overall prognosis would change the urgency of treatment.",
+      "For this patient I would extract the primary canine and create orthodontic space now because the age, angulation and adjacent-incisor resorption risk make observation less defensible.",
       "Options include interceptive extraction, creating orthodontic space, surgical exposure with traction, or monitoring when the risk profile supports observation.",
       "The evidence should expose uncertainty and my main assumption; I would compare an alternative and reassess if new findings challenged the decision.",
+      "The highest-leverage point was early evidence gathering because uncertainty about eruption timing and adjacent-root risk could change the alternative plan and later reassessment.",
     ];
     for (const answer of answers) bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, answer);
     expect(bundle.session.status).toBe("completed");
     expect(bundle.session.summary?.completedAllPhases).toBe(true);
-    expect(bundle.session.evaluations).toHaveLength(5);
+    expect(bundle.session.evaluations).toHaveLength(7);
   });
   it("saves professor labels and a final review score", async () => {
     const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);

@@ -189,9 +189,9 @@ New persistence behavior must be added to the interface and both adapters. Contr
 | `lib/tutor/summary.ts` | Deterministic summary template |
 | `lib/tutor/speech.ts` | Server-side OpenAI text-to-speech adapter |
 
-Selection uses OpenAI when its complete key/model pair exists; otherwise it uses Claude when that pair exists; otherwise it uses deterministic rules. A configured network provider that times out, refuses, or returns invalid output falls directly to deterministic behavior for that request. It does not silently switch to the other network provider. Provider errors are logged using provider, request ID, and error type only.
+`TUTOR_PROVIDER` explicitly locks the deployment to OpenAI, Claude, or deterministic rules. A locked network provider requires its matching key/model pair and never switches to the other network provider. A request that times out, refuses, or returns invalid output falls directly to deterministic behavior for that turn, records `fallbackFrom`, and is disclosed in the student UI. See [ADR-001](ADR-001-POC-TUTOR-MODEL.md).
 
-The model is not allowed to mutate application state. It returns a validated proposal containing a classification, confidence, observable reasoning gap, strategy, feedback, one follow-up question, and an allow-listed memory patch. `state-machine.ts` decides phase completion, updates learner state, calculates metadata, and passes one atomic commit to the repository.
+The model is not allowed to mutate application state. The `scripted-v3` input gives it the authoritative case narrative, learning objectives, attachment descriptions/transcripts, phase rubric and guidance, scripted moves, current question, recent dialogue, and bounded learner memory. These fields form the expert-curated teaching context, but the prompt forbids volunteering hidden case facts or a complete clinical answer. A correct conclusion with flawed or absent reasoning maps to `partial`; visible within-answer self-correction is judged by the learner's final position. The model returns a validated proposal containing a classification, confidence, observable reasoning gap, strategy, feedback, one follow-up question, and an allow-listed memory patch. `state-machine.ts` applies matching scripted corrections and decides phase completion, learner-state updates, metadata, and the atomic repository commit.
 
 ### 4.7 Answer submission sequence
 
@@ -255,13 +255,13 @@ Engineering rules:
 
 ## 6. Key business invariants
 
-- A case draft has exactly five complete phases.
+- A case draft has 1–12 complete phases and may persist case-specific media in `patient_context.attachments`.
 - Published cases are immutable; editing requires a cloned draft version.
 - Professors assign only published cases to classes they teach.
 - Each student has at most one session per class assignment.
 - Closed or expired assignments cannot start a new session, but an existing session may continue.
 - A paused session rejects new answers until it is resumed.
-- `correct` advances a phase; the third unsuccessful attempt also advances to prevent a dead end.
+- Only `correct` advances a phase, after any required scripted correction or reflection move; attempt count is never a competence substitute.
 - Only completed sessions can be reviewed.
 - The first professor to save a draft review claims it; competing writes return a conflict.
 - The UI treats completed reviews as final, and Admins can reassign only unfinished reviews. See the explicit POC caveat below about same-reviewer API resubmission.

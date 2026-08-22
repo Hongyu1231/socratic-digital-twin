@@ -22,6 +22,7 @@ import { CLASSIFICATION_SCORES } from "@/lib/domain";
 import type { CommitTurnInput, SaveReviewInput, TutorRepository } from "@/lib/repository/types";
 import { buildCaseVersionSlug, getCaseLineageId, getNextCaseVersion, getVersionedCaseTitle } from "@/lib/repository/case-version";
 import { getTutorMode } from "@/lib/tutor";
+import { reconcileLearnerStateEvidence } from "@/lib/tutor/learner-model";
 
 type Row = Record<string, any>;
 
@@ -30,19 +31,30 @@ function must<T>(data: T | null, error: { message: string } | null, context: str
   return data;
 }
 
-function mapPhase(row: Row): CasePhase {
+export function mapPhase(row: Row): CasePhase {
   const questions = Array.isArray(row.questions) ? row.questions : [];
-  const expected = row.expected_findings && typeof row.expected_findings === "object" ? row.expected_findings : {};
-  const rubric = [...(row.objectives ?? []), ...Object.keys(expected)];
+  const objectives = Array.isArray(row.objectives)
+    ? row.objectives.filter((item: unknown): item is string => typeof item === "string" && Boolean(item.trim()))
+    : [];
+  const metadata = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
+  const metadataRubric = Array.isArray(metadata.rubric)
+    ? metadata.rubric.filter((item: unknown): item is string => typeof item === "string" && Boolean(item.trim()))
+    : [];
+  const rubric = metadataRubric.length ? metadataRubric : objectives.slice(1);
+  const goal = objectives[0] ?? row.teaching_notes ?? row.title;
   return {
     id: row.id,
     caseId: row.case_id,
     order: row.phase_order,
     title: row.title,
-    goal: row.objectives?.[0] ?? row.teaching_notes ?? row.title,
-    rubric,
+    goal,
+    rubric: rubric.length ? rubric : [goal],
     starterQuestion: questions[0] ?? "What evidence supports your current reasoning?",
     exampleQuestions: questions.slice(1).length ? questions.slice(1) : questions,
+    tutorGuidance: Array.isArray(metadata.tutorGuidance)
+      ? metadata.tutorGuidance.filter((item: unknown): item is string => typeof item === "string" && Boolean(item.trim()))
+      : row.teaching_notes ? [row.teaching_notes] : [],
+    tutorMoves: Array.isArray(metadata.tutorMoves) ? metadata.tutorMoves : [],
   };
 }
 
@@ -54,11 +66,14 @@ function mapCase(row: Row, phases: Row[]): ClinicalCase {
     description: row.presenting_complaint ?? "Clinical reasoning case",
     difficulty: "intermediate",
     status: row.status === "active" ? "available" : row.status === "archived" ? "archived" : "draft",
-    learningObjectives: mappedPhases.flatMap((phase) => phase.rubric.slice(0, 1)),
+    learningObjectives: Array.isArray(row.tags) && row.tags.length
+      ? row.tags.filter((item: unknown): item is string => typeof item === "string" && Boolean(item.trim()))
+      : mappedPhases.map((phase) => phase.goal),
     phases: mappedPhases,
     sourceCaseId: row.source_case_id ?? null,
     version: row.version ?? 1,
     publishedAt: row.published_at ?? null,
+    attachments: Array.isArray(row.patient_context?.attachments) ? row.patient_context.attachments : [],
   };
 }
 
@@ -95,6 +110,7 @@ function mapEvaluation(row: Row): Evaluation {
     phaseOrder: criteria.phaseOrder,
     attempt: criteria.attempt,
     provider: criteria.provider,
+    fallbackFrom: criteria.fallbackFrom,
     model: criteria.model,
     promptVersion: criteria.promptVersion,
     createdAt: row.created_at,
@@ -146,6 +162,7 @@ export class SupabaseTutorRepository implements TutorRepository {
       previousErrors: [], strengths: [], weaknesses: [], nextStrategy: "probe",
       phaseAttempts: { "1": 0 },
       mastery: Object.fromEntries(clinicalCase.phases.map((phase) => [String(phase.order), 0])),
+      usedTutorMoves: [],
       version: 1, updatedAt: now,
     };
     const { data: sessionData, error: sessionError } = await this.client
@@ -205,7 +222,7 @@ export class SupabaseTutorRepository implements TutorRepository {
       reviewerId: sessionRow.professor_id ?? null,
       messages: messageRows.map(mapMessage),
       evaluations,
-      state: stateRow.state as LearnerState,
+      state: reconcileLearnerStateEvidence(stateRow.state as LearnerState),
     };
     const { data: reviewRows, error: reviewError } = await this.client
       .from("answer_reviews")
@@ -266,7 +283,11 @@ export class SupabaseTutorRepository implements TutorRepository {
       answerReviews,
       tutorTurnReviews,
       sessionReview,
-      runtime: { storage: "supabase", tutor: getTutorMode() },
+      runtime: {
+        storage: "supabase",
+        tutor: getTutorMode(),
+        fallbackFrom: evaluations.at(-1)?.fallbackFrom,
+      },
       assignment,
       teachingClass,
       reviewClaim: { reviewerId: sessionRow.professor_id ?? null, reviewerName: sessionRow.professor_id ? (await this.listUsers()).find((item) => item.id === sessionRow.professor_id)?.name ?? null : null, state: sessionReview?.status === "completed" ? "completed" : sessionRow.professor_id ? "other" : "unclaimed", canEdit: !sessionRow.professor_id && sessionReview?.status !== "completed" },
@@ -298,6 +319,7 @@ export class SupabaseTutorRepository implements TutorRepository {
         phaseOrder: input.evaluation.phaseOrder,
         attempt: input.evaluation.attempt,
         provider: input.evaluation.provider,
+        fallbackFrom: input.evaluation.fallbackFrom,
         model: input.evaluation.model,
         promptVersion: input.evaluation.promptVersion,
       },
@@ -477,12 +499,38 @@ export class SupabaseTutorRepository implements TutorRepository {
     if (existing && existing.status !== "draft") throw new Error("Published cases are immutable. Clone a new version.");
     const caseId = input.id || crypto.randomUUID();
     const version = input.version ?? 1;
-    const payload = { title: input.title, slug: buildCaseVersionSlug(input.title, version, caseId), specialty: "dentistry", presenting_complaint: input.description, status: "draft", created_by: adminId, source_case_id: input.sourceCaseId ?? null, version, published_at: null, patient_context: {}, tags: input.learningObjectives };
+    let existingPatientContext: Record<string, unknown> = {};
+    if (input.id) {
+      const { data: existingRow, error: existingRowError } = await this.client
+        .from("cases")
+        .select("patient_context")
+        .eq("id", input.id)
+        .maybeSingle();
+      if (existingRowError) throw new Error(`Read case patient context: ${existingRowError.message}`);
+      if (existingRow?.patient_context && typeof existingRow.patient_context === "object") {
+        existingPatientContext = existingRow.patient_context;
+      }
+    }
+    const payload = { title: input.title, slug: buildCaseVersionSlug(input.title, version, caseId), specialty: "dentistry", presenting_complaint: input.description, status: "draft", created_by: adminId, source_case_id: input.sourceCaseId ?? null, version, published_at: null, patient_context: { ...existingPatientContext, attachments: input.attachments ?? [] }, tags: input.learningObjectives };
     const operation = input.id ? this.client.from("cases").update(payload).eq("id", input.id).select("id").single() : this.client.from("cases").insert({ id: caseId, ...payload }).select("id").single();
     const { data, error } = await operation;
     const savedCaseId = must(data, error, "Save case").id;
     if (input.id) await this.client.from("case_phases").delete().eq("case_id", savedCaseId);
-    const { error: phaseError } = await this.client.from("case_phases").insert(input.phases.map((phase, index) => ({ case_id: savedCaseId, phase_order: index + 1, phase_key: `phase_${index + 1}`, title: phase.title, objectives: [phase.goal, ...phase.rubric], questions: [phase.starterQuestion, ...phase.exampleQuestions], teaching_notes: phase.goal, expected_findings: Object.fromEntries(phase.rubric.map((item) => [item, true])), metadata: {} })));
+    const { error: phaseError } = await this.client.from("case_phases").insert(input.phases.map((phase, index) => ({
+      case_id: savedCaseId,
+      phase_order: index + 1,
+      phase_key: `phase_${index + 1}`,
+      title: phase.title,
+      objectives: [phase.goal, ...phase.rubric],
+      questions: [phase.starterQuestion, ...phase.exampleQuestions],
+      teaching_notes: phase.tutorGuidance?.join("\n") || phase.goal,
+      expected_findings: {},
+      metadata: {
+        rubric: phase.rubric,
+        tutorGuidance: phase.tutorGuidance ?? [],
+        tutorMoves: phase.tutorMoves ?? [],
+      },
+    })));
     if (phaseError) throw new Error(`Save case phases: ${phaseError.message}`);
     return (await this.listCaseVersions()).find((item) => item.id === savedCaseId)!;
   }

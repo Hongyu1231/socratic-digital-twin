@@ -80,7 +80,7 @@ values (
   'Impacted Maxillary Canine',
   'orthodontics',
   null,
-  'A 12-year-old patient presents with an unerupted upper right permanent canine and asymmetry in eruption timing.',
+  'A 12-year-old patient is referred by a general dental practitioner because the upper right permanent canine has not erupted. The primary canine on that side remains present. The patient has a Class I molar relationship with mild upper-arch crowding, and a panoramic radiograph is available.',
   'active'::public.case_status,
   '{"age":12,"dentition":"mixed","chief_complaint":"unerupted upper right canine","imaging_available":["panoramic"]}'::jsonb,
   array['impacted canine','maxillary canine','orthodontics']::text[],
@@ -179,7 +179,7 @@ values
       'What makes delayed eruption clinically significant in this patient?'
     ]::text[],
     'Start with the patient narrative and avoid anchoring on the radiograph before gathering context.',
-    '{"age":14,"key_history":["delayed eruption","no relevant trauma","good general health"]}'::jsonb,
+    '{"age":12,"key_history":["delayed eruption","no relevant trauma","good general health"]}'::jsonb,
     '{"checkpoint":"history_complete"}'::jsonb
   ),
   (
@@ -263,5 +263,33 @@ on conflict (id) do update
       questions = excluded.questions,
       teaching_notes = excluded.teaching_notes,
       expected_findings = excluded.expected_findings,
-      metadata = excluded.metadata,
+      -- Migrations may add faculty-authored rubric/guidance/moves before the
+      -- development seed runs. Preserve those keys while refreshing the seed
+      -- checkpoint so a database reset cannot silently remove tutor behaviour.
+      metadata = coalesce(public.case_phases.metadata, '{}'::jsonb) || excluded.metadata,
       updated_at = timezone('utc', now());
+
+-- Demo phase rows are created by this seed after every migration has already
+-- run. Apply the faculty-scripted metadata here as well as in the deployment
+-- migration so a clean local reset and an existing hosted database converge
+-- on the same tutor behaviour.
+update public.case_phases
+set metadata = coalesce(metadata, '{}'::jsonb) || $json${"rubric":["unerupted or delayed eruption","eruption asymmetry","possible impaction","age or eruption timing"],"tutorGuidance":["Withhold the diagnosis, distinguish observation from clinical significance, and use a spatial cue before naming adjacent-root harm."],"tutorMoves":[]}$json$::jsonb
+where id = '44444444-4444-4444-8444-444444444441'::uuid;
+
+update public.case_phases
+set metadata = coalesce(metadata, '{}'::jsonb) || $json${"rubric":["clinical palpation","panoramic radiograph","parallax","position","CBCT justification"],"tutorGuidance":["Challenge premature advanced imaging, begin with clinical examination, and deliberately return to an earlier CBCT jump after first-line imaging has been discussed."],"tutorMoves":[{"id":"canine-premature-cbct","strategy":"challenge","question":"Before requesting any imaging, what could you learn from examining the patient?","classifications":["correct","partial","vague","wrong"],"answerIncludesAny":["cbct"],"answerOmitsAll":["clinical","palpation","palpate","opg","panoramic","parallax"],"recordError":"Premature CBCT escalation before clinical examination and first-line imaging","blockAdvancement":true},{"id":"canine-revisit-cbct","strategy":"probe","question":"You mentioned CBCT earlier. What remaining uncertainty would justify it after clinical examination and first-line imaging?","classifications":["correct"],"previousErrorIncludesAny":["premature cbct"],"blockAdvancement":true}]}$json$::jsonb
+where id = '44444444-4444-4444-8444-444444444442'::uuid;
+
+update public.case_phases
+set metadata = coalesce(metadata, '{}'::jsonb) || $json${"rubric":["root resorption","adjacent incisor","space","angulation","patient age and root development","prognosis"],"tutorGuidance":["An OPG cannot establish bucco-palatal position. Expose that assumption, then force a patient-specific commitment after weighing age, root development, space, angulation and adjacent-root risk."],"tutorMoves":[{"id":"canine-opg-palatal-assumption","strategy":"challenge","question":"How do you know the canine is palatally displaced from an OPG alone?","classifications":["correct","partial","vague","wrong"],"answerIncludesAny":["palatal","palatally"],"answerOmitsAll":["parallax","cbct","tube shift","cannot tell","can't tell","cannot show","can't show","does not show","doesn't show","2d","two-dimensional"],"recordError":"Inferred a bucco-palatal position from a two-dimensional OPG","blockAdvancement":true},{"id":"canine-management-commitment","strategy":"challenge","question":"For this patient, would you observe after primary-canine extraction or create orthodontic space at the same time, and why?","classifications":["correct"],"blockAdvancement":true}]}$json$::jsonb
+where id = '44444444-4444-4444-8444-444444444443'::uuid;
+
+update public.case_phases
+set metadata = coalesce(metadata, '{}'::jsonb) || $json${"rubric":["interceptive extraction","space creation","surgical exposure","orthodontic traction","monitoring"],"tutorGuidance":["Require the direction of traction and anchorage consequences, not only the procedure name. If the crown overlaps the lateral root, cue the learner to move it away before bringing it into the arch."],"tutorMoves":[{"id":"canine-unsafe-traction-vector","strategy":"challenge","question":"Where is the canine crown relative to the lateral incisor root before you pull it down?","classifications":["correct","partial","vague","wrong"],"answerIncludesAny":["down into the arch","straight down","pull it down","vertically into the arch"],"answerOmitsAll":["distal","away from","clear the root"],"recordError":"Proposed pulling the canine across the lateral incisor root","blockAdvancement":true}]}$json$::jsonb
+where id = '44444444-4444-4444-8444-444444444444'::uuid;
+
+update public.case_phases
+set questions = array['Why not extract the impacted canine and place an implant later?','What new evidence would make you revise your plan?','Where were you most at risk of jumping to a conclusion?']::text[],
+    metadata = coalesce(metadata, '{}'::jsonb) || $json${"rubric":["evidence","uncertainty","assumption","alternative","reassessment","reflection"],"tutorGuidance":["Begin with a plausible alternative viewpoint, then end with a metacognitive question about the highest-leverage decision point."],"tutorMoves":[{"id":"canine-metacognitive-closure","strategy":"reflect","question":"Looking back at the whole case, where was the highest-leverage decision point, and what should a general dentist know?","classifications":["correct"],"blockAdvancement":true}]}$json$::jsonb
+where id = '44444444-4444-4444-8444-444444444445'::uuid;

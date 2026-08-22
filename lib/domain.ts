@@ -103,6 +103,21 @@ export interface CasePhase {
   rubric: string[];
   starterQuestion: string;
   exampleQuestions: string[];
+  tutorGuidance?: string[];
+  tutorMoves?: TutorMove[];
+}
+
+export interface TutorMove {
+  id: string;
+  strategy: TutorStrategy;
+  question: string;
+  classifications?: Classification[];
+  answerIncludesAny?: string[];
+  answerIncludesAll?: string[];
+  answerOmitsAll?: string[];
+  previousErrorIncludesAny?: string[];
+  recordError?: string;
+  blockAdvancement?: boolean;
 }
 
 export interface ClinicalCase {
@@ -140,6 +155,7 @@ export interface Evaluation {
   phaseOrder?: number;
   attempt?: number;
   provider?: "deterministic" | "claude" | "openai";
+  fallbackFrom?: "claude" | "openai";
   model?: string;
   promptVersion?: string;
   createdAt: string;
@@ -154,6 +170,7 @@ export interface LearnerState {
   nextStrategy: TutorStrategy;
   phaseAttempts: Record<string, number>;
   mastery: Record<string, number>;
+  usedTutorMoves?: string[];
   version: number;
   updatedAt: string;
 }
@@ -237,7 +254,11 @@ export interface SessionBundle {
   answerReviews: AnswerReview[];
   tutorTurnReviews: TutorTurnReview[];
   sessionReview: SessionReview | null;
-  runtime: { storage: "memory" | "supabase"; tutor: "deterministic" | "claude" | "openai" };
+  runtime: {
+    storage: "memory" | "supabase";
+    tutor: "deterministic" | "claude" | "openai";
+    fallbackFrom?: "claude" | "openai";
+  };
   assignment?: CaseAssignment | null;
   teachingClass?: TeachingClass | null;
   reviewClaim?: ReviewClaim;
@@ -250,6 +271,21 @@ export interface MemoryPatch {
   masteryDelta: number;
 }
 
+export interface TutorEvaluateInput {
+  phase: CasePhase;
+  caseContext?: {
+    title: string;
+    description: string;
+    learningObjectives: string[];
+    attachments: Array<Pick<CaseAttachment, "kind" | "title" | "description" | "transcript">>;
+  };
+  answer: string;
+  state: LearnerState;
+  attempt: number;
+  currentQuestion?: string;
+  recentDialogue?: Array<{ sender: "student" | "ai"; content: string }>;
+}
+
 export interface TutorEvaluationResult {
   classification: Classification;
   confidence: number;
@@ -259,6 +295,7 @@ export interface TutorEvaluationResult {
   nextQuestion: string;
   memoryPatch: MemoryPatch;
   source: "deterministic" | "claude" | "openai";
+  fallbackFrom?: "claude" | "openai";
 }
 
 export const CLASSIFICATION_SCORES: Record<Classification, number> = {

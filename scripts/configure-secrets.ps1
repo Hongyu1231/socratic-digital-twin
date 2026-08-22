@@ -42,6 +42,7 @@ if ([string]::IsNullOrWhiteSpace($openAiKey) -or [string]::IsNullOrWhiteSpace($s
 }
 
 $content = [IO.File]::ReadAllText($envPath)
+$content = Set-EnvValue -Content $content -Name "TUTOR_PROVIDER" -Value "openai"
 $content = Set-EnvValue -Content $content -Name "OPENAI_API_KEY" -Value $openAiKey
 $content = Set-EnvValue -Content $content -Name "SUPABASE_SERVICE_ROLE_KEY" -Value $supabaseKey
 [IO.File]::WriteAllText($envPath, $content, [Text.UTF8Encoding]::new($false))

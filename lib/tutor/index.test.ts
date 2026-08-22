@@ -46,6 +46,7 @@ describe("tutor provider fallback", () => {
     const deterministicEvaluate = vi.fn().mockResolvedValue(deterministicResult);
     vi.stubEnv("OPENAI_API_KEY", "test-key");
     vi.stubEnv("OPENAI_MODEL", "test-model");
+    vi.stubEnv("TUTOR_PROVIDER", "openai");
     vi.doMock("@/lib/tutor/openai", () => ({
       OpenAITutor: class {
         readonly mode = "openai";
@@ -68,7 +69,7 @@ describe("tutor provider fallback", () => {
       attempt: 1,
     });
 
-    expect(result).toEqual(deterministicResult);
+    expect(result).toEqual({ ...deterministicResult, fallbackFrom: "openai" });
     expect(deterministicEvaluate).toHaveBeenCalledOnce();
   });
 });

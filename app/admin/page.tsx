@@ -13,6 +13,7 @@ import {
   GraduationCap,
   LayoutDashboard,
   LoaderCircle,
+  Minus,
   PencilLine,
   Plus,
   RefreshCw,
@@ -27,6 +28,7 @@ import {
 } from "lucide-react";
 import FeedbackLab from "./feedback-lab";
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import type { TutorMove } from "@/lib/domain";
 
 type AdminTab = "overview" | "users" | "classes" | "cases" | "activity" | "feedback";
 type Role = "student" | "professor" | "admin";
@@ -72,6 +74,20 @@ interface CasePhaseDraft {
   rubric: string[];
   starterQuestion: string;
   exampleQuestions: string[];
+  tutorGuidance?: string[];
+  tutorMoves?: TutorMove[];
+}
+
+type AttachmentKind = "image" | "audio" | "video";
+
+interface CaseAttachmentDraft {
+  id?: string;
+  kind: AttachmentKind;
+  title: string;
+  description: string;
+  url?: string;
+  posterUrl?: string;
+  transcript?: string;
 }
 
 interface CaseVersion {
@@ -83,6 +99,7 @@ interface CaseVersion {
   version?: number;
   learningObjectives?: string[];
   phases?: CasePhaseDraft[];
+  attachments?: CaseAttachmentDraft[];
   publishedAt?: string | null;
   published_at?: string | null;
 }
@@ -143,14 +160,65 @@ const TABS: Array<{ id: AdminTab; label: string; icon: typeof LayoutDashboard }>
   { id: "feedback", label: "Tutor improvement lab", icon: FlaskConical },
 ];
 
-const DEFAULT_PHASES: CasePhaseDraft[] = Array.from({ length: 5 }, (_, index) => ({
-  order: index + 1,
-  title: `Phase ${index + 1}`,
-  goal: "",
-  rubric: [""],
-  starterQuestion: "",
-  exampleQuestions: [""],
-}));
+const MAX_PHASES = 12;
+
+function blankPhase(index: number): CasePhaseDraft {
+  return {
+    order: index + 1,
+    title: `Phase ${index + 1}`,
+    goal: "",
+    rubric: [""],
+    starterQuestion: "",
+    exampleQuestions: [""],
+    tutorGuidance: [],
+    tutorMoves: [],
+  };
+}
+
+const DEFAULT_PHASES: CasePhaseDraft[] = Array.from({ length: 5 }, (_, index) => blankPhase(index));
+
+function clonePhase(phase: CasePhaseDraft, index: number): CasePhaseDraft {
+  return {
+    ...phase,
+    order: index + 1,
+    rubric: [...phase.rubric],
+    exampleQuestions: [...phase.exampleQuestions],
+    tutorGuidance: phase.tutorGuidance ? [...phase.tutorGuidance] : [],
+    tutorMoves: phase.tutorMoves?.map((move) => ({
+      ...move,
+      classifications: move.classifications ? [...move.classifications] : undefined,
+      answerIncludesAny: move.answerIncludesAny ? [...move.answerIncludesAny] : undefined,
+      answerIncludesAll: move.answerIncludesAll ? [...move.answerIncludesAll] : undefined,
+      answerOmitsAll: move.answerOmitsAll ? [...move.answerOmitsAll] : undefined,
+      previousErrorIncludesAny: move.previousErrorIncludesAny ? [...move.previousErrorIncludesAny] : undefined,
+    })) ?? [],
+  };
+}
+
+function cloneAttachment(attachment: CaseAttachmentDraft): CaseAttachmentDraft {
+  return { ...attachment };
+}
+
+function cleanLines(values: string[] | undefined) {
+  return (values ?? []).map((value) => value.trim()).filter(Boolean);
+}
+
+function cleanOptional(value: string | undefined) {
+  const trimmed = value?.trim();
+  return trimmed || undefined;
+}
+
+function cleanAttachment(attachment: CaseAttachmentDraft): CaseAttachmentDraft {
+  return {
+    ...(cleanOptional(attachment.id) ? { id: cleanOptional(attachment.id) } : {}),
+    kind: attachment.kind,
+    title: attachment.title.trim(),
+    description: attachment.description.trim(),
+    ...(cleanOptional(attachment.url) ? { url: cleanOptional(attachment.url) } : {}),
+    ...(cleanOptional(attachment.posterUrl) ? { posterUrl: cleanOptional(attachment.posterUrl) } : {}),
+    ...(cleanOptional(attachment.transcript) ? { transcript: cleanOptional(attachment.transcript) } : {}),
+  };
+}
 
 function unwrapList<T>(value: unknown, keys: string[]): T[] {
   if (Array.isArray(value)) return value as T[];
@@ -335,12 +403,15 @@ function Overview({ data, setTab }: { data: DashboardData; setTab: (tab: AdminTa
     sessions: data.overview.sessionCount ?? data.overview.sessions ?? data.sessions.length,
     reviews: data.overview.pendingReviewCount ?? data.overview.pendingReviews ?? data.sessions.filter((item) => reviewStatus(item) !== "completed").length,
   };
+  const completionRate = data.overview.completionRate ?? (counts.sessions > 0
+    ? Math.round((data.sessions.filter((item) => item.session?.status === "completed").length / counts.sessions) * 100)
+    : 0);
   const roleCounts = typeof data.overview.users === "object" ? data.overview.users : undefined;
   const cards = [
     { label: "Active users", value: counts.users, icon: UsersRound, note: roleCounts ? `${roleCounts.student ?? 0} students · ${roleCounts.professor ?? 0} faculty` : "Across all teaching roles" },
     { label: "Teaching classes", value: counts.classes, icon: School, note: "Active and archived cohorts" },
     { label: "Open assignments", value: counts.assignments, icon: BookOpen, note: "Available to enrolled students" },
-    { label: "Learning sessions", value: counts.sessions, icon: GraduationCap, note: `${data.overview.completionRate ?? 0}% completion rate` },
+    { label: "Learning sessions", value: counts.sessions, icon: GraduationCap, note: `${completionRate}% completion rate` },
     { label: "Pending reviews", value: counts.reviews, icon: ClipboardCheck, note: "Awaiting faculty calibration" },
   ];
   return (
@@ -359,7 +430,7 @@ function Overview({ data, setTab }: { data: DashboardData; setTab: (tab: AdminTa
           <span className="section-kicker">Workflow</span>
           <h3 className="mt-2 font-serif text-2xl">Teaching operations at a glance</h3>
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            {[{ title: "Organise", text: "Create cohorts and appoint lead faculty.", tab: "classes" as const }, { title: "Publish", text: "Author and version five-phase cases.", tab: "cases" as const }, { title: "Calibrate", text: "Monitor sessions and review ownership.", tab: "activity" as const }].map((item, index) => (
+            {[{ title: "Organise", text: "Create cohorts and appoint lead faculty.", tab: "classes" as const }, { title: "Publish", text: "Author and version flexible teaching cases.", tab: "cases" as const }, { title: "Calibrate", text: "Monitor sessions and review ownership.", tab: "activity" as const }].map((item, index) => (
               <button type="button" key={item.title} onClick={() => setTab(item.tab)} className="rounded-xl border border-[#ded8d0] p-4 text-left transition hover:border-[#de695c] hover:bg-[#f6f3ed]">
                 <span className="font-mono text-[10px] text-[#de695c]">0{index + 1}</span><strong className="mt-2 block font-serif">{item.title}</strong><small className="mt-1 block leading-4 text-[#726c73]">{item.text}</small>
               </button>
@@ -504,15 +575,81 @@ function Classes({ data, busy, mutate }: { data: DashboardData; busy: string; mu
 function Cases({ data, busy, mutate }: { data: DashboardData; busy: string; mutate: (label: string, action: () => Promise<unknown>, success: string) => Promise<boolean> }) {
   const [editor, setEditor] = useState<CaseVersion | null>(null);
   const [expandedPhase, setExpandedPhase] = useState(0);
-  function startNew() { setEditor({ id: "", title: "", description: "", difficulty: "intermediate", status: "draft", version: 1, learningObjectives: [""], phases: DEFAULT_PHASES.map((phase) => ({ ...phase, rubric: [...phase.rubric], exampleQuestions: [...phase.exampleQuestions] })) }); }
-  function edit(item: CaseVersion) { setEditor({ ...item, learningObjectives: item.learningObjectives?.length ? [...item.learningObjectives] : [""], phases: item.phases?.length ? item.phases.map((phase) => ({ ...phase, rubric: [...phase.rubric], exampleQuestions: [...phase.exampleQuestions] })) : DEFAULT_PHASES.map((phase) => ({ ...phase, rubric: [...phase.rubric], exampleQuestions: [...phase.exampleQuestions] })) }); }
+  function startNew() {
+    setExpandedPhase(0);
+    setEditor({
+      id: "",
+      title: "",
+      description: "",
+      difficulty: "intermediate",
+      status: "draft",
+      version: 1,
+      learningObjectives: [""],
+      phases: DEFAULT_PHASES.map(clonePhase),
+      attachments: [],
+    });
+  }
+  function edit(item: CaseVersion) {
+    setExpandedPhase(0);
+    setEditor({
+      ...item,
+      learningObjectives: item.learningObjectives?.length ? [...item.learningObjectives] : [""],
+      phases: item.phases?.length ? item.phases.map(clonePhase) : DEFAULT_PHASES.map(clonePhase),
+      attachments: item.attachments?.map(cloneAttachment) ?? [],
+    });
+  }
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!editor) return;
-    const payload = { ...editor, learningObjectives: editor.learningObjectives?.filter(Boolean), phases: editor.phases?.map((phase, index) => ({ ...phase, order: index + 1, rubric: phase.rubric.filter(Boolean), exampleQuestions: phase.exampleQuestions.filter(Boolean) })) };
+    const payload = {
+      ...editor,
+      learningObjectives: cleanLines(editor.learningObjectives),
+      phases: editor.phases?.map((phase, index) => ({
+        ...phase,
+        order: index + 1,
+        title: phase.title.trim(),
+        goal: phase.goal.trim(),
+        rubric: cleanLines(phase.rubric),
+        starterQuestion: phase.starterQuestion.trim(),
+        exampleQuestions: cleanLines(phase.exampleQuestions),
+        tutorGuidance: cleanLines(phase.tutorGuidance),
+        tutorMoves: phase.tutorMoves ?? [],
+      })),
+      attachments: (editor.attachments ?? [])
+        .map(cleanAttachment)
+        .filter((attachment) => Boolean(attachment.title || attachment.description || attachment.url || attachment.posterUrl || attachment.transcript)),
+    };
     const ok = await mutate(`case-${editor.id || "new"}`, () => api("/api/admin/cases", { method: editor.id ? "PATCH" : "POST", body: JSON.stringify(editor.id ? { caseId: editor.id, ...payload } : payload) }), editor.id ? "Case draft saved." : "Case draft created.");
     if (ok) setEditor(null);
   }
   function updatePhase(index: number, patch: Partial<CasePhaseDraft>) { if (!editor?.phases) return; setEditor({ ...editor, phases: editor.phases.map((phase, phaseIndex) => phaseIndex === index ? { ...phase, ...patch } : phase) }); }
+  function addPhase() {
+    if (!editor?.phases || editor.phases.length >= MAX_PHASES) return;
+    const nextIndex = editor.phases.length;
+    setEditor({ ...editor, phases: [...editor.phases.map(clonePhase), blankPhase(nextIndex)] });
+    setExpandedPhase(nextIndex);
+  }
+  function removePhase(index: number) {
+    if (!editor?.phases || editor.phases.length <= 1) return;
+    const phases = editor.phases.filter((_, phaseIndex) => phaseIndex !== index).map(clonePhase);
+    setEditor({ ...editor, phases });
+    setExpandedPhase((current) => current === index ? Math.min(index, phases.length - 1) : current > index ? current - 1 : current);
+  }
+  function addAttachment() {
+    if (!editor) return;
+    setEditor({
+      ...editor,
+      attachments: [...(editor.attachments ?? []), { kind: "image", title: "", description: "", url: "", posterUrl: "", transcript: "" }],
+    });
+  }
+  function updateAttachment(index: number, patch: Partial<CaseAttachmentDraft>) {
+    if (!editor) return;
+    const attachments = (editor.attachments ?? []).map((attachment, attachmentIndex) => attachmentIndex === index ? { ...attachment, ...patch } : attachment);
+    setEditor({ ...editor, attachments });
+  }
+  function removeAttachment(index: number) {
+    if (!editor) return;
+    setEditor({ ...editor, attachments: (editor.attachments ?? []).filter((_, attachmentIndex) => attachmentIndex !== index) });
+  }
   return (
     <div className="grid gap-5">
       <div className="flex justify-end"><button type="button" className="primary-button" onClick={startNew}><Plus size={16} /> New case draft</button></div>
@@ -529,7 +666,7 @@ function Cases({ data, busy, mutate }: { data: DashboardData; busy: string; muta
           </article>;
         })}
       </section>
-      {data.cases.length === 0 ? <div className="empty-state"><BookOpen className="mx-auto" /><h2>No cases yet</h2><p>Create a five-phase draft to begin.</p></div> : null}
+      {data.cases.length === 0 ? <div className="empty-state"><BookOpen className="mx-auto" /><h2>No cases yet</h2><p>Create a draft with one or more teaching phases to begin.</p></div> : null}
       {editor ? (
         <div className="fixed inset-0 z-[80] overflow-y-auto bg-[#21172b]/50 p-3 md:p-6" role="dialog" aria-modal="true" aria-labelledby="case-editor-title">
           <form onSubmit={save} className={`${panelClass} mx-auto my-4 w-full max-w-5xl p-5 md:p-8`}>
@@ -541,21 +678,40 @@ function Cases({ data, busy, mutate }: { data: DashboardData; busy: string; muta
               <div className="md:col-span-2"><Field label="Learning objectives" hint="Enter one objective per line."><textarea className={`${inputClass} min-h-24 resize-y`} value={editor.learningObjectives?.join("\n") ?? ""} onChange={(event) => setEditor({ ...editor, learningObjectives: event.target.value.split("\n") })} required /></Field></div>
             </div>
             <div className="my-7 border-t border-[#ded8d0]" />
-            <div><h4 className="font-serif text-2xl">Five teaching phases</h4><p className="mt-1 text-xs text-[#726c73]">Every phase needs a goal, rubric, opening question and follow-up question bank.</p></div>
+            <div className="flex flex-wrap items-end justify-between gap-3"><div><h4 className="font-serif text-2xl">Teaching phases</h4><p className="mt-1 text-xs text-[#726c73]">Add between 1 and {MAX_PHASES} phases. Each phase needs a goal, rubric, opening question and follow-up question bank.</p></div><button type="button" className="secondary-button" onClick={addPhase} disabled={Boolean(busy) || (editor.phases?.length ?? 0) >= MAX_PHASES}><Plus size={15} /> Add phase</button></div>
             <div className="mt-5 grid gap-3">
               {editor.phases?.map((phase, index) => {
                 const expanded = expandedPhase === index;
                 return <section key={phase.id ?? index} className="overflow-hidden rounded-xl border border-[#ded8d0]">
-                  <button type="button" className="flex w-full items-center justify-between bg-[#f6f3ed] px-4 py-3 text-left" onClick={() => setExpandedPhase(expanded ? -1 : index)}><span><small className="mr-3 font-mono text-[#de695c]">0{index + 1}</small><strong className="font-serif">{phase.title || `Phase ${index + 1}`}</strong></span>{expanded ? <ChevronUp size={17} /> : <ChevronDown size={17} />}</button>
+                  <div className="flex items-center gap-2 bg-[#f6f3ed] px-4 py-3">
+                    <button type="button" className="flex min-w-0 flex-1 items-center justify-between text-left" onClick={() => setExpandedPhase(expanded ? -1 : index)}><span><small className="mr-3 font-mono text-[#de695c]">{String(index + 1).padStart(2, "0")}</small><strong className="font-serif">{phase.title || `Phase ${index + 1}`}</strong></span>{expanded ? <ChevronUp size={17} /> : <ChevronDown size={17} />}</button>
+                    <button type="button" className="rounded-lg border border-[#ded8d0] p-2 text-[#726c73] hover:text-[#be5048] disabled:cursor-not-allowed disabled:opacity-40" onClick={() => removePhase(index)} disabled={Boolean(busy) || (editor.phases?.length ?? 0) <= 1} aria-label={`Remove phase ${index + 1}`} title={(editor.phases?.length ?? 0) <= 1 ? "At least one phase is required" : "Remove phase"}><Minus size={15} /></button>
+                  </div>
                   {expanded ? <div className="grid gap-4 p-4 md:grid-cols-2">
                     <Field label="Phase title"><input className={inputClass} value={phase.title} onChange={(event) => updatePhase(index, { title: event.target.value })} required /></Field>
                     <Field label="Learning goal"><input className={inputClass} value={phase.goal} onChange={(event) => updatePhase(index, { goal: event.target.value })} required /></Field>
                     <div className="md:col-span-2"><Field label="Rubric criteria" hint="One criterion per line."><textarea className={`${inputClass} min-h-20 resize-y`} value={phase.rubric.join("\n")} onChange={(event) => updatePhase(index, { rubric: event.target.value.split("\n") })} required /></Field></div>
                     <div className="md:col-span-2"><Field label="Starter question"><textarea className={`${inputClass} min-h-20 resize-y`} value={phase.starterQuestion} onChange={(event) => updatePhase(index, { starterQuestion: event.target.value })} required /></Field></div>
                     <div className="md:col-span-2"><Field label="Follow-up question bank" hint="One question per line."><textarea className={`${inputClass} min-h-24 resize-y`} value={phase.exampleQuestions.join("\n")} onChange={(event) => updatePhase(index, { exampleQuestions: event.target.value.split("\n") })} required /></Field></div>
+                    <div className="md:col-span-2"><Field label="Tutor guidance" hint="Optional phase-specific guidance; one instruction per line."><textarea className={`${inputClass} min-h-20 resize-y`} value={phase.tutorGuidance?.join("\n") ?? ""} onChange={(event) => updatePhase(index, { tutorGuidance: event.target.value.split("\n") })} /></Field></div>
+                    <div className="md:col-span-2"><Field label="Scripted tutor moves" hint="Existing structured moves are preserved when saving this phase."><div className="rounded-lg border border-[#ded8d0] bg-[#f6f3ed] p-3 text-xs text-[#726c73]">{phase.tutorMoves?.length ? <ul className="grid gap-2">{phase.tutorMoves.map((move) => <li key={move.id}><strong className="mr-2 uppercase text-[#4e263f]">{move.strategy}</strong>{move.question}</li>)}</ul> : "No scripted moves configured yet."}</div></Field></div>
                   </div> : null}
                 </section>;
               })}
+            </div>
+            <div className="my-7 border-t border-[#ded8d0]" />
+            <div className="flex flex-wrap items-end justify-between gap-3"><div><h4 className="font-serif text-2xl">Case media attachments</h4><p className="mt-1 text-xs text-[#726c73]">Attach synthetic radiographs, audio, or video resources. Blank rows are ignored when saving.</p></div><button type="button" className="secondary-button" onClick={addAttachment} disabled={Boolean(busy)}><Plus size={15} /> Add attachment</button></div>
+            <div className="mt-5 grid gap-3">
+              {(editor.attachments ?? []).map((attachment, index) => <section key={attachment.id ?? `attachment-${index}`} className="grid gap-4 rounded-xl border border-[#ded8d0] p-4 md:grid-cols-2">
+                <Field label="Type"><select className={inputClass} value={attachment.kind} onChange={(event) => updateAttachment(index, { kind: event.target.value as AttachmentKind })}><option value="image">Image / radiograph</option><option value="audio">Audio</option><option value="video">Video</option></select></Field>
+                <Field label="Title"><input className={inputClass} value={attachment.title} onChange={(event) => updateAttachment(index, { title: event.target.value })} placeholder="e.g. Panoramic radiograph" required /></Field>
+                <div className="md:col-span-2"><Field label="Description"><textarea className={`${inputClass} min-h-16 resize-y`} value={attachment.description} onChange={(event) => updateAttachment(index, { description: event.target.value })} placeholder="What should the learner notice?" required /></Field></div>
+                <Field label="URL"><input className={inputClass} value={attachment.url ?? ""} onChange={(event) => updateAttachment(index, { url: event.target.value })} placeholder="/media/example.svg or https://…" required={attachment.kind !== "audio"} /></Field>
+                <Field label="Poster URL" hint="Optional video poster or preview image."><input className={inputClass} value={attachment.posterUrl ?? ""} onChange={(event) => updateAttachment(index, { posterUrl: event.target.value })} placeholder="https://…" /></Field>
+                <div className="md:col-span-2"><Field label="Transcript" hint="Optional narration/transcript for audio or accessibility."><textarea className={`${inputClass} min-h-16 resize-y`} value={attachment.transcript ?? ""} onChange={(event) => updateAttachment(index, { transcript: event.target.value })} /></Field></div>
+                <div className="flex justify-end md:col-span-2"><button type="button" className="secondary-button" onClick={() => removeAttachment(index)} disabled={Boolean(busy)}><X size={14} /> Remove attachment</button></div>
+              </section>)}
+              {(editor.attachments ?? []).length === 0 ? <p className="text-xs text-[#726c73]">No case-specific attachments yet.</p> : null}
             </div>
             <div className="mt-7 flex flex-wrap justify-end gap-2"><button type="button" className="secondary-button" onClick={() => setEditor(null)} disabled={Boolean(busy)}>Cancel</button><button className="primary-button" disabled={Boolean(busy)}>{busy === `case-${editor.id || "new"}` ? <LoaderCircle size={15} className="spin" /> : <Save size={15} />} {busy === `case-${editor.id || "new"}` ? "Saving…" : "Save draft"}</button></div>
           </form>

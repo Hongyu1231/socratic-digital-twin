@@ -1,41 +1,45 @@
-import type { CasePhase, LearnerState, TutorEvaluationResult, TutorStrategy } from "@/lib/domain";
-
-interface EvaluateInput {
-  phase: CasePhase;
-  answer: string;
-  state: LearnerState;
-  attempt: number;
-}
+import type { CasePhase, TutorEvaluateInput, TutorEvaluationResult, TutorStrategy } from "@/lib/domain";
 
 const normalise = (value: string) => value.toLowerCase().replace(/[^a-z0-9\s-]/g, " ");
 
-const phaseKeywords: Record<number, string[][]> = {
-  1: [["unerupted", "not erupted", "delayed"], ["asymmetry", "contralateral"], ["impacted", "impaction"], ["age", "timing"]],
-  2: [["palpation", "palpate", "clinical"], ["panoramic", "opg", "radiograph"], ["parallax", "tube shift"], ["position", "buccal", "palatal"], ["cbct", "three-dimensional"]],
-  3: [["resorption", "incisor root"], ["space", "crowding"], ["angulation", "position"], ["age", "development"], ["prognosis", "risk"]],
-  4: [["extract", "extraction", "deciduous canine"], ["space", "orthodontic"], ["exposure", "traction"], ["monitor", "observe"], ["remove", "surgery"]],
-  5: [["evidence", "finding"], ["uncertain", "uncertainty"], ["assumption", "bias"], ["alternative", "revise"], ["reflect", "reassess"]],
-};
+const KEYWORD_STOP_WORDS = new Set(["about", "after", "against", "also", "and", "before", "case", "clinical", "from", "goal", "into", "more", "phase", "should", "that", "their", "this", "through", "with"]);
+
+function rubricKeywordGroups(phase: CasePhase) {
+  return phase.rubric.map((criterion) => normalise(criterion).split(/\s+/)
+    .filter((word) => word.length >= 5 && !KEYWORD_STOP_WORDS.has(word))
+    .slice(0, 8))
+    .filter((group) => group.length);
+}
 
 function keywordMatches(phase: CasePhase, answer: string) {
   const text = normalise(answer);
-  return (phaseKeywords[phase.order] ?? []).filter((group) =>
+  return rubricKeywordGroups(phase).filter((group) =>
     group.some((keyword) => text.includes(keyword)),
   ).length;
 }
 
 function strategyFor(classification: TutorEvaluationResult["classification"], attempt: number): TutorStrategy {
+  if (classification === "correct") return "reflect";
   if (attempt >= 3) return "scaffold";
   if (classification === "wrong") return "challenge";
   if (classification === "vague") return "clarify";
-  if (classification === "correct") return "reflect";
   return "probe";
+}
+
+function questionFor(strategy: TutorStrategy, phase: CasePhase, attempt: number) {
+  const questions = phase.exampleQuestions.length ? phase.exampleQuestions : [phase.starterQuestion];
+  const questionIndex = Math.min(Math.max(0, attempt - 1), questions.length - 1);
+  if (strategy === "challenge") return "Which finding in this case most directly conflicts with your current conclusion?";
+  if (strategy === "clarify") return "Which specific case finding would make your answer clinically meaningful?";
+  if (strategy === "reflect") return "What assumption in that reasoning would be most important to verify?";
+  if (strategy === "scaffold") return questions.at(-1) ?? phase.starterQuestion;
+  return questions[questionIndex];
 }
 
 export class DeterministicTutor {
   readonly mode = "deterministic" as const;
 
-  async evaluate({ phase, answer, attempt }: EvaluateInput): Promise<TutorEvaluationResult> {
+  async evaluate({ phase, answer, attempt }: TutorEvaluateInput): Promise<TutorEvaluationResult> {
     const matches = keywordMatches(phase, answer);
     const wordCount = answer.trim().split(/\s+/).filter(Boolean).length;
     const classification =
@@ -47,14 +51,7 @@ export class DeterministicTutor {
             ? "vague"
             : "wrong";
     const strategy = strategyFor(classification, attempt);
-    const nextQuestionIndex = Math.min(attempt - 1, phase.exampleQuestions.length - 1);
-    const fallbackQuestion = phase.exampleQuestions[Math.max(0, nextQuestionIndex)];
-    const nextQuestion =
-      attempt >= 3
-        ? `Before we move on, name one piece of evidence you would still want to test in ${phase.title.toLowerCase()}.`
-        : classification === "correct"
-          ? `What assumption in that reasoning would be most important to verify?`
-          : fallbackQuestion;
+    const nextQuestion = questionFor(strategy, phase, attempt);
 
     const gap =
       classification === "correct"

@@ -23,8 +23,8 @@ describe("InMemoryTutorRepository class workflows", () => {
 
   it("lists student offerings and resumes one session per assignment", async () => {
     const offerings = await repository.listStudentOfferings(DEMO_STUDENT_ID);
-    expect(offerings).toHaveLength(4);
-    expect(offerings.every((item) => item.case.phases.length === 5)).toBe(true);
+    expect(offerings).toHaveLength(5);
+    expect(offerings.some((item) => item.case.phases.length === 6)).toBe(true);
     const offering = offerings.find((item) => item.assignment.id === DEMO_ASSIGNMENT_ID);
 
     expect(offering).toMatchObject({

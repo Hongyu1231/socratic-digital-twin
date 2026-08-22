@@ -1,6 +1,7 @@
 import { ClaudeTutor } from "@/lib/tutor/claude";
 import { DeterministicTutor } from "@/lib/tutor/deterministic";
 import { OpenAITutor } from "@/lib/tutor/openai";
+import { getConfiguredTutorProvider, requireTutorProviderCredentials } from "@/lib/tutor/provider-config";
 
 export type TutorEngine = OpenAITutor | ClaudeTutor | DeterministicTutor;
 
@@ -8,15 +9,16 @@ let singleton: TutorEngine | undefined;
 
 export function getTutorEngine(): TutorEngine {
   if (singleton) return singleton;
-  const openaiApiKey = process.env.OPENAI_API_KEY;
-  const openaiModel = process.env.OPENAI_MODEL;
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  const model = process.env.CLAUDE_MODEL;
-  singleton = openaiApiKey && openaiModel
-    ? new OpenAITutor(openaiApiKey, openaiModel)
-    : apiKey && model
-      ? new ClaudeTutor(apiKey, model)
-      : new DeterministicTutor();
+  const provider = getConfiguredTutorProvider();
+  if (provider === "openai") {
+    const { apiKey, model } = requireTutorProviderCredentials(provider);
+    singleton = new OpenAITutor(apiKey, model);
+  } else if (provider === "claude") {
+    const { apiKey, model } = requireTutorProviderCredentials(provider);
+    singleton = new ClaudeTutor(apiKey, model);
+  } else {
+    singleton = new DeterministicTutor();
+  }
   return singleton;
 }
 
@@ -38,7 +40,9 @@ export async function evaluateWithFallback(
       requestId,
       errorType: error instanceof Error ? error.name : "unknown",
     });
-    return new DeterministicTutor().evaluate(input);
+    if (engine.mode === "deterministic") throw error;
+    const fallback = await new DeterministicTutor().evaluate(input);
+    return { ...fallback, fallbackFrom: engine.mode };
   }
 }
 

@@ -23,7 +23,7 @@ In the conversation page, read the case and phase goal, enter reasoning in **You
 
 Select **Pause & return to cases** to preserve the current phase, transcript, and learner state. The home card changes to **Resume paused session**. New answers are rejected until the session has been resumed.
 
-There are five reasoning phases. A correct response advances the phase. Other responses receive another Socratic question. After the third unsuccessful attempt in a phase, the unresolved gap is recorded and the flow advances to avoid a loop. Completing phase five generates a summary automatically.
+Cases contain 1–12 reasoning phases. A correct, sufficiently reasoned response advances the phase; attempt count alone never advances it. Other responses receive a classification-driven Socratic question, including scripted assumption, spatial, revisit, counterargument, and reflection moves when relevant. Completing the final reflection generates a summary automatically.
 
 Use **End session & view summary** to finish early. The summary includes a reasoning score, strengths, reasoning gaps, next steps, and an incomplete indicator when not all phases were finished. **Choose another case** returns home. In the demo, **Open professor review** selects an available professor and opens the same submission.
 
@@ -64,7 +64,7 @@ Use **Create class** for the class name, code, term, and status. In **Manage cla
 
 ### Cases
 
-Use **New case draft**. A publishable case needs metadata, learning objectives, and exactly five complete phases. Each phase needs a title, learning goal, rubric criteria, starter question, and follow-up question bank.
+Use **New case draft**. A publishable case needs metadata, learning objectives, and 1–12 complete phases. Each phase needs a title, learning goal, prose rubric criteria, starter question, and follow-up question bank. Optional phase guidance and case-specific image, audio, or video attachments can also be added.
 
 Drafts can be edited. **Publish** locks a version. Use **New version** to clone an editable next version. Archive versions that should no longer be assigned.
 
@@ -76,7 +76,7 @@ Filter sessions by class and inspect student status, case, AI score, review stat
 
 1. As Dr. Elaine Koh, inspect Users, Classes, and Cases.
 2. Manage a class with a student, two professors, and one lead.
-3. Create, save, publish, and clone a complete five-phase case.
+3. Create, save, publish, and clone a complete flexible-phase case with an attachment.
 4. As Prof. Marcus Lim, assign the published case to that class.
 5. As an enrolled student, begin the assignment and submit reasoning; observe the immediate student bubble and later tutor reply.
 6. Complete or end early and inspect the summary.

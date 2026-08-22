@@ -385,7 +385,14 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
 
   const { session, case: clinicalCase } = bundle;
   const currentPhase = clinicalCase.phases.find((phase) => phase.order === session.currentPhase)!;
-  const progress = Math.round((session.currentPhase / clinicalCase.phases.length) * 100);
+  const currentPhaseIndex = [...clinicalCase.phases]
+    .sort((left, right) => left.order - right.order)
+    .findIndex((phase) => phase.order === session.currentPhase);
+  const completedPhaseCount = session.status === "completed"
+    ? clinicalCase.phases.length
+    : Math.max(0, currentPhaseIndex);
+  const progress = Math.round((completedPhaseCount / clinicalCase.phases.length) * 100);
+  const latestFallback = bundle.runtime.fallbackFrom;
   const visibleMessages = optimisticMessage
     ? [...session.messages, optimisticMessage]
     : session.messages;
@@ -429,6 +436,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
         </header>
         <div className="message-list" aria-live="polite">
           {voiceNotice ? <div className="voice-notice" role="status">{voiceNotice}</div> : null}
+          {latestFallback ? <div className="voice-notice" role="status">The live {latestFallback === "openai" ? "OpenAI" : "Claude"} tutor was unavailable for the latest turn. A rules-based fallback generated that question, and the event was recorded.</div> : null}
           {visibleMessages.map((message) => (
             <article className={`message ${message.sender}`} key={message.id}>
               {message.sender === "ai" ? <div className="message-avatar">S</div> : null}
