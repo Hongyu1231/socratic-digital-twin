@@ -18,8 +18,8 @@ jobs:
       DEMO_SESSION_SECRET: ci-only-demo-session-secret
       FORCE_MEMORY_REPOSITORY: "true"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -74,7 +74,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v2
         with:
