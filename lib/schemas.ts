@@ -56,6 +56,7 @@ export const assignmentInputSchema = z.object({
   // previously persisted assignment can be closed or reopened.
   opensAt: z.string().datetime({ offset: true }),
   dueAt: z.string().datetime({ offset: true }).nullable().default(null),
+  idempotencyKey: z.string().trim().min(1).max(160).optional(),
 }).refine((value) => !value.dueAt || value.dueAt > value.opensAt, {
   message: "Due date must be after the opening date.",
 });
@@ -86,28 +87,35 @@ export const phaseInputSchema = z.object({
   }).strict()).max(20).default([]),
 });
 
-const mediaPathSchema = z.string().trim().max(1_000).refine((value) => {
-  if (!value) return true;
-  if (value.startsWith("/")) return true;
+const mediaUrlSchema = z.string().trim().max(2_048).refine((value) => {
+  if (value.startsWith("/") && !value.startsWith("//")) return true;
   try {
-    return ["http:", "https:"].includes(new URL(value).protocol);
+    return new URL(value).protocol === "https:";
   } catch {
     return false;
   }
-}, "Use a site-relative path or an HTTP(S) URL.");
+}, "Media URLs must use HTTPS or a site-relative path.");
 
 export const caseAttachmentInputSchema = z.object({
   id: z.string().uuid().optional(),
   kind: z.enum(["image", "audio", "video"]),
-  title: z.string().trim().min(1).max(120),
-  description: z.string().trim().min(1).max(300),
-  url: mediaPathSchema.optional(),
-  posterUrl: mediaPathSchema.optional(),
-  transcript: z.string().trim().max(5_000).optional(),
-}).refine((attachment) => attachment.kind === "audio"
-  ? Boolean(attachment.url || attachment.transcript)
-  : Boolean(attachment.url), {
-  message: "Image and video attachments need a URL; audio needs a URL or transcript.",
+  title: z.string().trim().min(1).max(160),
+  description: z.string().trim().min(1).max(500),
+  url: mediaUrlSchema.optional(),
+  posterUrl: mediaUrlSchema.optional(),
+  transcript: z.string().trim().min(1).max(10_000).optional(),
+  sourceLabel: z.string().trim().min(1).max(240).optional(),
+  sourceUrl: z.string().trim().url().max(2_048).refine(
+    (value) => new URL(value).protocol === "https:",
+    "Source URLs must use HTTPS.",
+  ).optional(),
+}).superRefine((attachment, context) => {
+  if ((attachment.kind === "image" || attachment.kind === "video") && !attachment.url) {
+    context.addIssue({ code: "custom", path: ["url"], message: "Images and videos require a media URL." });
+  }
+  if (attachment.kind === "audio" && !attachment.url && !attachment.transcript) {
+    context.addIssue({ code: "custom", path: ["url"], message: "Audio requires a media URL or transcript." });
+  }
 });
 
 export const caseInputSchema = z.object({
@@ -176,7 +184,7 @@ export const tutorOutputSchema = z.object({
 export const summaryOutputSchema = z.object({
   headline: z.string().min(1).max(120),
   narrative: z.string().min(1).max(900),
-  strengths: z.array(z.string().min(1).max(180)).max(5),
+  strengths: z.array(z.string().min(1).max(180)).min(1).max(5),
   weaknesses: z.array(z.string().min(1).max(180)).max(5),
   nextSteps: z.array(z.string().min(1).max(180)).min(1).max(5),
 });

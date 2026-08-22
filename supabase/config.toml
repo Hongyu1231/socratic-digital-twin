@@ -7,3 +7,6 @@ project_id = "socratic-digital-twin-poc"
 enabled = true
 sql_paths = ["./seed.sql"]
 
+[functions.session-summary-worker]
+verify_jwt = false
+

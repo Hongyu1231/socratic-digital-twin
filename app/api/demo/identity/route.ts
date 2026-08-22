@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { z } from "zod";
 
 import { DEMO_SESSION_COOKIE_NAME, getIdentity, signSession } from "@/lib/auth";
+import { isAllowedDemoIdentity, toPublicDemoIdentity } from "@/lib/demo-identity";
 import { getRepository } from "@/lib/repository";
 
 const roleSwitchSchema = z.object({
@@ -18,11 +19,14 @@ export async function GET() {
       getIdentity(),
     ]);
     return NextResponse.json({
-      users: users.filter((user) => user.isActive !== false),
-      identity,
-    });
+      users: users.filter(isAllowedDemoIdentity).map(toPublicDemoIdentity),
+      identity: identity ? toPublicDemoIdentity(identity) : null,
+    }, { headers: { "Cache-Control": "no-store" } });
   } catch {
-    return NextResponse.json({ users: [], identity: null });
+    return NextResponse.json(
+      { users: [], identity: null },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
 }
 
@@ -48,7 +52,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const identity = (await getRepository().listUsers()).find((user) => user.id === parsed.data.userId && user.isActive !== false);
+  const identity = (await getRepository().listUsers()).find(
+    (user) => user.id === parsed.data.userId && isAllowedDemoIdentity(user),
+  );
   if (!identity) return NextResponse.json({ error: "This demo identity is unavailable." }, { status: 403 });
   const role = identity.role;
   const token = signSession({ userId: identity.id, role });
@@ -61,5 +67,8 @@ export async function POST(request: Request) {
     path: "/",
   });
 
-  return NextResponse.json({ identity });
+  return NextResponse.json(
+    { identity: toPublicDemoIdentity(identity) },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

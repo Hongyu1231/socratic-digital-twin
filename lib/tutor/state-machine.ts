@@ -2,13 +2,14 @@ import type { Evaluation, LearnerState, SessionBundle, TutorMessage, TutorMove }
 import { calculateScore } from "@/lib/domain";
 import { getRepository } from "@/lib/repository";
 import { evaluateWithFallback, getTutorMode } from "@/lib/tutor";
-import { generateSessionSummary } from "@/lib/tutor/summary-ai";
+import { buildSessionSummary } from "@/lib/tutor/summary";
 import { withIdempotency } from "@/lib/idempotency";
 import { TUTOR_PROMPT_VERSION } from "@/lib/tutor/prompt";
 import { applyHumanizationExperiment } from "@/lib/experiments/shadow";
 import { contentHash } from "@/lib/experiments/privacy";
 import { selectTutorMove } from "@/lib/tutor/question-planner";
 import { mergeLearnerEvidence } from "@/lib/tutor/learner-model";
+import { buildStudentVisibleTutorReply } from "@/lib/tutor/correction-policy";
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 
@@ -161,12 +162,18 @@ async function performStudentAnswer(
     createdAt: now,
   };
   const allEvaluations = [...bundle.session.evaluations, evaluation];
-  const summary = sessionComplete ? await generateSessionSummary(allEvaluations, nextState, true) : null;
+  // Completion must never wait for an external model. The database enqueues an
+  // optional LLM enhancement after this deterministic summary is committed.
+  const summary = sessionComplete ? buildSessionSummary(allEvaluations, nextState, true) : null;
   const nextQuestion = sessionComplete
     ? `You have completed all ${orderedPhases.length} phases. Your learning summary is ready.`
     : phaseComplete
       ? nextPhaseRecord.starterQuestion
-      : tutorMove?.question ?? result.nextQuestion;
+      : buildStudentVisibleTutorReply(
+        { ...result, nextQuestion: tutorMove?.question ?? result.nextQuestion },
+        bundle.session.evaluations,
+        phase.order,
+      );
   const aiMessage: TutorMessage = {
     id: crypto.randomUUID(),
     sessionId,
@@ -206,7 +213,7 @@ export async function finishSession(sessionId: string, studentId: string) {
   if (!bundle) throw new Error("Session not found.");
   if (bundle.session.studentId !== studentId) throw new Error("This session belongs to another learner.");
   const summary =
-    bundle.session.summary ?? await generateSessionSummary(bundle.session.evaluations, bundle.session.state, false);
+    bundle.session.summary ?? buildSessionSummary(bundle.session.evaluations, bundle.session.state, false);
   const completed = await repository.completeSession(sessionId, summary, new Date().toISOString());
   completed.runtime.tutor = getTutorMode();
   return completed;

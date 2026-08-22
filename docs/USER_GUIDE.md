@@ -6,7 +6,7 @@ This guide explains how to use Socratic Digital Twin AI Tutor as a Student, Prof
 
 ## 1. Getting started
 
-Open the application and use the identity button in the top-right corner. Select a specific seeded user from **Demo identity**. The server derives that user's role; the browser cannot declare its own permissions. Available names, classes, and assignments depend on the current deployment data. Inactive users are unavailable.
+Open the application and use the identity button in the top-right corner. Select a specific seeded user from **Demo identity**. Every listed role is intentionally open for this synthetic-data POC; the selector is not real authentication and must never be used with real student or patient data. The server derives that user's role, and inactive or non-allow-listed database users are unavailable.
 
 ## 2. Student guide
 
@@ -19,13 +19,13 @@ The home page shows only assignments available through the student's class membe
 
 In the conversation page, read the case and phase goal, enter reasoning in **Your clinical reasoning**, then click **Send answer** or press Enter. The student bubble appears immediately; a waiting state is shown until the tutor returns one follow-up question. Shift+Enter inserts a line break.
 
-**Case attachments** contains synthetic teaching visuals and a narrated case history. The microphone button uses browser-native dictation. AI-generated Tutor voice replies are on by default and play whenever a new reply arrives. Use **Tutor voice** to toggle automatic playback, or **Read aloud** to replay one message. If OpenAI TTS is unavailable, the app falls back to the device's English voice; if the browser blocks autoplay, click **Read aloud** once to enable playback. Real patient identifiers must never be dictated or entered.
+**Case attachments** contains the case's versioned teaching visuals, audio, or video, with synthetic fallbacks when none are attached. Published images show their supplied citation. The microphone button uses browser-native dictation. AI-generated Tutor voice replies are on by default and play whenever a new reply arrives. Use **Tutor voice** to toggle automatic playback, or **Read aloud** to replay one message. If OpenAI TTS is unavailable, the app falls back to the device's English voice; if the browser blocks autoplay, click **Read aloud** once to enable playback. Real patient identifiers must never be dictated or entered.
 
 Select **Pause & return to cases** to preserve the current phase, transcript, and learner state. The home card changes to **Resume paused session**. New answers are rejected until the session has been resumed.
 
-Cases contain 1–12 reasoning phases. A correct, sufficiently reasoned response advances the phase; attempt count alone never advances it. Other responses receive a classification-driven Socratic question, including scripted assumption, spatial, revisit, counterargument, and reflection moves when relevant. Completing the final reflection generates a summary automatically.
+Cases contain 1–12 reasoning phases. A correct, sufficiently reasoned response advances the phase; attempt count alone never advances it. Other responses receive a classification-driven Socratic question, including scripted assumption, spatial, revisit, counterargument, and reflection moves when relevant. If two consecutive answers in the same phase are classified `wrong` with at least 85% confidence, the tutor states plainly that the claim is incorrect before asking the next question; `partial` and `vague` answers never trigger this rule. Completing the final reflection generates a summary automatically.
 
-Use **End session & view summary** to finish early. The summary includes a reasoning score, strengths, reasoning gaps, next steps, and an incomplete indicator when not all phases were finished. **Choose another case** returns home. In the demo, **Open professor review** selects an available professor and opens the same submission.
+Use **End session & view summary** to finish early. A reliable local summary and completed state are saved immediately. When Supabase is enabled, optional AI wording is generated in the background and the page refreshes it automatically; a provider failure leaves the local summary intact. The summary includes a reasoning score, strengths, reasoning gaps, next steps, and an incomplete indicator when not all phases were finished. **Choose another case** returns home.
 
 ## 3. Professor guide
 
@@ -64,7 +64,9 @@ Use **Create class** for the class name, code, term, and status. In **Manage cla
 
 ### Cases
 
-Use **New case draft**. A publishable case needs metadata, learning objectives, and 1–12 complete phases. Each phase needs a title, learning goal, prose rubric criteria, starter question, and follow-up question bank. Optional phase guidance and case-specific image, audio, or video attachments can also be added.
+Draft case versions can include up to 12 image, audio, or video teaching attachments. Provide an accessible description and an HTTPS or site-relative media URL; published literature can also include a citation label and source URL. Published versions are immutable, so changing an attachment requires **New version**. Use only synthetic or appropriately licensed/de-identified teaching media.
+
+Use **New case draft**. A publishable case needs metadata, learning objectives, and 1–12 complete phases. Each phase needs a title, learning goal, prose rubric criteria, starter question, and follow-up question bank. Optional phase guidance and scripted tutor moves are preserved when saving.
 
 Drafts can be edited. **Publish** locks a version. Use **New version** to clone an editable next version. Archive versions that should no longer be assigned.
 

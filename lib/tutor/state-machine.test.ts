@@ -1,8 +1,27 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { TutorEvaluationResult } from "@/lib/domain";
 import { InMemoryTutorRepository } from "@/lib/repository/memory";
 import { resetRepositoryForTests } from "@/lib/repository";
 import { DEMO_PROFESSOR_ID, DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID, impactedCanineCase } from "@/lib/seed";
+import * as tutor from "@/lib/tutor";
 import { finishSession, submitStudentAnswer } from "@/lib/tutor/state-machine";
+
+const evaluationResult = (overrides: Partial<TutorEvaluationResult> = {}): TutorEvaluationResult => ({
+  classification: "wrong",
+  confidence: 0.95,
+  reasoningGap: "The claim conflicts with the relevant clinical evidence.",
+  strategy: "probe",
+  feedback: "What evidence would support that claim?",
+  nextQuestion: "What evidence would support that claim?",
+  memoryPatch: {
+    addErrors: ["Unsupported absolute claim"],
+    addStrengths: [],
+    addWeaknesses: ["Needs to test the claim against the radiographic evidence"],
+    masteryDelta: 0,
+  },
+  source: "deterministic",
+  ...overrides,
+});
 
 describe("Socratic state machine", () => {
   let repository: InMemoryTutorRepository;
@@ -49,11 +68,66 @@ describe("Socratic state machine", () => {
     const answered = await submitStudentAnswer(resumed.session.id, DEMO_STUDENT_ID, "The unerupted canine and eruption asymmetry make impaction more likely at this age.");
     expect(answered.session.messages).toHaveLength(3);
   });
+  it("explicitly corrects a second consecutive high-confidence wrong answer in the same phase", async () => {
+    const evaluateSpy = vi.spyOn(tutor, "evaluateWithFallback");
+    evaluateSpy
+      .mockResolvedValueOnce(evaluationResult({ nextQuestion: "What evidence supports that statement?" }))
+      .mockResolvedValueOnce(evaluationResult({ nextQuestion: "Which finding would test that claim?" }));
+    const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);
+
+    const first = await submitStudentAnswer(
+      started.session.id,
+      DEMO_STUDENT_ID,
+      "Impacted canines never resorb lateral incisor roots.",
+    );
+    expect(first.session.messages.at(-1)?.content).toBe("What evidence supports that statement?");
+    expect(first.session.messages.at(-1)?.content).not.toContain("That statement is incorrect.");
+
+    const second = await submitStudentAnswer(
+      started.session.id,
+      DEMO_STUDENT_ID,
+      "I still think impacted canines never resorb lateral incisor roots.",
+    );
+    expect(second.session.messages.at(-1)?.content).toBe(
+      "That statement is incorrect. Which finding would test that claim?",
+    );
+    expect(second.session.currentPhase).toBe(1);
+    expect(second.session.evaluations.map((evaluation) => evaluation.classification)).toEqual(["wrong", "wrong"]);
+  });
+  it.each([
+    ["partial first", evaluationResult({ classification: "partial", confidence: 0.99 }), evaluationResult()],
+    ["vague first", evaluationResult({ classification: "vague", confidence: 0.99 }), evaluationResult()],
+    ["low-confidence wrong first", evaluationResult({ classification: "wrong", confidence: 0.84 }), evaluationResult()],
+    ["partial second", evaluationResult(), evaluationResult({ classification: "partial", confidence: 0.99 })],
+    ["vague second", evaluationResult(), evaluationResult({ classification: "vague", confidence: 0.99 })],
+    ["low-confidence wrong second", evaluationResult(), evaluationResult({ classification: "wrong", confidence: 0.84 })],
+  ] as const)("does not explicitly correct when %s", async (_label, firstResult, secondResult) => {
+    const evaluateSpy = vi.spyOn(tutor, "evaluateWithFallback");
+    evaluateSpy
+      .mockResolvedValueOnce(firstResult)
+      .mockResolvedValueOnce(secondResult);
+    const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);
+
+    await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "The claim is always true.");
+    const second = await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "I cannot justify it further.");
+
+    expect(second.session.messages.at(-1)?.content).toBe(secondResult.nextQuestion);
+    expect(second.session.messages.at(-1)?.content).not.toContain("That statement is incorrect.");
+  });
   it("creates a formative partial summary when ended early", async () => {
     const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);
     const completed = await finishSession(started.session.id, DEMO_STUDENT_ID);
     expect(completed.session.status).toBe("completed");
     expect(completed.session.summary?.completedAllPhases).toBe(false);
+  });
+  it("does not call an external model while completing a session", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);
+
+    await finishSession(started.session.id, DEMO_STUDENT_ID);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
   });
   it("completes all five phases and generates a full summary", async () => {
     let bundle = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);

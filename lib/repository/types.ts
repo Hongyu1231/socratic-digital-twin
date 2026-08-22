@@ -17,6 +17,16 @@ import type {
   TutorTurnReview,
 } from "@/lib/domain";
 
+/** Error raised when a student attempts to start a session on an archived case. */
+export class ArchivedCaseError extends Error {
+  readonly code = "ARCHIVED_CASE" as const;
+
+  constructor(message = "This case is archived and cannot be started.") {
+    super(message);
+    this.name = "ArchivedCaseError";
+  }
+}
+
 export interface CommitTurnInput {
   sessionId: string;
   expectedVersion: number;
@@ -45,6 +55,8 @@ export interface TutorRepository {
   listCases(): Promise<ClinicalCase[]>;
   getCase(caseId: string): Promise<ClinicalCase | null>;
   createSession(studentId: string, caseId: string, assignmentId?: string): Promise<SessionBundle>;
+  /** Start (or resume) the session belonging to an authorised student assignment. */
+  createSessionForAssignment(studentId: string, assignmentId: string): Promise<SessionBundle>;
   getSession(sessionId: string): Promise<SessionBundle | null>;
   commitTurn(input: CommitTurnInput): Promise<SessionBundle>;
   completeSession(

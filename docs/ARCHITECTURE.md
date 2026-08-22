@@ -79,7 +79,7 @@ Dynamic page components follow the Next.js 15 asynchronous `params` convention. 
 | `app/layout.tsx` | Root metadata, global header, page shell |
 | `app/globals.css` | Shared design tokens and global component styles |
 | `components/site-header.tsx` | Seeded identity selector and role-aware navigation |
-| `components/case-resources.tsx` | Synthetic, presentation-only image/audio/video demo resources; these are not persisted clinical media |
+| `components/case-resources.tsx` | Validated, versioned image/audio/video teaching media with synthetic browser-side fallbacks |
 | `components/date-time-select.tsx` | Accessible date and time selection used by assignment forms |
 | `components/date-time-select.module.css` | Styles scoped to the date-time selector |
 
@@ -175,6 +175,8 @@ Selection rules:
 
 New persistence behavior must be added to the interface and both adapters. Contract-level behavior should be tested against the memory implementation, and Supabase-specific constraints should be expressed in a new migration.
 
+The student catalogue is a bounded five-query path in Supabase mode: the current student's memberships with related classes, assignments for those classes, that student's lightweight session rows, unique cases, and phases. It never hydrates full sessions, repeats a case query per assignment, or reads unrelated students' memberships/sessions. Archived and `is_test_fixture` cases are filtered before an offering is returned.
+
 ### 4.6 Tutor engine and state machine
 
 | Path | Responsibility |
@@ -185,13 +187,15 @@ New persistence behavior must be added to the interface and both adapters. Contr
 | `lib/tutor/claude.ts` | Claude structured-output adapter |
 | `lib/tutor/deterministic.ts` | Credential-free teaching rules |
 | `lib/tutor/prompt.ts` | Versioned shared Tutor behavior contract |
-| `lib/tutor/summary-ai.ts` | Provider-backed summary selection and fallback |
 | `lib/tutor/summary.ts` | Deterministic summary template |
+| `supabase/functions/session-summary-worker/` | Optional asynchronous summary enhancement |
 | `lib/tutor/speech.ts` | Server-side OpenAI text-to-speech adapter |
 
 `TUTOR_PROVIDER` explicitly locks the deployment to OpenAI, Claude, or deterministic rules. A locked network provider requires its matching key/model pair and never switches to the other network provider. A request that times out, refuses, or returns invalid output falls directly to deterministic behavior for that turn, records `fallbackFrom`, and is disclosed in the student UI. See [ADR-001](ADR-001-POC-TUTOR-MODEL.md).
 
-The model is not allowed to mutate application state. The `scripted-v3` input gives it the authoritative case narrative, learning objectives, attachment descriptions/transcripts, phase rubric and guidance, scripted moves, current question, recent dialogue, and bounded learner memory. These fields form the expert-curated teaching context, but the prompt forbids volunteering hidden case facts or a complete clinical answer. A correct conclusion with flawed or absent reasoning maps to `partial`; visible within-answer self-correction is judged by the learner's final position. The model returns a validated proposal containing a classification, confidence, observable reasoning gap, strategy, feedback, one follow-up question, and an allow-listed memory patch. `state-machine.ts` applies matching scripted corrections and decides phase completion, learner-state updates, metadata, and the atomic repository commit.
+The model is not allowed to mutate application state. The `scripted-v4` input gives it the authoritative case narrative, learning objectives, attachment descriptions/transcripts, phase rubric and guidance, scripted moves, current question, recent dialogue, and bounded learner memory. These fields form the expert-curated teaching context, but the prompt forbids volunteering hidden case facts or a complete clinical answer. A correct conclusion with flawed or absent reasoning maps to `partial`; visible within-answer self-correction is judged by the learner's final position. The model returns a validated proposal containing a classification, confidence, observable reasoning gap, strategy, feedback, one follow-up question, and an allow-listed memory patch. `state-machine.ts` applies matching scripted moves and decides phase completion, learner-state updates, metadata, and the atomic repository commit. A deterministic correction policy is the sole exception to question-only delivery: after two consecutive `wrong` labels at confidence `>= 0.85` in the same phase, it prefixes the safe question with “That statement is incorrect.” It never fires for `partial` or `vague`.
+
+Both automatic and manual completion synchronously save the deterministic summary and return `200`. A database trigger idempotently creates one `session_summary_jobs` row when a session first enters `completed`. Supabase Cron invokes the Edge worker every minute using a dedicated Vault-backed secret. Workers claim rows with `FOR UPDATE SKIP LOCKED`, perform provider I/O outside the transaction, and atomically apply a validated enhancement or retry after 30/60 seconds. After three failures, the deterministic summary remains available and `summaryGenerationStatus` becomes `failed`.
 
 ### 4.7 Answer submission sequence
 
@@ -227,6 +231,7 @@ sequenceDiagram
 - Identity and organization: `users`, `classes`, `class_memberships`
 - Content and scheduling: `cases`, `case_phases`, `class_case_assignments`
 - Learning record: `sessions`, `messages`, `evaluations`, `session_state`
+- Asynchronous enhancement: `session_summary_jobs`
 - Faculty review: `answer_reviews`, `tutor_turn_reviews`, `session_reviews`
 
 ### 5.2 Tutor improvement data
@@ -260,6 +265,8 @@ Engineering rules:
 - Professors assign only published cases to classes they teach.
 - Each student has at most one session per class assignment.
 - Closed or expired assignments cannot start a new session, but an existing session may continue.
+- Archived cases atomically close open assignments, return `410` for stale starts, and leave historical sessions readable.
+- Test fixtures are explicitly flagged and excluded from student catalogues; assignment creation may use an optional stable idempotency key.
 - A paused session rejects new answers until it is resumed.
 - Only `correct` advances a phase, after any required scripted correction or reflection move; attempt count is never a competence substitute.
 - Only completed sessions can be reviewed.
@@ -335,4 +342,4 @@ This repository intentionally does not provide production authentication, real c
 
 The current UI locks a completed review and Admin reassignment rejects it, but the repository API does not yet explicitly reject a resubmission by the same claiming Professor. Treat completed-review immutability as an identified hardening item rather than a fully enforced invariant until both repository adapters and a regression test enforce it.
 
-The attachment panel has browser-side synthetic defaults for demonstration; it is not a durable clinical-media store. Persisted media would require an explicit storage model, authorization policy, migration, and repository mapping.
+Case drafts accept up to 12 validated teaching attachments. Metadata is stored with the immutable case version in `cases.attachments`; the rollout temporarily mirrors the same data under `patient_context.attachments` so authoring remains compatible until the migration is applied. URLs must be HTTPS or site-relative, published sources can carry a citation URL, and binary content remains outside Postgres. The attachment panel falls back to synthetic resources when a case has none. This POC must never contain identifiable patient media.

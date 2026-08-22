@@ -29,6 +29,7 @@ describe("human tutor prompt contract", () => {
     expect(TUTOR_INSTRUCTIONS).toContain("flawed, absent, or unsupported reasoning is partial");
     expect(TUTOR_INSTRUCTIONS).toContain("visibly self-corrects");
     expect(TUTOR_INSTRUCTIONS).toContain("explicitly requests help");
+    expect(TUTOR_INSTRUCTIONS).toContain("two consecutive high-confidence wrong classifications");
   });
 
   it("serializes bounded memory and keeps the student answer as quoted data", () => {

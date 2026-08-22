@@ -88,6 +88,8 @@ interface CaseAttachmentDraft {
   url?: string;
   posterUrl?: string;
   transcript?: string;
+  sourceLabel?: string;
+  sourceUrl?: string;
 }
 
 interface CaseVersion {
@@ -217,6 +219,8 @@ function cleanAttachment(attachment: CaseAttachmentDraft): CaseAttachmentDraft {
     ...(cleanOptional(attachment.url) ? { url: cleanOptional(attachment.url) } : {}),
     ...(cleanOptional(attachment.posterUrl) ? { posterUrl: cleanOptional(attachment.posterUrl) } : {}),
     ...(cleanOptional(attachment.transcript) ? { transcript: cleanOptional(attachment.transcript) } : {}),
+    ...(cleanOptional(attachment.sourceLabel) ? { sourceLabel: cleanOptional(attachment.sourceLabel) } : {}),
+    ...(cleanOptional(attachment.sourceUrl) ? { sourceUrl: cleanOptional(attachment.sourceUrl) } : {}),
   };
 }
 
@@ -638,7 +642,7 @@ function Cases({ data, busy, mutate }: { data: DashboardData; busy: string; muta
     if (!editor) return;
     setEditor({
       ...editor,
-      attachments: [...(editor.attachments ?? []), { kind: "image", title: "", description: "", url: "", posterUrl: "", transcript: "" }],
+      attachments: [...(editor.attachments ?? []), { id: crypto.randomUUID(), kind: "image", title: "", description: "", url: "", posterUrl: "", transcript: "", sourceLabel: "", sourceUrl: "" }],
     });
   }
   function updateAttachment(index: number, patch: Partial<CaseAttachmentDraft>) {
@@ -657,7 +661,7 @@ function Cases({ data, busy, mutate }: { data: DashboardData; busy: string; muta
         {data.cases.map((item) => {
           const immutable = item.status === "published" || item.status === "available";
           return <article key={item.id} className={`${panelClass} grid gap-5 p-6 lg:grid-cols-[1fr_auto] lg:items-center`}>
-            <div><div className="flex flex-wrap items-center gap-2"><span className="status-badge">{item.status}</span><span className="font-mono text-[10px] text-[#726c73]">VERSION {item.version ?? 1}</span></div><h3 className="mt-3 font-serif text-2xl">{item.title}</h3><p className="mt-2 max-w-3xl text-xs leading-5 text-[#726c73]">{item.description}</p><small className="mt-3 block text-[10px] uppercase tracking-[.1em] text-[#726c73]">{item.phases?.length ?? 0} phases · {item.learningObjectives?.length ?? 0} learning objectives</small></div>
+            <div><div className="flex flex-wrap items-center gap-2"><span className="status-badge">{item.status}</span><span className="font-mono text-[10px] text-[#726c73]">VERSION {item.version ?? 1}</span></div><h3 className="mt-3 font-serif text-2xl">{item.title}</h3><p className="mt-2 max-w-3xl text-xs leading-5 text-[#726c73]">{item.description}</p><small className="mt-3 block text-[10px] uppercase tracking-[.1em] text-[#726c73]">{item.phases?.length ?? 0} phases · {item.learningObjectives?.length ?? 0} learning objectives · {item.attachments?.length ?? 0} media</small></div>
             <div className="flex flex-wrap gap-2">
               {!immutable && item.status !== "archived" ? <><button type="button" className="secondary-button" onClick={() => edit(item)} disabled={Boolean(busy)}><PencilLine size={14} /> Edit</button><button type="button" className="primary-button" disabled={Boolean(busy)} onClick={() => void mutate(`publish-${item.id}`, () => api(`/api/admin/cases/${item.id}/publish`, { method: "POST" }), "Case published and locked as an immutable version.")}>{busy === `publish-${item.id}` ? <LoaderCircle size={14} className="spin" /> : <Send size={14} />} {busy === `publish-${item.id}` ? "Publishing…" : "Publish"}</button></> : null}
               {immutable ? <button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => void mutate(`clone-${item.id}`, () => api(`/api/admin/cases/${item.id}/clone`, { method: "POST" }), "A new editable case version was created.")}>{busy === `clone-${item.id}` ? <LoaderCircle size={14} className="spin" /> : <Copy size={14} />} {busy === `clone-${item.id}` ? "Creating…" : "New version"}</button> : null}
@@ -676,6 +680,26 @@ function Cases({ data, busy, mutate }: { data: DashboardData; busy: string; muta
               <Field label="Difficulty"><select className={inputClass} value={editor.difficulty} onChange={(event) => setEditor({ ...editor, difficulty: event.target.value as CaseVersion["difficulty"] })}><option value="foundation">Foundation</option><option value="intermediate">Intermediate</option><option value="advanced">Advanced</option></select></Field>
               <div className="md:col-span-2"><Field label="Case description"><textarea className={`${inputClass} min-h-24 resize-y`} value={editor.description} onChange={(event) => setEditor({ ...editor, description: event.target.value })} required /></Field></div>
               <div className="md:col-span-2"><Field label="Learning objectives" hint="Enter one objective per line."><textarea className={`${inputClass} min-h-24 resize-y`} value={editor.learningObjectives?.join("\n") ?? ""} onChange={(event) => setEditor({ ...editor, learningObjectives: event.target.value.split("\n") })} required /></Field></div>
+            </div>
+            <div className="my-7 border-t border-[#ded8d0]" />
+            <div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="font-serif text-2xl">Teaching media</h4><p className="mt-1 text-xs text-[#726c73]">Attach up to 12 synthetic or published teaching assets. Images and videos require an HTTPS or site-relative URL.</p></div><button type="button" className="secondary-button" onClick={addAttachment} disabled={(editor.attachments?.length ?? 0) >= 12}><Plus size={15} /> Add media</button></div>
+            <div className="mt-5 grid gap-3">
+              {editor.attachments?.map((attachment, index) => (
+                <section key={attachment.id} className="rounded-xl border border-[#ded8d0] p-4">
+                  <div className="mb-4 flex items-center justify-between"><strong className="font-serif">Media {index + 1}</strong><button type="button" className="rounded-lg p-2 text-[#726c73] hover:bg-[#ece7de] hover:text-[#be5048]" onClick={() => removeAttachment(index)} aria-label={`Remove ${attachment.title || `media ${index + 1}`}`}><X size={16} /></button></div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field label="Type"><select className={inputClass} value={attachment.kind} onChange={(event) => updateAttachment(index, { kind: event.target.value as CaseAttachmentDraft["kind"] })}><option value="image">Image / OPG</option><option value="video">Video</option><option value="audio">Audio</option></select></Field>
+                    <Field label="Title"><input className={inputClass} value={attachment.title} onChange={(event) => updateAttachment(index, { title: event.target.value })} required /></Field>
+                    <div className="md:col-span-2"><Field label="Accessible description" hint="Describe the image or teaching content without disclosing the intended diagnosis."><textarea className={`${inputClass} min-h-20 resize-y`} value={attachment.description} onChange={(event) => updateAttachment(index, { description: event.target.value })} required /></Field></div>
+                    <Field label="Media URL"><input className={inputClass} type="text" inputMode="url" placeholder="/media/case-opg.jpg or https://…" value={attachment.url ?? ""} onChange={(event) => updateAttachment(index, { url: event.target.value })} required={attachment.kind !== "audio" || !attachment.transcript} /></Field>
+                    {attachment.kind === "video" ? <Field label="Poster URL"><input className={inputClass} type="text" inputMode="url" value={attachment.posterUrl ?? ""} onChange={(event) => updateAttachment(index, { posterUrl: event.target.value })} /></Field> : null}
+                    <Field label="Source / citation"><input className={inputClass} placeholder="Journal, author, figure…" value={attachment.sourceLabel ?? ""} onChange={(event) => updateAttachment(index, { sourceLabel: event.target.value })} /></Field>
+                    <Field label="Source URL"><input className={inputClass} type="url" placeholder="https://…" value={attachment.sourceUrl ?? ""} onChange={(event) => updateAttachment(index, { sourceUrl: event.target.value })} /></Field>
+                    {attachment.kind === "audio" ? <div className="md:col-span-2"><Field label="Transcript" hint="Required when no audio URL is supplied."><textarea className={`${inputClass} min-h-24 resize-y`} value={attachment.transcript ?? ""} onChange={(event) => updateAttachment(index, { transcript: event.target.value })} required={!attachment.url} /></Field></div> : null}
+                  </div>
+                </section>
+              ))}
+              {editor.attachments?.length === 0 ? <p className="rounded-xl border border-dashed border-[#ded8d0] p-4 text-xs text-[#726c73]">No media attached. The student view will use its synthetic placeholder resources.</p> : null}
             </div>
             <div className="my-7 border-t border-[#ded8d0]" />
             <div className="flex flex-wrap items-end justify-between gap-3"><div><h4 className="font-serif text-2xl">Teaching phases</h4><p className="mt-1 text-xs text-[#726c73]">Add between 1 and {MAX_PHASES} phases. Each phase needs a goal, rubric, opening question and follow-up question bank.</p></div><button type="button" className="secondary-button" onClick={addPhase} disabled={Boolean(busy) || (editor.phases?.length ?? 0) >= MAX_PHASES}><Plus size={15} /> Add phase</button></div>
@@ -698,20 +722,6 @@ function Cases({ data, busy, mutate }: { data: DashboardData; busy: string; muta
                   </div> : null}
                 </section>;
               })}
-            </div>
-            <div className="my-7 border-t border-[#ded8d0]" />
-            <div className="flex flex-wrap items-end justify-between gap-3"><div><h4 className="font-serif text-2xl">Case media attachments</h4><p className="mt-1 text-xs text-[#726c73]">Attach synthetic radiographs, audio, or video resources. Blank rows are ignored when saving.</p></div><button type="button" className="secondary-button" onClick={addAttachment} disabled={Boolean(busy)}><Plus size={15} /> Add attachment</button></div>
-            <div className="mt-5 grid gap-3">
-              {(editor.attachments ?? []).map((attachment, index) => <section key={attachment.id ?? `attachment-${index}`} className="grid gap-4 rounded-xl border border-[#ded8d0] p-4 md:grid-cols-2">
-                <Field label="Type"><select className={inputClass} value={attachment.kind} onChange={(event) => updateAttachment(index, { kind: event.target.value as AttachmentKind })}><option value="image">Image / radiograph</option><option value="audio">Audio</option><option value="video">Video</option></select></Field>
-                <Field label="Title"><input className={inputClass} value={attachment.title} onChange={(event) => updateAttachment(index, { title: event.target.value })} placeholder="e.g. Panoramic radiograph" required /></Field>
-                <div className="md:col-span-2"><Field label="Description"><textarea className={`${inputClass} min-h-16 resize-y`} value={attachment.description} onChange={(event) => updateAttachment(index, { description: event.target.value })} placeholder="What should the learner notice?" required /></Field></div>
-                <Field label="URL"><input className={inputClass} value={attachment.url ?? ""} onChange={(event) => updateAttachment(index, { url: event.target.value })} placeholder="/media/example.svg or https://…" required={attachment.kind !== "audio"} /></Field>
-                <Field label="Poster URL" hint="Optional video poster or preview image."><input className={inputClass} value={attachment.posterUrl ?? ""} onChange={(event) => updateAttachment(index, { posterUrl: event.target.value })} placeholder="https://…" /></Field>
-                <div className="md:col-span-2"><Field label="Transcript" hint="Optional narration/transcript for audio or accessibility."><textarea className={`${inputClass} min-h-16 resize-y`} value={attachment.transcript ?? ""} onChange={(event) => updateAttachment(index, { transcript: event.target.value })} /></Field></div>
-                <div className="flex justify-end md:col-span-2"><button type="button" className="secondary-button" onClick={() => removeAttachment(index)} disabled={Boolean(busy)}><X size={14} /> Remove attachment</button></div>
-              </section>)}
-              {(editor.attachments ?? []).length === 0 ? <p className="text-xs text-[#726c73]">No case-specific attachments yet.</p> : null}
             </div>
             <div className="mt-7 flex flex-wrap justify-end gap-2"><button type="button" className="secondary-button" onClick={() => setEditor(null)} disabled={Boolean(busy)}>Cancel</button><button className="primary-button" disabled={Boolean(busy)}>{busy === `case-${editor.id || "new"}` ? <LoaderCircle size={15} className="spin" /> : <Save size={15} />} {busy === `case-${editor.id || "new"}` ? "Saving…" : "Save draft"}</button></div>
           </form>

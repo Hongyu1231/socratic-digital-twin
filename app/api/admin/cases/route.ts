@@ -33,7 +33,9 @@ function normalizeAttachment(value: unknown): CaseAttachment | null {
   const url = cleanText(record.url);
   const posterUrl = cleanText(record.posterUrl);
   const transcript = cleanText(record.transcript);
-  if (!title && !description && !url && !posterUrl && !transcript) return null;
+  const sourceLabel = cleanText(record.sourceLabel);
+  const sourceUrl = cleanText(record.sourceUrl);
+  if (!title && !description && !url && !posterUrl && !transcript && !sourceLabel && !sourceUrl) return null;
   return {
     id: cleanText(record.id) ?? crypto.randomUUID(),
     kind,
@@ -42,6 +44,8 @@ function normalizeAttachment(value: unknown): CaseAttachment | null {
     ...(url ? { url } : {}),
     ...(posterUrl ? { posterUrl } : {}),
     ...(transcript ? { transcript } : {}),
+    ...(sourceLabel ? { sourceLabel } : {}),
+    ...(sourceUrl ? { sourceUrl } : {}),
   };
 }
 
