@@ -113,6 +113,30 @@ describe("CaseResources media dialog", () => {
     expect(document.body.querySelector("[role='dialog']")).toBeNull();
   });
 
+  it("supports bounded image zoom, reset, and a recoverable loading error", async () => {
+    await openDialog();
+    const zoomIn = document.body.querySelector<HTMLButtonElement>("[aria-label='Zoom in']")!;
+    const reset = document.body.querySelector<HTMLButtonElement>("[aria-label='Reset zoom']")!;
+    const output = document.body.querySelector("output")!;
+
+    expect(output.textContent).toBe("100%");
+    await act(async () => click(zoomIn));
+    expect(output.textContent).toBe("125%");
+    expect(document.body.querySelector<HTMLElement>("[aria-label='Zoomable teaching image']")?.dataset.pannable).toBe("true");
+
+    await act(async () => click(reset));
+    expect(output.textContent).toBe("100%");
+
+    const image = document.body.querySelector<HTMLImageElement>("img[alt='A de-identified literature image.']")!;
+    await act(async () => image.dispatchEvent(new Event("error")));
+    expect(document.body.querySelector("[role='alert']")?.textContent).toContain("could not be loaded");
+
+    const retry = document.body.querySelector<HTMLButtonElement>("[role='alert'] button")!;
+    await act(async () => click(retry));
+    expect(document.body.querySelector("[role='alert']")).toBeNull();
+    expect(document.body.querySelector("[role='status']")?.textContent).toContain("Loading teaching image");
+  });
+
   it("reports missing case-specific media without substituting generic resources", async () => {
     await act(async () => root.render(createElement(CaseResources, {
       clinicalCase: { ...clinicalCase, attachments: [] },

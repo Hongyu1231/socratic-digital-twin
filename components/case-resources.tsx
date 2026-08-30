@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { AudioLines, ExternalLink, FileImage, Pause, Play, Video, X } from "lucide-react";
+import { AudioLines, ExternalLink, FileImage, Minus, Pause, Play, Plus, RotateCcw, Video, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { CaseAttachment, ClinicalCase } from "@/lib/domain";
@@ -15,7 +15,12 @@ export function CaseResources({ clinicalCase }: { clinicalCase: ClinicalCase }) 
   const attachments = clinicalCase.attachments ?? [];
   const [preview, setPreview] = useState<CaseAttachment | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [imageZoom, setImageZoom] = useState(1);
+  const [imageStatus, setImageStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [imageRetry, setImageRetry] = useState(0);
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const imageStageRef = useRef<HTMLDivElement | null>(null);
+  const imageDragRef = useRef<{ pointerId: number; x: number; y: number; left: number; top: number } | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const previewTriggerRef = useRef<HTMLButtonElement | null>(null);
   const speechAvailable = useSyncExternalStore(
@@ -27,6 +32,51 @@ export function CaseResources({ clinicalCase }: { clinicalCase: ClinicalCase }) 
   useEffect(() => () => window.speechSynthesis?.cancel(), []);
 
   const closePreview = useCallback(() => setPreview(null), []);
+
+  function openPreview(attachment: CaseAttachment, trigger: HTMLButtonElement) {
+    previewTriggerRef.current = trigger;
+    setImageZoom(1);
+    setImageStatus("loading");
+    setImageRetry(0);
+    setPreview(attachment);
+  }
+
+  function retryImage() {
+    setImageStatus("loading");
+    setImageRetry((retry) => retry + 1);
+  }
+
+  function changeImageZoom(nextZoom: number) {
+    setImageZoom(Math.min(3, Math.max(0.75, nextZoom)));
+  }
+
+  function beginImagePan(event: React.PointerEvent<HTMLDivElement>) {
+    const stage = imageStageRef.current;
+    if (!stage || imageZoom <= 1) return;
+    imageDragRef.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      left: stage.scrollLeft,
+      top: stage.scrollTop,
+    };
+    stage.setPointerCapture(event.pointerId);
+  }
+
+  function panImage(event: React.PointerEvent<HTMLDivElement>) {
+    const stage = imageStageRef.current;
+    const drag = imageDragRef.current;
+    if (!stage || !drag || drag.pointerId !== event.pointerId) return;
+    stage.scrollLeft = drag.left - (event.clientX - drag.x);
+    stage.scrollTop = drag.top - (event.clientY - drag.y);
+  }
+
+  function endImagePan(event: React.PointerEvent<HTMLDivElement>) {
+    if (imageDragRef.current?.pointerId !== event.pointerId) return;
+    imageDragRef.current = null;
+    const stage = imageStageRef.current;
+    if (stage?.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
+  }
 
   useEffect(() => {
     if (!preview) return;
@@ -114,8 +164,7 @@ export function CaseResources({ clinicalCase }: { clinicalCase: ClinicalCase }) 
               key={attachment.id}
               onClick={(event) => {
                 if (canPreview) {
-                  previewTriggerRef.current = event.currentTarget;
-                  setPreview(attachment);
+                  openPreview(attachment, event.currentTarget);
                 } else if (attachment.kind === "audio") {
                   toggleNarration(attachment);
                 }
@@ -141,13 +190,36 @@ export function CaseResources({ clinicalCase }: { clinicalCase: ClinicalCase }) 
           <button className="media-dialog-dismiss" type="button" tabIndex={-1} onClick={closePreview} aria-label="Close attachment preview" />
           <div ref={dialogRef} className="media-dialog" role="dialog" aria-modal="true" aria-labelledby={dialogHeadingId} aria-describedby={dialogDescriptionId}>
             <div className="media-dialog-heading"><div><span className="section-kicker">Teaching attachment</span><h2 id={dialogHeadingId}>{preview.title}</h2></div><button ref={closeButtonRef} type="button" onClick={closePreview} aria-label="Close attachment"><X size={18} /></button></div>
-            {preview.kind === "image" && preview.url ? preview.url.startsWith("https://") ? (
-              // Literature images may come from a validated external HTTPS
-              // source that is not known at build time, so Next Image's fixed
-              // remote-host allowlist cannot be used for this authoring path.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={preview.url} alt={preview.description} loading="lazy" referrerPolicy="no-referrer" />
-            ) : <Image src={preview.url} alt={preview.description} width={1200} height={760} /> : null}
+            {preview.kind === "image" && preview.url ? <>
+              <div className="media-image-toolbar" aria-label="Image controls">
+                <button type="button" onClick={() => changeImageZoom(imageZoom - 0.25)} disabled={imageZoom <= 0.75} aria-label="Zoom out"><Minus size={15} /></button>
+                <output aria-live="polite">{Math.round(imageZoom * 100)}%</output>
+                <button type="button" onClick={() => changeImageZoom(imageZoom + 0.25)} disabled={imageZoom >= 3} aria-label="Zoom in"><Plus size={15} /></button>
+                <button type="button" onClick={() => changeImageZoom(1)} disabled={imageZoom === 1} aria-label="Reset zoom"><RotateCcw size={15} /> Reset</button>
+              </div>
+              <div
+                ref={imageStageRef}
+                className="media-image-stage"
+                data-pannable={imageZoom > 1}
+                tabIndex={imageZoom > 1 ? 0 : -1}
+                role="region"
+                aria-label="Zoomable teaching image"
+                onPointerDown={beginImagePan}
+                onPointerMove={panImage}
+                onPointerUp={endImagePan}
+                onPointerCancel={endImagePan}
+              >
+                {imageStatus === "loading" ? <span className="media-image-loading" role="status">Loading teaching image…</span> : null}
+                {imageStatus === "error" ? <div className="media-image-error" role="alert"><strong>Teaching image could not be loaded.</strong><button type="button" onClick={retryImage}>Try again</button></div> : null}
+                {preview.url.startsWith("https://") ? (
+                  // Literature images may come from a validated external HTTPS
+                  // source that is not known at build time, so Next Image's fixed
+                  // remote-host allowlist cannot be used for this authoring path.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={imageRetry} src={preview.url} alt={preview.description} draggable={false} loading="lazy" referrerPolicy="no-referrer" style={{ width: `${imageZoom * 100}%` }} onLoad={() => setImageStatus("ready")} onError={() => setImageStatus("error")} />
+                ) : <Image key={imageRetry} src={preview.url} alt={preview.description} draggable={false} width={1200} height={760} style={{ width: `${imageZoom * 100}%` }} onLoad={() => setImageStatus("ready")} onError={() => setImageStatus("error")} />}
+              </div>
+            </> : null}
             {preview.kind === "video" && preview.url ? <video src={preview.url} poster={preview.posterUrl} controls playsInline><track kind="captions" src="/media/english-captions.vtt" srcLang="en" label="English" default /></video> : null}
             {preview.kind === "audio" && preview.url ? <audio src={preview.url} controls><track kind="captions" /></audio> : null}
             <p id={dialogDescriptionId}>{preview.description}</p>
