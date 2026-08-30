@@ -14,6 +14,7 @@ interface ShadowInput {
   attempt: number;
   currentQuestion?: string;
   recentDialogue?: Array<{ sender: "student" | "ai"; content: string }>;
+  recentEvaluations?: TutorEvaluateInput["recentEvaluations"];
   baseline: TutorEvaluationResult;
 }
 
@@ -52,6 +53,7 @@ export async function applyHumanizationExperiment(input: ShadowInput): Promise<E
     attempt: input.attempt,
     currentQuestion: input.currentQuestion,
     recentDialogue: input.recentDialogue,
+    recentEvaluations: input.recentEvaluations,
   }); }
   catch { return { studentResult: input.baseline, experimentId: active.experiment.id, arm: "baseline" }; }
   const safety = outputSafetyCheck(candidate.nextQuestion);

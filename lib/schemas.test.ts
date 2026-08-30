@@ -29,12 +29,22 @@ describe("case attachment input schema", () => {
 
   it("accepts cited HTTPS images and site-relative teaching assets", () => {
     expect(caseAttachmentInputSchema.safeParse(opg).success).toBe(true);
-    expect(caseAttachmentInputSchema.safeParse({ ...opg, url: "/media/cases/opg.jpg" }).success).toBe(true);
+    expect(caseAttachmentInputSchema.safeParse({
+      ...opg,
+      url: "/media/cases/opg.jpg",
+      sourceLabel: undefined,
+      sourceUrl: undefined,
+    }).success).toBe(true);
   });
 
   it("rejects missing image URLs and unsafe URL schemes", () => {
     expect(caseAttachmentInputSchema.safeParse({ ...opg, url: undefined }).success).toBe(false);
     expect(caseAttachmentInputSchema.safeParse({ ...opg, url: "javascript:alert(1)" }).success).toBe(false);
     expect(caseAttachmentInputSchema.safeParse({ ...opg, url: "http://example.org/opg.jpg" }).success).toBe(false);
+  });
+
+  it("requires a complete citation for externally hosted literature media", () => {
+    expect(caseAttachmentInputSchema.safeParse({ ...opg, sourceLabel: undefined }).success).toBe(false);
+    expect(caseAttachmentInputSchema.safeParse({ ...opg, sourceUrl: undefined }).success).toBe(false);
   });
 });

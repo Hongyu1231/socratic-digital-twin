@@ -31,6 +31,7 @@ const parsedOutput = {
   classification: "partial" as const,
   confidence: 0.8,
   reasoningGap: "Needs consequence",
+  misconceptionKey: null,
   strategy: "probe" as const,
   feedback: "Relevant finding identified",
   nextQuestion: "Why does that finding matter?",

@@ -45,6 +45,12 @@ async function performStudentAnswer(
   const attempt = (bundle.session.state.phaseAttempts[phaseKey] ?? 0) + 1;
   const currentQuestion = [...bundle.session.messages].reverse().find((message) => message.sender === "ai")?.content;
   const recentDialogue = bundle.session.messages.slice(-8).map(({ sender, content: messageContent }) => ({ sender, content: messageContent }));
+  const recentEvaluations = bundle.session.evaluations.slice(-4).map(({ classification, misconceptionKey, reasoningGap, phaseOrder }) => ({
+    classification,
+    misconceptionKey: misconceptionKey ?? null,
+    reasoningGap,
+    phaseOrder,
+  }));
   const caseContext = {
     title: bundle.case.title,
     description: bundle.case.description,
@@ -64,6 +70,7 @@ async function performStudentAnswer(
     attempt,
     currentQuestion,
     recentDialogue,
+    recentEvaluations,
   };
   const baselineResult = await evaluateWithFallback(tutorInput);
   const experimentDecision = await applyHumanizationExperiment({
@@ -76,6 +83,7 @@ async function performStudentAnswer(
     attempt,
     currentQuestion,
     recentDialogue,
+    recentEvaluations,
     baseline: baselineResult,
   });
   const result = experimentDecision.studentResult;
@@ -98,6 +106,11 @@ async function performStudentAnswer(
     }
     : undefined;
   const tutorMove = scriptedMove ?? systemReflectionMove;
+  const misconceptionKey = result.classification === "wrong"
+    ? scriptedMove
+      ? `move:${scriptedMove.id}`
+      : result.misconceptionKey
+    : null;
   const phaseComplete = result.classification === "correct" && !tutorMove?.blockAdvancement;
   const sessionComplete = phaseComplete && isFinalPhase;
   const nextPhaseRecord = phaseComplete && !isFinalPhase ? orderedPhases[phaseIndex + 1] : phase;
@@ -145,6 +158,7 @@ async function performStudentAnswer(
     classification: result.classification,
     confidence: result.confidence,
     reasoningGap: result.reasoningGap,
+    misconceptionKey,
     strategy: appliedStrategy,
     phaseComplete,
     feedback: result.feedback,
@@ -170,9 +184,10 @@ async function performStudentAnswer(
     : phaseComplete
       ? nextPhaseRecord.starterQuestion
       : buildStudentVisibleTutorReply(
-        { ...result, nextQuestion: tutorMove?.question ?? result.nextQuestion },
+        { ...result, misconceptionKey, nextQuestion: tutorMove?.question ?? result.nextQuestion },
         bundle.session.evaluations,
         phase.order,
+        { hasScriptedMove: Boolean(scriptedMove) },
       );
   const aiMessage: TutorMessage = {
     id: crypto.randomUUID(),

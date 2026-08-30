@@ -157,6 +157,8 @@ export interface Evaluation {
   classification: Classification;
   confidence: number;
   reasoningGap: string;
+  /** Stable rubric/misconception identifier used to distinguish repeated errors. */
+  misconceptionKey?: string | null;
   strategy: TutorStrategy;
   phaseComplete: boolean;
   feedback: string;
@@ -293,12 +295,15 @@ export interface TutorEvaluateInput {
   attempt: number;
   currentQuestion?: string;
   recentDialogue?: Array<{ sender: "student" | "ai"; content: string }>;
+  recentEvaluations?: Array<Pick<Evaluation, "classification" | "misconceptionKey" | "reasoningGap" | "phaseOrder">>;
 }
 
 export interface TutorEvaluationResult {
   classification: Classification;
   confidence: number;
   reasoningGap: string;
+  /** Null unless the classification is wrong. Reuse the key while the same misconception persists. */
+  misconceptionKey: string | null;
   strategy: TutorStrategy;
   feedback: string;
   nextQuestion: string;

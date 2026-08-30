@@ -682,7 +682,7 @@ function Cases({ data, busy, mutate }: { data: DashboardData; busy: string; muta
               <div className="md:col-span-2"><Field label="Learning objectives" hint="Enter one objective per line."><textarea className={`${inputClass} min-h-24 resize-y`} value={editor.learningObjectives?.join("\n") ?? ""} onChange={(event) => setEditor({ ...editor, learningObjectives: event.target.value.split("\n") })} required /></Field></div>
             </div>
             <div className="my-7 border-t border-[#ded8d0]" />
-            <div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="font-serif text-2xl">Teaching media</h4><p className="mt-1 text-xs text-[#726c73]">Attach up to 12 synthetic or published teaching assets. Images and videos require an HTTPS or site-relative URL.</p></div><button type="button" className="secondary-button" onClick={addAttachment} disabled={(editor.attachments?.length ?? 0) >= 12}><Plus size={15} /> Add media</button></div>
+            <div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="font-serif text-2xl">Teaching media</h4><p className="mt-1 text-xs text-[#726c73]">Attach up to 12 synthetic or published teaching assets. External HTTPS media requires both a source label and source URL.</p></div><button type="button" className="secondary-button" onClick={addAttachment} disabled={(editor.attachments?.length ?? 0) >= 12}><Plus size={15} /> Add media</button></div>
             <div className="mt-5 grid gap-3">
               {editor.attachments?.map((attachment, index) => (
                 <section key={attachment.id} className="rounded-xl border border-[#ded8d0] p-4">
@@ -699,7 +699,7 @@ function Cases({ data, busy, mutate }: { data: DashboardData; busy: string; muta
                   </div>
                 </section>
               ))}
-              {editor.attachments?.length === 0 ? <p className="rounded-xl border border-dashed border-[#ded8d0] p-4 text-xs text-[#726c73]">No media attached. The student view will use its synthetic placeholder resources.</p> : null}
+              {editor.attachments?.length === 0 ? <p className="rounded-xl border border-dashed border-[#ded8d0] p-4 text-xs text-[#726c73]">No media attached. The student view will state that this case has no case-specific teaching media.</p> : null}
             </div>
             <div className="my-7 border-t border-[#ded8d0]" />
             <div className="flex flex-wrap items-end justify-between gap-3"><div><h4 className="font-serif text-2xl">Teaching phases</h4><p className="mt-1 text-xs text-[#726c73]">Add between 1 and {MAX_PHASES} phases. Each phase needs a goal, rubric, opening question and follow-up question bank.</p></div><button type="button" className="secondary-button" onClick={addPhase} disabled={Boolean(busy) || (editor.phases?.length ?? 0) >= MAX_PHASES}><Plus size={15} /> Add phase</button></div>

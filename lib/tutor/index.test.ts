@@ -6,6 +6,7 @@ const deterministicResult: TutorEvaluationResult = {
   classification: "partial",
   confidence: 0.74,
   reasoningGap: "Needs another evidence link.",
+  misconceptionKey: null,
   strategy: "probe",
   feedback: "Useful starting point.",
   nextQuestion: "What additional evidence supports that conclusion?",

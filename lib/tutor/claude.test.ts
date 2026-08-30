@@ -17,6 +17,7 @@ const state: LearnerState = {
 };
 const parsedOutput = {
   classification: "partial", confidence: 0.8, reasoningGap: "Needs consequence",
+  misconceptionKey: null,
   strategy: "probe", feedback: "Relevant finding identified", nextQuestion: "Why does that finding matter?",
   memoryPatch: { addErrors: [], addStrengths: [], addWeaknesses: ["Link findings to consequences"], masteryDelta: 0.2 },
 };

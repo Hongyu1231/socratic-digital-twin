@@ -21,6 +21,7 @@ import type {
 import { CLASSIFICATION_SCORES } from "@/lib/domain";
 import { ArchivedCaseError, type CommitTurnInput, type SaveReviewInput, type TutorRepository } from "@/lib/repository/types";
 import { buildCaseVersionSlug, getCaseLineageId, getNextCaseVersion, getVersionedCaseTitle } from "@/lib/repository/case-version";
+import { buildEvaluationCriteria, readMisconceptionKey } from "@/lib/repository/evaluation-criteria";
 import { getTutorMode } from "@/lib/tutor";
 import { reconcileLearnerStateEvidence } from "@/lib/tutor/learner-model";
 import { caseAttachmentInputSchema } from "@/lib/schemas";
@@ -161,6 +162,7 @@ function mapEvaluation(row: Row): Evaluation {
     classification: criteria.classification ?? "vague",
     confidence: Number(criteria.confidence ?? 0.5),
     reasoningGap: criteria.reasoningGap ?? "No reasoning gap recorded.",
+    misconceptionKey: readMisconceptionKey(criteria),
     strategy: criteria.strategy ?? "probe",
     phaseComplete: Boolean(criteria.phaseComplete),
     feedback: criteria.feedback ?? row.feedback ?? "",
@@ -415,20 +417,7 @@ export class SupabaseTutorRepository implements TutorRepository {
       p_ai_phase_id: nextPhase.id,
       p_evaluation_type: "formative",
       p_evaluation_score: CLASSIFICATION_SCORES[input.evaluation.classification],
-      p_evaluation_criteria: {
-        classification: input.evaluation.classification,
-        confidence: input.evaluation.confidence,
-        reasoningGap: input.evaluation.reasoningGap,
-        strategy: input.evaluation.strategy,
-        phaseComplete: input.evaluation.phaseComplete,
-        feedback: input.evaluation.feedback,
-        phaseOrder: input.evaluation.phaseOrder,
-        attempt: input.evaluation.attempt,
-        provider: input.evaluation.provider,
-        fallbackFrom: input.evaluation.fallbackFrom,
-        model: input.evaluation.model,
-        promptVersion: input.evaluation.promptVersion,
-      },
+      p_evaluation_criteria: buildEvaluationCriteria(input.evaluation),
       p_evaluation_feedback: input.evaluation.feedback,
       p_evaluator_id: null,
       p_state: input.nextState,

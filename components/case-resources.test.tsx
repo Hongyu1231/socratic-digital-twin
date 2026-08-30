@@ -112,4 +112,15 @@ describe("CaseResources media dialog", () => {
     });
     expect(document.body.querySelector("[role='dialog']")).toBeNull();
   });
+
+  it("reports missing case-specific media without substituting generic resources", async () => {
+    await act(async () => root.render(createElement(CaseResources, {
+      clinicalCase: { ...clinicalCase, attachments: [] },
+    })));
+
+    expect(container.querySelector("[role='status']")?.textContent).toContain("No case-specific teaching media is attached yet");
+    expect(container.querySelectorAll(".resource-button")).toHaveLength(0);
+    expect(container.textContent).not.toContain("Clinical observation guide");
+    expect(container.textContent).not.toContain("Patient history narration");
+  });
 });

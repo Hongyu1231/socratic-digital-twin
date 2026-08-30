@@ -116,6 +116,14 @@ export const caseAttachmentInputSchema = z.object({
   if (attachment.kind === "audio" && !attachment.url && !attachment.transcript) {
     context.addIssue({ code: "custom", path: ["url"], message: "Audio requires a media URL or transcript." });
   }
+  if (attachment.url?.startsWith("https://")) {
+    if (!attachment.sourceLabel) {
+      context.addIssue({ code: "custom", path: ["sourceLabel"], message: "Externally hosted media requires a source label." });
+    }
+    if (!attachment.sourceUrl) {
+      context.addIssue({ code: "custom", path: ["sourceUrl"], message: "Externally hosted media requires an HTTPS source URL." });
+    }
+  }
 });
 
 export const caseInputSchema = z.object({
@@ -167,6 +175,11 @@ export const tutorOutputSchema = z.object({
   classification: classificationSchema,
   confidence: z.number().min(0).max(1),
   reasoningGap: z.string().min(1).max(500),
+  misconceptionKey: z.string()
+    .min(1)
+    .max(120)
+    .regex(/^[a-z0-9][a-z0-9._:-]*$/, "Misconception keys must be stable lowercase identifiers.")
+    .nullable(),
   strategy: strategySchema,
   feedback: z.string().min(1).max(350),
   nextQuestion: z.string().min(3).max(500).refine(
@@ -179,7 +192,18 @@ export const tutorOutputSchema = z.object({
     addWeaknesses: z.array(z.string().min(1).max(180)).max(2),
     masteryDelta: z.number().min(-0.25).max(0.4),
   }).strict(),
-}).strict();
+}).strict().superRefine((result, context) => {
+  if (result.classification === "wrong") {
+    if (!result.misconceptionKey) {
+      context.addIssue({ code: "custom", path: ["misconceptionKey"], message: "Wrong answers require a stable misconception key." });
+    }
+    if (!["challenge", "probe", "scaffold"].includes(result.strategy)) {
+      context.addIssue({ code: "custom", path: ["strategy"], message: "Wrong answers must be challenged, probed, or scaffolded." });
+    }
+  } else if (result.misconceptionKey !== null) {
+    context.addIssue({ code: "custom", path: ["misconceptionKey"], message: "Only wrong answers may carry a misconception key." });
+  }
+});
 
 export const summaryOutputSchema = z.object({
   headline: z.string().min(1).max(120),

@@ -2,39 +2,17 @@
 
 import Image from "next/image";
 import { AudioLines, ExternalLink, FileImage, Pause, Play, Video, X } from "lucide-react";
-import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { CaseAttachment, ClinicalCase } from "@/lib/domain";
 
 const subscribeToBrowserCapability = () => () => undefined;
 
-function defaultAttachments(clinicalCase: ClinicalCase): CaseAttachment[] {
-  return [
-    {
-      id: `${clinicalCase.id}-observation-guide`,
-      kind: "image",
-      title: "Clinical observation guide",
-      description: "A non-diagnostic visual framework for organizing case evidence.",
-      url: "/media/clinical-observation-guide.svg",
-    },
-    {
-      id: `${clinicalCase.id}-history-audio`,
-      kind: "audio",
-      title: "Patient history narration",
-      description: "Listen to the simulated presenting history.",
-      transcript: clinicalCase.description,
-    },
-  ];
-}
-
 export function CaseResources({ clinicalCase }: { clinicalCase: ClinicalCase }) {
   const headingId = useId();
   const dialogHeadingId = useId();
   const dialogDescriptionId = useId();
-  const attachments = useMemo(
-    () => clinicalCase.attachments?.length ? clinicalCase.attachments : defaultAttachments(clinicalCase),
-    [clinicalCase],
-  );
+  const attachments = clinicalCase.attachments ?? [];
   const [preview, setPreview] = useState<CaseAttachment | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -123,7 +101,7 @@ export function CaseResources({ clinicalCase }: { clinicalCase: ClinicalCase }) 
   return (
     <section className="case-resources" aria-labelledby={headingId}>
       <span className="sidebar-label" id={headingId}>Case attachments</span>
-      <div className="resource-list">
+      {attachments.length ? <div className="resource-list">
         {attachments.map((attachment) => {
           const Icon = attachment.kind === "image" ? FileImage : attachment.kind === "video" ? Video : AudioLines;
           const hasAudioFile = attachment.kind === "audio" && Boolean(attachment.url);
@@ -151,7 +129,11 @@ export function CaseResources({ clinicalCase }: { clinicalCase: ClinicalCase }) 
             </button>
           );
         })}
-      </div>
+      </div> : (
+        <p className="resource-empty" role="status">
+          No case-specific teaching media is attached yet. Ask your instructor before beginning an image-dependent script.
+        </p>
+      )}
       <small className="resource-disclaimer">Synthetic teaching materials only. Do not upload or infer real patient information.</small>
 
       {preview ? createPortal(

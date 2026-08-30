@@ -66,6 +66,9 @@ export class DeterministicTutor {
       classification,
       confidence: classification === "correct" || classification === "vague" ? 0.82 : 0.74,
       reasoningGap: gap,
+      misconceptionKey: classification === "wrong"
+        ? `rubric:${normalise(phase.rubric[0] ?? "unsupported reasoning").trim().replace(/\s+/g, "-").slice(0, 100)}`
+        : null,
       strategy,
       feedback:
         classification === "correct"

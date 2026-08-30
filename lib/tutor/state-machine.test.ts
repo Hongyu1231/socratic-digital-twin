@@ -5,11 +5,13 @@ import { resetRepositoryForTests } from "@/lib/repository";
 import { DEMO_PROFESSOR_ID, DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID, impactedCanineCase } from "@/lib/seed";
 import * as tutor from "@/lib/tutor";
 import { finishSession, submitStudentAnswer } from "@/lib/tutor/state-machine";
+import { WRONG_ANSWER_BASIS_PROBE } from "@/lib/tutor/correction-policy";
 
 const evaluationResult = (overrides: Partial<TutorEvaluationResult> = {}): TutorEvaluationResult => ({
   classification: "wrong",
   confidence: 0.95,
   reasoningGap: "The claim conflicts with the relevant clinical evidence.",
+  misconceptionKey: "root-resorption-claim",
   strategy: "probe",
   feedback: "What evidence would support that claim?",
   nextQuestion: "What evidence would support that claim?",
@@ -80,7 +82,7 @@ describe("Socratic state machine", () => {
       DEMO_STUDENT_ID,
       "Impacted canines never resorb lateral incisor roots.",
     );
-    expect(first.session.messages.at(-1)?.content).toBe("What evidence supports that statement?");
+    expect(first.session.messages.at(-1)?.content).toBe(WRONG_ANSWER_BASIS_PROBE);
     expect(first.session.messages.at(-1)?.content).not.toContain("That statement is incorrect.");
 
     const second = await submitStudentAnswer(
@@ -91,8 +93,28 @@ describe("Socratic state machine", () => {
     expect(second.session.messages.at(-1)?.content).toBe(
       "That statement is incorrect. Which finding would test that claim?",
     );
+    expect(evaluateSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      recentEvaluations: [expect.objectContaining({ misconceptionKey: "root-resorption-claim" })],
+    }));
     expect(second.session.currentPhase).toBe(1);
     expect(second.session.evaluations.map((evaluation) => evaluation.classification)).toEqual(["wrong", "wrong"]);
+  });
+  it("probes a new misconception instead of treating it as the second strike for the previous error", async () => {
+    const evaluateSpy = vi.spyOn(tutor, "evaluateWithFallback");
+    evaluateSpy
+      .mockResolvedValueOnce(evaluationResult({ misconceptionKey: "root-resorption-claim" }))
+      .mockResolvedValueOnce(evaluationResult({ misconceptionKey: "unsafe-traction-vector" }));
+    const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);
+
+    await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "Impacted canines never resorb lateral incisor roots.");
+    const second = await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "The canine should always be pulled straight down across the lateral root.");
+
+    expect(second.session.messages.at(-1)?.content).toBe(WRONG_ANSWER_BASIS_PROBE);
+    expect(second.session.messages.at(-1)?.content).not.toContain("That statement is incorrect.");
+    expect(second.session.evaluations.map((evaluation) => evaluation.misconceptionKey)).toEqual([
+      "root-resorption-claim",
+      "unsafe-traction-vector",
+    ]);
   });
   it.each([
     ["partial first", evaluationResult({ classification: "partial", confidence: 0.99 }), evaluationResult()],
@@ -111,7 +133,10 @@ describe("Socratic state machine", () => {
     await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "The claim is always true.");
     const second = await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "I cannot justify it further.");
 
-    expect(second.session.messages.at(-1)?.content).toBe(secondResult.nextQuestion);
+    const expectedReply = secondResult.classification === "wrong" && secondResult.confidence >= 0.85
+      ? WRONG_ANSWER_BASIS_PROBE
+      : secondResult.nextQuestion;
+    expect(second.session.messages.at(-1)?.content).toBe(expectedReply);
     expect(second.session.messages.at(-1)?.content).not.toContain("That statement is incorrect.");
   });
   it("creates a formative partial summary when ended early", async () => {
