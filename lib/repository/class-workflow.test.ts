@@ -67,6 +67,23 @@ describe("InMemoryTutorRepository class workflows", () => {
     expect(resumed.session.pausedAt).toBeNull();
   });
 
+  it("keeps sessions readable but removes closed assignments from the case list", async () => {
+    const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID, DEMO_ASSIGNMENT_ID);
+    const assignment = (await repository.listAssignments()).find((item) => item.id === DEMO_ASSIGNMENT_ID)!;
+
+    await repository.saveAssignment({
+      ...assignment,
+      status: "closed",
+    }, assignment.assignedBy);
+
+    await expect(repository.listStudentOfferings(DEMO_STUDENT_ID)).resolves.not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ assignment: expect.objectContaining({ id: DEMO_ASSIGNMENT_ID }) })]),
+    );
+    await expect(repository.getSession(started.session.id)).resolves.toMatchObject({
+      session: { id: started.session.id },
+    });
+  });
+
   it("only exposes sessions from classes where the professor is a member", async () => {
     const privateClass = await repository.saveClass({
       id: "88888888-8888-4888-8888-888888888888",

@@ -389,7 +389,7 @@ export class InMemoryTutorRepository implements TutorRepository {
         existingSessionPausedAt: existing?.pausedAt ?? null,
         availability: assignment.status !== "open" || (assignment.dueAt && assignment.dueAt <= now) ? "closed" as const : assignment.opensAt > now ? "upcoming" as const : "open" as const,
       };
-      return offering.availability === "open" || Boolean(offering.existingSessionId) ? [offering] : [];
+      return offering.availability === "open" || offering.availability === "upcoming" ? [offering] : [];
     }));
   }
 

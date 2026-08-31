@@ -720,9 +720,15 @@ export class SupabaseTutorRepository implements TutorRepository {
     const { data: assignmentRows, error: assignmentError } = await this.client
       .from("class_case_assignments")
       .select("*, classes(name), cases(title)")
+      .eq("status", "open")
       .in("class_id", classIds)
       .order("created_at", { ascending: false });
-    const assignments = must(assignmentRows, assignmentError, "List student assignments").map(mapAssignment);
+    // Treat the database predicate as a performance optimization, not the
+    // only safety boundary. Keeping the status check here protects callers
+    // backed by a mock/client that does not apply PostgREST filters.
+    const assignments = must(assignmentRows, assignmentError, "List student assignments")
+      .map(mapAssignment)
+      .filter((assignment) => assignment.status === "open");
     if (!assignments.length) return [];
 
     const assignmentIds = assignments.map((item) => item.id);
@@ -775,9 +781,9 @@ export class SupabaseTutorRepository implements TutorRepository {
         existingSessionPausedAt: existing?.context?.pausedAt ?? null,
         availability: assignment.status !== "open" || (assignment.dueAt && assignment.dueAt <= now) ? "closed" : assignment.opensAt > now ? "upcoming" : "open",
       };
-      if (offering.availability === "open" || offering.availability === "upcoming" || offering.existingSessionId) offerings.push(offering);
+      if (offering.availability === "open" || offering.availability === "upcoming") offerings.push(offering);
     }
-    return offerings.filter((offering) => offering.availability === "open" || Boolean(offering.existingSessionId));
+    return offerings;
   }
 
   async listSessionsForProfessor(professorId: string): Promise<SessionBundle[]> {
