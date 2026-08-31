@@ -10,7 +10,14 @@ export async function GET() {
     const identity = await requireStudent();
     const repository = getRepository();
     const offerings = await repository.listStudentOfferings(identity.id);
-    return Response.json({ offerings, cases: offerings.map((item) => item.case), storage: repository.mode });
+    // `offerings` already embeds each case. Returning a second `cases` array
+    // duplicated almost half of the uncompressed catalogue payload, while no
+    // current client consumed it. The catalogue is identity-scoped and must
+    // never be stored by a browser or intermediary cache.
+    return Response.json(
+      { offerings },
+      { headers: { "Cache-Control": "private, no-store, max-age=0" } },
+    );
   } catch (error) {
     return errorResponse(error);
   }
