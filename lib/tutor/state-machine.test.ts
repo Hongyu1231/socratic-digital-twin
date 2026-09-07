@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TutorEvaluationResult } from "@/lib/domain";
 import { InMemoryTutorRepository } from "@/lib/repository/memory";
 import { resetRepositoryForTests } from "@/lib/repository";
@@ -6,6 +6,8 @@ import { DEMO_PROFESSOR_ID, DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID, impactedCa
 import * as tutor from "@/lib/tutor";
 import { finishSession, submitStudentAnswer } from "@/lib/tutor/state-machine";
 import { WRONG_ANSWER_BASIS_PROBE } from "@/lib/tutor/correction-policy";
+import * as materials from "@/lib/materials/retrieval";
+import * as experiments from "@/lib/experiments/shadow";
 
 const evaluationResult = (overrides: Partial<TutorEvaluationResult> = {}): TutorEvaluationResult => ({
   classification: "wrong",
@@ -27,6 +29,7 @@ const evaluationResult = (overrides: Partial<TutorEvaluationResult> = {}): Tutor
 
 describe("Socratic state machine", () => {
   let repository: InMemoryTutorRepository;
+  afterEach(() => vi.restoreAllMocks());
   beforeEach(() => {
     repository = new InMemoryTutorRepository();
     repository.reset();
@@ -39,6 +42,17 @@ describe("Socratic state machine", () => {
     expect(updated.session.state.strengths.length).toBe(1);
     expect(updated.session.messages).toHaveLength(3);
     expect(updated.session.messages.at(-1)?.content).toBe(impactedCanineCase.phases[1].starterQuestion);
+  });
+  it("supplies private teaching context only to the main tutor, never to experiment logging", async () => {
+    const context = { expertNotes: "PRIVATE_SYNTHETIC_NOTE", sourceDocument: "synthetic.docx", literature: [] };
+    vi.spyOn(materials, "getTeachingContext").mockReturnValueOnce(context);
+    const evaluate = vi.spyOn(tutor, "evaluateWithFallback").mockResolvedValueOnce(evaluationResult());
+    const experiment = vi.spyOn(experiments, "applyHumanizationExperiment");
+    const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);
+    const updated = await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "An unsupported claim.");
+    expect(evaluate).toHaveBeenCalledWith(expect.objectContaining({ caseContext: expect.objectContaining({ teachingContext: context }) }));
+    expect(experiment).not.toHaveBeenCalled();
+    expect(JSON.stringify(updated)).not.toContain(context.expertNotes);
   });
   it("does not advance after three unresolved attempts and keeps the gap", async () => {
     let bundle = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);

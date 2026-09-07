@@ -303,3 +303,148 @@ button { color: inherit; }
   .session-table { overflow-x: auto; }.table-header, .table-row { min-width: 760px; }.review-layout { display: block; }.review-panel { margin-top: 20px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }
+
+/* Restrained academic presentation. Keep the existing interaction states and
+   layout contracts, but use a quieter palette, flatter surfaces, and less
+   decorative motion for student-facing screens. */
+:root {
+  --ink: #25323a;
+  --plum: #2f5d62;
+  --plum-2: #244c50;
+  --coral: #3f7779;
+  --coral-dark: #2f6264;
+  --paper: #f6f8f7;
+  --paper-deep: #e9efed;
+  --white: #ffffff;
+  --sage: #5f806f;
+  --sage-pale: #e7f0eb;
+  --muted: #64727a;
+  --line: #d7e0dd;
+  --shadow: 0 8px 24px rgba(37, 50, 58, 0.08);
+}
+
+html { background: var(--paper); }
+body { background: var(--paper); }
+
+.site-header {
+  height: 64px;
+  padding-inline: clamp(16px, 4vw, 56px);
+  border-bottom-color: var(--line);
+  background: var(--white);
+  backdrop-filter: none;
+}
+.brand { gap: 9px; }
+.brand-mark { width: 34px; height: 34px; border-radius: 6px; box-shadow: none; background: var(--plum); }
+.brand strong { font-size: 18px; }
+.brand small { letter-spacing: .08em; }
+.role-trigger { border-radius: 6px; padding: 8px 11px; background: var(--white); }
+.role-popover { border-radius: 7px; box-shadow: var(--shadow); }
+.role-popover button { border-radius: 6px; }
+
+.home-shell { padding: 42px 0 72px; }
+.hero-grid { display: block; min-height: 0; padding-bottom: 30px; border-bottom: 1px solid var(--line); }
+.hero-copy { max-width: 760px; }
+.eyebrow, .section-kicker { color: var(--plum); letter-spacing: .1em; }
+.hero-copy h1 { margin: 14px 0 16px; font-size: clamp(38px, 5vw, 60px); line-height: 1.04; letter-spacing: -.035em; }
+.hero-copy h1 em { color: inherit; }
+.hero-copy > p { max-width: 680px; color: var(--muted); font-size: 16px; line-height: 1.65; }
+.hero-meta { gap: 18px; margin-top: 22px; }
+.hero-meta span { color: var(--plum); font-size: 12px; font-weight: 650; }
+.case-section { margin-top: 42px; }
+.section-heading { padding-bottom: 16px; }
+.section-heading h2 { font-size: 30px; letter-spacing: -.02em; }
+.section-heading > p { max-width: 390px; }
+.case-grid { gap: 18px; margin-top: 20px; }
+.case-card { border-color: var(--line); border-radius: 8px; padding: 24px; box-shadow: none; }
+.case-index { width: 36px; height: 36px; border-radius: 6px; background: var(--paper-deep); color: var(--plum); }
+.difficulty-badge, .status-badge { border-radius: 4px; padding: 6px 9px; background: var(--paper-deep); color: var(--plum); letter-spacing: .08em; }
+.case-card h3 { font-size: 25px; letter-spacing: -.02em; margin: 19px 0 10px; }
+.objectives-mini { margin: 20px 0 22px; padding-top: 16px; }
+.case-extra-sessions { margin-top: 16px; padding-top: 14px; }
+.case-extra-sessions li a, .case-extra-sessions li button { border-radius: 6px; background: var(--white); color: var(--plum); }
+.case-card-skeleton { min-height: 360px; gap: 15px; }
+.case-card-skeleton i { background: var(--paper-deep); animation: none; }
+.primary-button, .secondary-button, .danger-link { border-radius: 6px; transition: background-color .15s ease, border-color .15s ease; }
+.primary-button:hover { transform: none; background: var(--coral-dark); }
+.case-preview-card { border-radius: 8px; padding: 24px; background: var(--paper); }
+.preview-lines i { background: var(--paper-deep); }
+.error-banner { border-radius: 6px; }
+
+.session-shell { height: calc(100vh - 64px); grid-template-columns: 240px minmax(0, 1fr) 220px; background: var(--white); }
+.session-sidebar { background: #f1f5f3; border-color: var(--line); padding: 24px 20px; max-height: calc(100vh - 64px); top: 64px; }
+.session-sidebar.right { background: #fbfcfb; }
+.goal-list { margin: 24px 0; gap: 11px; }
+.goal-list .goal-number { border-radius: 5px; }
+.safety-note { margin-top: 24px; border: 1px solid var(--line); border-radius: 6px; background: var(--white); }
+.resource-button { border-color: var(--line); border-radius: 6px; background: var(--white); }
+.resource-button:hover { border-color: var(--plum); }
+.chat-topbar { padding: 16px 24px; background: var(--white); border-bottom-color: var(--line); }
+.message-list { padding: 28px clamp(20px, 4vw, 56px); gap: 22px; background: #fbfcfb; }
+.message-avatar { border-radius: 6px; background: var(--plum); }
+.message.student .message-avatar { background: var(--coral); }
+.message-bubble { padding: 15px 17px; border: 1px solid var(--line); border-radius: 8px; background: var(--white); }
+.message.student .message-bubble { border: 0; border-radius: 8px; background: var(--plum); }
+.thinking i { animation: none; opacity: .65; }
+.chat-composer { padding: 16px clamp(20px, 4vw, 56px) 20px; background: var(--white); }
+.composer-box { border-color: var(--line); border-radius: 8px; box-shadow: none; }
+.voice-input-button { width: 38px; height: 38px; border-radius: 6px; }
+.voice-input-button.listening { animation: none; }
+.send-button { width: auto; min-width: 40px; height: 38px; border-radius: 6px; padding-inline: 11px; background: var(--coral); }
+.progress-orbit { width: 112px; height: 112px; margin: 22px auto; }
+.progress-orbit::before { inset: 7px; background: var(--white); }
+.phase-card { border-radius: 6px; }
+.pause-session, .end-session { border-radius: 6px; }
+.paused-session-card { border-radius: 8px; background: var(--paper); }
+.mobile-case-backdrop { background: rgba(37, 50, 58, .42); }
+.mobile-case-drawer { background: var(--paper); }
+.mobile-case-close { border-radius: 6px; }
+
+.summary-hero { border-radius: 8px; background: var(--plum); }
+.score-disc { outline: none; }
+.insight-card, .stat-card, .transcript-card, .review-panel { border-radius: 8px; box-shadow: none; }
+.table-header { background: var(--paper-deep); }
+
+button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visible {
+  outline: 3px solid rgba(63, 119, 121, .35);
+  outline-offset: 2px;
+}
+
+@media (max-width: 700px) {
+  .home-shell { padding-top: 30px; }
+  .hero-copy h1 { font-size: 42px; }
+  .hero-meta { gap: 10px; }
+  .case-section { margin-top: 34px; }
+  .section-heading h2 { font-size: 28px; }
+  .case-card { padding: 20px; }
+  .session-shell { min-height: calc(100vh - 64px); }
+  .chat-composer { padding: 12px 15px 16px; }
+}
+
+/* Keep the desktop session grid in sync with the earlier responsive rules. */
+@media (max-width: 980px) {
+  .session-shell { grid-template-columns: 210px minmax(0, 1fr); }
+  .session-sidebar.right { display: none; }
+}
+
+/* On phones the chat owns the viewport. The transcript is the only scrolling
+   region, so the composer remains visible without extending the document. */
+@media (max-width: 700px) {
+  .session-shell {
+    display: grid;
+    height: calc(100vh - 64px);
+    height: calc(100dvh - 64px);
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .chat-panel {
+    height: 100%;
+    min-height: 0;
+  }
+  .message-list {
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .chat-composer {
+    position: static;
+  }
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, ArrowUp, BookOpen, Check, Info, LoaderCircle, Mic, MicOff, PauseCircle, Play, RotateCw, Volume2, VolumeX, X } from "lucide-react";
 import type { SessionBundle, TutorMessage } from "@/lib/domain";
@@ -12,6 +12,7 @@ import { describeRequestFailure, readJsonBody, requestSignal } from "@/lib/clien
 // deadline for network/server failures while optional model enhancement runs
 // asynchronously after completion.
 const END_SESSION_TIMEOUT_MS = 45_000;
+const MESSAGE_TIMEOUT_MS = 45_000;
 const SLOW_NOTICE_MS = 8_000;
 
 interface BrowserSpeechRecognitionResult {
@@ -52,9 +53,13 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
   const [speechOutputAvailable, setSpeechOutputAvailable] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [preparingVoiceMessageId, setPreparingVoiceMessageId] = useState<string | null>(null);
-  const [autoRead, setAutoRead] = useState(true);
+  const [autoRead, setAutoRead] = useState(false);
   const [voiceNotice, setVoiceNotice] = useState("");
   const [mobileCaseOpen, setMobileCaseOpen] = useState(false);
+  const mobileCaseTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const mobileCaseDrawerRef = useRef<HTMLElement | null>(null);
+  const mobileCaseCloseRef = useRef<HTMLButtonElement | null>(null);
+  const mobileCaseHeadingId = useId();
   const [endNotice, setEndNotice] = useState("");
   const [failedSend, setFailedSend] = useState<{ content: string; clientRequestId: string; error: string } | null>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
@@ -334,6 +339,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId, message, clientRequestId }),
+        signal: requestSignal(MESSAGE_TIMEOUT_MS),
       });
       const data = await readJsonBody<SessionBundle & { error?: string }>(response, "Your answer could not be evaluated.");
       if (!response.ok) {
@@ -415,6 +421,72 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
     }
   }
 
+  const closeMobileCase = useCallback(() => setMobileCaseOpen(false), []);
+
+  useEffect(() => {
+    if (!mobileCaseOpen) return;
+
+    const drawer = mobileCaseDrawerRef.current;
+    const trigger = mobileCaseTriggerRef.current;
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    mobileCaseCloseRef.current?.focus();
+
+    function nestedMediaDialogIsOpen() {
+      return Boolean(document.querySelector(".media-dialog"));
+    }
+
+    function handleDrawerKeyDown(event: KeyboardEvent) {
+      // CaseResources owns its nested media dialog. Let its Escape and Tab
+      // handlers run without closing or trapping focus in the drawer.
+      if (nestedMediaDialogIsOpen()) return;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMobileCase();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = Array.from(drawer?.querySelectorAll<HTMLElement>(
+        "a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])",
+      ) ?? []).filter((element) => !element.hasAttribute("hidden"));
+      if (!focusable.length) {
+        event.preventDefault();
+        drawer?.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    function keepFocusInDrawer(event: FocusEvent) {
+      if (nestedMediaDialogIsOpen()) return;
+      if (drawer && event.target instanceof Node && !drawer.contains(event.target)) {
+        mobileCaseCloseRef.current?.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleDrawerKeyDown);
+    document.addEventListener("focusin", keepFocusInDrawer);
+    return () => {
+      document.removeEventListener("keydown", handleDrawerKeyDown);
+      document.removeEventListener("focusin", keepFocusInDrawer);
+      document.body.style.overflow = previousBodyOverflow;
+      queueMicrotask(() => {
+        if (trigger?.isConnected) trigger.focus();
+      });
+    };
+  }, [closeMobileCase, mobileCaseOpen]);
+
   if (!bundle) {
     return <div className="empty-state"><LoaderCircle className="spin" /><h2>Preparing your reasoning space…</h2><p>{error || "Retrieving the case and learner state."}</p></div>;
   }
@@ -447,7 +519,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
             </li>
           ))}
         </ul>
-        <div className="safety-note"><Info size={13} /> Teaching simulation only. No real patient data or clinical diagnosis is used.</div>
+        <div className="safety-note"><Info size={13} /> For learning and discussion. Explain your interpretation of the supplied records.</div>
         <CaseResources clinicalCase={clinicalCase} />
       </aside>
 
@@ -455,8 +527,17 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
         <header className="chat-topbar">
           <div><span className="sidebar-label">Phase {session.currentPhase} of {clinicalCase.phases.length}</span><br /><strong>{currentPhase.title}</strong></div>
           <div className="session-top-actions">
-            <button className="mobile-case-button" type="button" onClick={() => setMobileCaseOpen(true)}><BookOpen size={14} /><span>Case</span></button>
-            <button className="mobile-pause-button" type="button" onClick={pauseSession} disabled={pending || Boolean(session.pausedAt)}>{pendingAction === "pause" ? <LoaderCircle className="spin" size={14} /> : <PauseCircle size={14} />}<span>{pendingAction === "pause" ? "Pausing…" : "Pause"}</span></button>
+            <button
+              ref={mobileCaseTriggerRef}
+              className="mobile-case-button"
+              type="button"
+              aria-label="Open case details"
+              aria-expanded={mobileCaseOpen}
+              onClick={() => setMobileCaseOpen(true)}
+            >
+              <BookOpen size={14} /><span>Case</span>
+            </button>
+            <button className="mobile-pause-button" type="button" aria-label="Pause session" onClick={pauseSession} disabled={pending || Boolean(session.pausedAt)}>{pendingAction === "pause" ? <LoaderCircle className="spin" size={14} /> : <PauseCircle size={14} />}<span>{pendingAction === "pause" ? "Pausing…" : "Pause"}</span></button>
             <button className="mobile-end-button" type="button" onClick={endSession} disabled={pending}>{pendingAction === "end" ? <><LoaderCircle className="spin" size={13} /> Ending…</> : "End"}</button>
             <button className="voice-toggle" type="button" aria-pressed={autoRead && speechOutputAvailable} onClick={toggleTutorVoice} disabled={!speechOutputAvailable} title={speechOutputAvailable ? "Turn automatic tutor voice replies on or off" : "Tutor voice is not supported by this browser"}>
               {autoRead && speechOutputAvailable ? <Volume2 size={14} /> : <VolumeX size={14} />} <span>{!speechOutputAvailable ? "Voice unavailable" : preparingVoiceMessageId ? "Preparing voice" : speakingMessageId ? "Tutor speaking" : autoRead ? "Tutor voice on" : "Tutor voice off"}</span>
@@ -536,7 +617,40 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
           {endNotice ? <p className="loading-notice" role="status">{endNotice}</p> : null}
         </div>
       </aside>
-      {mobileCaseOpen ? <div className="mobile-case-backdrop"><aside className="mobile-case-drawer" aria-label="Case details and attachments"><button className="mobile-case-close" type="button" onClick={() => setMobileCaseOpen(false)} aria-label="Close case details"><X size={18} /></button><span className="sidebar-label">Active case</span><h2>{clinicalCase.title}</h2><p>{clinicalCase.description}</p><ul className="goal-list" aria-label="Learning phases">{clinicalCase.phases.map((phase) => <li key={phase.id} className={phase.order < session.currentPhase ? "done" : phase.order === session.currentPhase ? "active" : ""}><span className="goal-number">{phase.order < session.currentPhase ? <Check size={11} /> : phase.order}</span><span>{phase.title}</span></li>)}</ul><CaseResources clinicalCase={clinicalCase} /></aside></div> : null}
+      {mobileCaseOpen ? (
+        <div className="mobile-case-backdrop">
+          <aside
+            ref={mobileCaseDrawerRef}
+            className="mobile-case-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={mobileCaseHeadingId}
+            tabIndex={-1}
+          >
+            <button
+              ref={mobileCaseCloseRef}
+              className="mobile-case-close"
+              type="button"
+              onClick={closeMobileCase}
+              aria-label="Close case details"
+            >
+              <X size={18} />
+            </button>
+            <span className="sidebar-label">Active case</span>
+            <h2 id={mobileCaseHeadingId}>{clinicalCase.title}</h2>
+            <p>{clinicalCase.description}</p>
+            <ul className="goal-list" aria-label="Learning phases">
+              {clinicalCase.phases.map((phase) => (
+                <li key={phase.id} className={phase.order < session.currentPhase ? "done" : phase.order === session.currentPhase ? "active" : ""}>
+                  <span className="goal-number">{phase.order < session.currentPhase ? <Check size={11} /> : phase.order}</span>
+                  <span>{phase.title}</span>
+                </li>
+              ))}
+            </ul>
+            <CaseResources clinicalCase={clinicalCase} />
+          </aside>
+        </div>
+      ) : null}
     </div>
   );
 }

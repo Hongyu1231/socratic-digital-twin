@@ -44,5 +44,7 @@ output/playwright/
 /.wrangler/
 /outputs/
 /work/
+__pycache__/
+*.py[cod]
 
 .env*

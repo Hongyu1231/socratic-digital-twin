@@ -289,6 +289,12 @@ export interface TutorEvaluateInput {
     description: string;
     learningObjectives: string[];
     attachments: Array<Pick<CaseAttachment, "kind" | "title" | "description" | "transcript">>;
+    /** Server-only reference data. Never part of ClinicalCase or student API responses. */
+    teachingContext?: {
+      expertNotes: string;
+      sourceDocument: string;
+      literature: Array<{ sourceId: string; title: string; page: number; text: string }>;
+    };
   };
   answer: string;
   state: LearnerState;

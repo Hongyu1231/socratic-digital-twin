@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { AuthError } from "@/lib/auth";
-import type { SessionBundle } from "@/lib/domain";
+import type { ClinicalCase, SessionBundle } from "@/lib/domain";
 import { ArchivedCaseError } from "@/lib/repository/types";
 
 export function errorResponse(error: unknown) {
@@ -15,9 +15,39 @@ export function errorResponse(error: unknown) {
   return NextResponse.json({ error: message }, { status });
 }
 
+/** Allowlist case fields so server-only reference additions never reach students. */
+export function studentCaseView(clinicalCase: ClinicalCase): ClinicalCase {
+  return {
+    id: clinicalCase.id,
+    title: clinicalCase.title,
+    description: clinicalCase.description,
+    difficulty: clinicalCase.difficulty,
+    status: clinicalCase.status,
+    learningObjectives: clinicalCase.learningObjectives,
+    phases: clinicalCase.phases?.map((phase) => ({
+      id: phase.id,
+      caseId: phase.caseId,
+      order: phase.order,
+      title: phase.title,
+      goal: phase.goal,
+      // Keep the public case shape stable without exposing grading criteria,
+      // scripted answer matchers, or future teaching questions.
+      rubric: [],
+      starterQuestion: "",
+      exampleQuestions: [],
+    })),
+    sourceCaseId: clinicalCase.sourceCaseId,
+    version: clinicalCase.version,
+    publishedAt: clinicalCase.publishedAt,
+    attachments: clinicalCase.attachments,
+    isTestFixture: clinicalCase.isTestFixture,
+  };
+}
+
 export function studentView(bundle: SessionBundle): SessionBundle {
   return {
     ...bundle,
+    case: studentCaseView(bundle.case),
     session: {
       ...bundle.session,
       evaluations: [],

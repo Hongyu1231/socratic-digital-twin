@@ -24,6 +24,7 @@ The project runs without external services: it uses an in-process repository and
 - User Guide: [English](docs/USER_GUIDE.md) · [中文](docs/USER_GUIDE_ZH.md)
 - Developer Guide: [English](docs/DEVELOPER_GUIDE.md) · [中文](docs/DEVELOPER_GUIDE_ZH.md)
 - [System Architecture](docs/ARCHITECTURE.md) — source map, frontend/backend boundaries, data flows, and engineering decisions
+- [Local teaching materials](docs/TEACHING_MATERIALS.md) — import case DOCX/images and page-attributed PDF references for private tutor tests
 - [Contributing](CONTRIBUTING.md) — branch, testing, pull-request, security, and review expectations
 - [Tutor Humanization & Professor Feedback Loop](docs/HUMANIZATION_PLAN.md)
 
@@ -181,7 +182,7 @@ To lock the POC to Claude:
 2. Set `ANTHROPIC_API_KEY` and the approved structured-output `CLAUDE_MODEL`.
 3. Restart the development server.
 
-Answer evaluation uses one non-streaming OpenAI Responses API or Claude Messages API request with the shared Zod schema. The versioned prompt receives the authoritative case narrative, learning objectives, attachment descriptions/transcripts, phase rubric and guidance, scripted moves, recent dialogue, and bounded learner memory. These details ground evaluation but must not be volunteered as answers. The result contains a label, confidence, observable reasoning gap, teaching strategy, exactly one follow-up question, and a conservative memory patch. The state machine—not the model—is the authority for phase progression and database state. Session completion never calls a provider: it saves deterministic feedback, while the Edge worker may later apply a validated enhancement using a leased, three-attempt job. When `OPENAI_API_KEY` is configured, `/api/session/speech` generates MP3 audio only for a Tutor message in the signed-in student's own session. The client automatically plays it, clearly identifies it as AI-generated, and falls back to browser-native English speech if the provider is unavailable.
+Answer evaluation uses one non-streaming OpenAI Responses API or Claude Messages API request with the shared Zod schema. The versioned prompt receives the authoritative case narrative, learning objectives, attachment descriptions/transcripts, phase rubric and guidance, scripted moves, recent dialogue, and bounded learner memory. These details ground evaluation but must not be volunteered as answers. The result contains a label, confidence, observable reasoning gap, teaching strategy, exactly one follow-up question, and a conservative memory patch. The state machine—not the model—is the authority for phase progression and database state. Session completion never calls a provider: it saves deterministic feedback, while the Edge worker may later apply a validated enhancement using a leased, three-attempt job. When `OPENAI_API_KEY` is configured, `/api/session/speech` generates MP3 audio only for a Tutor message in the signed-in student's own session. Voice playback is opt-in and off by default. When enabled, the client plays it, clearly identifies it as AI-generated, and falls back to browser-native English speech if the provider is unavailable.
 
 ## Identity, authorization, and state machine
 

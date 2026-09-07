@@ -5,11 +5,12 @@ import { evaluateWithFallback, getTutorMode } from "@/lib/tutor";
 import { buildSessionSummary } from "@/lib/tutor/summary";
 import { withIdempotency } from "@/lib/idempotency";
 import { TUTOR_PROMPT_VERSION } from "@/lib/tutor/prompt";
-import { applyHumanizationExperiment } from "@/lib/experiments/shadow";
+import { applyHumanizationExperiment, type ExperimentDecision } from "@/lib/experiments/shadow";
 import { contentHash } from "@/lib/experiments/privacy";
 import { selectTutorMove } from "@/lib/tutor/question-planner";
 import { mergeLearnerEvidence } from "@/lib/tutor/learner-model";
 import { buildStudentVisibleTutorReply } from "@/lib/tutor/correction-policy";
+import { getTeachingContext } from "@/lib/materials/retrieval";
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 
@@ -55,6 +56,7 @@ async function performStudentAnswer(
     title: bundle.case.title,
     description: bundle.case.description,
     learningObjectives: bundle.case.learningObjectives,
+    teachingContext: getTeachingContext(bundle.case.id, `${content} ${currentQuestion ?? ""} ${phase.goal}`),
     attachments: (bundle.case.attachments ?? []).map(({ kind, title, description, transcript }) => ({
       kind,
       title,
@@ -73,7 +75,11 @@ async function performStudentAnswer(
     recentEvaluations,
   };
   const baselineResult = await evaluateWithFallback(tutorInput);
-  const experimentDecision = await applyHumanizationExperiment({
+  // Private teaching context must not enter persisted experiment/shadow logs
+  // or a separately configured candidate model.
+  const experimentDecision: ExperimentDecision = caseContext.teachingContext
+    ? { studentResult: baselineResult, experimentId: null, arm: "baseline" }
+    : await applyHumanizationExperiment({
     sessionId,
     turnKey: clientRequestKey(sessionId, bundle.session.state.version),
     phase,

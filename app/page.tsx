@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, BookOpen, Brain, Check, Clock3, LoaderCircle, RotateCw, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpen, Brain, Check, Clock3, LoaderCircle, RotateCw } from "lucide-react";
 import type { StudentCaseOffering } from "@/lib/domain";
 import { describeRequestFailure, readJsonBody, requestSignal } from "@/lib/client-request";
 import { groupByCase, sessionLabel } from "@/lib/case-catalogue";
@@ -102,35 +102,27 @@ export default function CaseSelectionPage() {
     <div className="page-shell home-shell">
       <section className="hero-grid" aria-labelledby="hero-title">
         <div className="hero-copy">
-          <div className="eyebrow"><Sparkles size={14} /> Clinical reasoning, made visible</div>
-          <h1 id="hero-title">Learn to think.<br /><em>Not just answer.</em></h1>
+          <div className="eyebrow">Student workspace</div>
+          <h1 id="hero-title">Reason through the case.</h1>
           <p>
-            A Socratic AI tutor that listens for the reasoning behind your conclusion,
-            challenges assumptions and helps you build a defensible clinical pathway.
+            Work through assigned dental cases with a Socratic tutor. Explain your reasoning,
+            examine the evidence, and review your progress as you go.
           </p>
           <div className="hero-meta" aria-label="Session attributes">
-            <span><Clock3 size={16} /> 15–20 minutes</span>
-            <span><Brain size={16} /> Flexible reasoning phases</span>
-            <span><BookOpen size={16} /> Formative assessment</span>
+            <span><Clock3 size={16} /> 15–20 minutes per case</span>
+            <span><Brain size={16} /> Guided reasoning phases</span>
+            <span><BookOpen size={16} /> Formative practice</span>
           </div>
         </div>
-        <aside className="principle-card">
-          <span className="principle-number">01</span>
-          <blockquote>“What evidence would make you change your mind?”</blockquote>
-          <p>The tutor guides with questions before offering conclusions.</p>
-          <div className="reasoning-line" aria-hidden="true">
-            <span>Observe</span><i /><span>Interpret</span><i /><span>Decide</span>
-          </div>
-        </aside>
       </section>
 
       <section className="case-section" aria-labelledby="cases-title">
         <div className="section-heading">
           <div>
-            <span className="section-kicker">Available simulation</span>
-            <h2 id="cases-title">Choose a clinical case</h2>
+            <span className="section-kicker">Your assignments</span>
+            <h2 id="cases-title">Assigned cases</h2>
           </div>
-          <p>Choose from multimedia teaching simulations assigned by your professor.</p>
+          <p>Open a case to begin, continue a session, or review a completed summary.</p>
         </div>
 
         {error ? (
@@ -203,12 +195,6 @@ export default function CaseSelectionPage() {
               ) : null}
             </article>
           );})}
-          <div className="case-preview-card" aria-label="Future cases">
-            <span>Coming next</span>
-            <h3>More clinical reasoning pathways</h3>
-            <p>Future cases will reuse the same tutor state machine with expert-authored rubrics.</p>
-            <div className="preview-lines"><i /><i /><i /></div>
-          </div>
         </div> : null}
       </section>
     </div>

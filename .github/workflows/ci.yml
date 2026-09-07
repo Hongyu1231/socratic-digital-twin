@@ -28,6 +28,15 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run build
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/requirements-materials.txt
+      - name: Install teaching-material importer dependencies
+        run: python -m pip install -r scripts/requirements-materials.txt
+      - name: Test the importer with synthetic documents only
+        run: python scripts/test_import_teaching_materials.py
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x

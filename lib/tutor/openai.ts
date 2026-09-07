@@ -35,7 +35,7 @@ export class OpenAITutor {
       instructions: this.instructions,
       input: buildTutorInput(input, this.promptVersion),
       text: { format: zodTextFormat(tutorOutputSchema, "tutor_evaluation") },
-    });
+    }, { timeout: 25_000, maxRetries: 0 });
 
     if (response.status !== "completed" || !response.output_parsed) {
       throw new Error(`OpenAI returned an unusable response status: ${response.status ?? "unknown"}`);

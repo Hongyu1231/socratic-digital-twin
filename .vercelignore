@@ -1,0 +1,21 @@
+# Local clinical packs and inspection artifacts must never be uploaded by CLI.
+work/
+outputs/
+output/
+.playwright-cli/
+*.zip
+*.docx
+*.pdf
+
+# Credentials and generated/runtime files are not deployment source.
+.env*
+!.env.example
+.git/
+.next/
+.vercel/
+node_modules/
+__pycache__/
+*.py[cod]
+*.tsbuildinfo
+supabase/.temp/
+supabase/.branches/

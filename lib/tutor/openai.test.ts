@@ -63,6 +63,7 @@ describe("OpenAI tutor adapter", () => {
     ).resolves.toMatchObject({ classification: "partial", source: "openai" });
 
     expect(parseMock).toHaveBeenCalledOnce();
+    expect(parseMock.mock.calls[0][1]).toEqual({ timeout: 25_000, maxRetries: 0 });
     const request = parseMock.mock.calls[0][0];
     expect(request.model).toBe("test-model");
     expect(request.store).toBe(false);

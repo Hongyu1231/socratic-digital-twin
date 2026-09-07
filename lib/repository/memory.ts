@@ -18,6 +18,8 @@ import { demoAssignment, demoAssignments, demoCases, demoClass, demoUsers, getDe
 import { ArchivedCaseError, type CommitTurnInput, type SaveReviewInput, type TutorRepository } from "@/lib/repository/types";
 import { getCaseLineageId, getNextCaseVersion, getVersionedCaseTitle } from "@/lib/repository/case-version";
 import { reconcileLearnerStateEvidence } from "@/lib/tutor/learner-model";
+import { getMaterialPack } from "@/lib/materials/pack";
+import { getConfiguredTutorProvider } from "@/lib/tutor/provider-config";
 
 interface MemoryStore {
   sessions: Map<string, LearningSession>;
@@ -35,6 +37,21 @@ const globalStore = globalThis as typeof globalThis & {
 };
 
 function createStore(): MemoryStore {
+  const pack = getMaterialPack();
+  const cases = pack ? pack.cases.map((entry) => entry.case) : demoCases;
+  const assignments: CaseAssignment[] = pack ? cases.map((clinicalCase) => ({
+    id: clinicalCase.id,
+    classId: demoClass.id,
+    caseId: clinicalCase.id,
+    assignedBy: demoAssignment.assignedBy,
+    status: "open",
+    opensAt: "2026-01-01T00:00:00.000Z",
+    dueAt: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    idempotencyKey: `local-materials:${clinicalCase.id}`,
+    className: demoClass.name,
+    caseTitle: clinicalCase.title,
+  })) : demoAssignments;
   return {
     sessions: new Map(),
     answerReviews: new Map(),
@@ -42,8 +59,8 @@ function createStore(): MemoryStore {
     sessionReviews: new Map(),
     users: new Map(demoUsers.map((item) => [item.id, clone(item)])),
     classes: new Map([[demoClass.id, clone(demoClass)]]),
-    cases: new Map(demoCases.map((item) => [item.id, clone(item)])),
-    assignments: new Map(demoAssignments.map((item) => [item.id, clone(item)])),
+    cases: new Map(cases.map((item) => [item.id, clone(item)])),
+    assignments: new Map(assignments.map((item) => [item.id, clone(item)])),
   };
 }
 
@@ -277,8 +294,9 @@ export class InMemoryTutorRepository implements TutorRepository {
     this.store.sessionReviews.clear();
     this.store.users = new Map(demoUsers.map((item) => [item.id, clone(item)]));
     this.store.classes = new Map([[demoClass.id, clone(demoClass)]]);
-    this.store.cases = new Map(demoCases.map((item) => [item.id, clone(item)]));
-    this.store.assignments = new Map(demoAssignments.map((item) => [item.id, clone(item)]));
+    const fresh = createStore();
+    this.store.cases = fresh.cases;
+    this.store.assignments = fresh.assignments;
   }
 
   async listUsers() { return clone([...this.store.users.values()]); }
@@ -434,7 +452,7 @@ export class InMemoryTutorRepository implements TutorRepository {
       sessionReview: this.store.sessionReviews.get(session.id) ?? null,
       runtime: {
         storage: "memory",
-        tutor: "deterministic",
+        tutor: session.evaluations.at(-1)?.provider ?? getConfiguredTutorProvider(),
         fallbackFrom: session.evaluations.at(-1)?.fallbackFrom,
       },
       summaryGenerationStatus: session.status === "completed" && !session.summary ? "pending" as const : "ready" as const,

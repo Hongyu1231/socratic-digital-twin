@@ -49,14 +49,14 @@ export function SiteHeader() {
       <div className="institution"><span>NUS</span><small>Faculty of Dentistry · POC</small></div>
       <nav className="header-actions" aria-label="Demo identity selector">
         <div className="role-menu">
-          <button className="role-trigger" type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
+          <button className="role-trigger" type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-label={identity?.name ?? "Choose demo identity"}>
             {identity?.role === "admin" ? <ShieldCheck size={17} /> : identity?.role === "professor" ? <GraduationCap size={17} /> : <UserRound size={17} />}
             <span>{identity?.name ?? (onAdminPage ? "Admin identity" : onProfessorPage ? "Professor identity" : "Student identity")}</span>
           </button>
           {open ? (
             <div className="role-popover">
               <span>Demo identity</span>
-              <p>All roles are open in this synthetic-data demo. This is not production authentication.</p>
+              <p>All demo roles are open. This is not production authentication; do not publish private records through this demo.</p>
               {users.map((user) => <button key={user.id} disabled={Boolean(switchingUserId)} onClick={() => void switchUser(user.id, user.role)}>{switchingUserId === user.id ? <LoaderCircle size={16} className="spin" /> : user.role === "admin" ? <ShieldCheck size={16} /> : user.role === "professor" ? <GraduationCap size={16} /> : <UserRound size={16} />} {user.name} <small>{switchingUserId === user.id ? "switching…" : user.role}</small></button>)}
             </div>
           ) : null}

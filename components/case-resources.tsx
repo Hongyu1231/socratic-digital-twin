@@ -183,7 +183,7 @@ export function CaseResources({ clinicalCase }: { clinicalCase: ClinicalCase }) 
           No case-specific teaching media is attached yet. Ask your instructor before beginning an image-dependent script.
         </p>
       )}
-      <small className="resource-disclaimer">Synthetic teaching materials only. Do not upload or infer real patient information.</small>
+      <small className="resource-disclaimer">Teaching records for this case. Use the source and image together when explaining your findings.</small>
 
       {preview ? createPortal(
         <div className="media-dialog-backdrop">
@@ -217,7 +217,7 @@ export function CaseResources({ clinicalCase }: { clinicalCase: ClinicalCase }) 
                   // remote-host allowlist cannot be used for this authoring path.
                   // eslint-disable-next-line @next/next/no-img-element
                   <img key={imageRetry} src={preview.url} alt={preview.description} draggable={false} loading="lazy" referrerPolicy="no-referrer" style={{ width: `${imageZoom * 100}%` }} onLoad={() => setImageStatus("ready")} onError={() => setImageStatus("error")} />
-                ) : <Image key={imageRetry} src={preview.url} alt={preview.description} draggable={false} width={1200} height={760} style={{ width: `${imageZoom * 100}%` }} onLoad={() => setImageStatus("ready")} onError={() => setImageStatus("error")} />}
+                ) : <Image key={imageRetry} src={preview.url} alt={preview.description} draggable={false} width={1200} height={760} unoptimized={preview.url.startsWith("/api/materials/")} style={{ width: `${imageZoom * 100}%` }} onLoad={() => setImageStatus("ready")} onError={() => setImageStatus("error")} />}
               </div>
             </> : null}
             {preview.kind === "video" && preview.url ? <video src={preview.url} poster={preview.posterUrl} controls playsInline><track kind="captions" src="/media/english-captions.vtt" srcLang="en" label="English" default /></video> : null}

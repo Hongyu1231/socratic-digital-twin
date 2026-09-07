@@ -28,6 +28,7 @@ describe("Claude tutor adapter", () => {
     parseMock.mockResolvedValue({ stop_reason: "end_turn", parsed_output: parsedOutput });
     const tutor = new ClaudeTutor("test-key", "test-model");
     await expect(tutor.evaluate({ phase: impactedCanineCase.phases[0], answer: "The canine is unerupted.", state, attempt: 1 })).resolves.toMatchObject({ classification: "partial", source: "claude" });
+    expect(parseMock.mock.calls[0][1]).toEqual({ timeout: 25_000, maxRetries: 0 });
   });
   it("rejects incomplete stop reasons so the caller can fall back", async () => {
     parseMock.mockResolvedValue({ stop_reason: "max_tokens", parsed_output: null });

@@ -29,7 +29,7 @@ export class ClaudeTutor {
         },
       ],
       output_config: { format: zodOutputFormat(tutorOutputSchema) },
-    });
+    }, { timeout: 25_000, maxRetries: 0 });
 
     if (response.stop_reason !== "end_turn" || !response.parsed_output) {
       throw new Error(`Claude returned an unusable stop reason: ${response.stop_reason}`);
