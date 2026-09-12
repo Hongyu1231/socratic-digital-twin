@@ -27,6 +27,7 @@ import { reconcileLearnerStateEvidence } from "@/lib/tutor/learner-model";
 import { caseAttachmentInputSchema } from "@/lib/schemas";
 
 type Row = Record<string, any>;
+const HOSTED_PACKAGE_ID = /^[a-f0-9]{64}$/i;
 
 function must<T>(data: T | null, error: { message: string } | null, context: string): T {
   if (error || data === null) throw new Error(`${context}: ${error?.message ?? "no data"}`);
@@ -60,7 +61,19 @@ export function mapPhase(row: Row): CasePhase {
   };
 }
 
-function mapCase(row: Row, phases: Row[]): ClinicalCase {
+function mapTeachingMaterialPackageId(row: Row): string | undefined {
+  const patientContext = row.patient_context && typeof row.patient_context === "object" && !Array.isArray(row.patient_context)
+    ? row.patient_context as Record<string, unknown>
+    : {};
+  const raw = patientContext.teachingMaterialPackageId;
+  if (raw === undefined || raw === null || raw === "") return undefined;
+  if (typeof raw !== "string" || !HOSTED_PACKAGE_ID.test(raw.trim())) {
+    throw new Error("Case teaching-material reference is invalid.");
+  }
+  return raw.trim().toLowerCase();
+}
+
+export function mapCase(row: Row, phases: Row[]): ClinicalCase {
   const mappedPhases = phases.map(mapPhase).sort((a, b) => a.order - b.order);
   const rawAttachments = Array.isArray(row.attachments)
     ? row.attachments
@@ -71,6 +84,7 @@ function mapCase(row: Row, phases: Row[]): ClinicalCase {
     const parsed = caseAttachmentInputSchema.safeParse(value);
     return parsed.success ? [{ ...parsed.data, id: parsed.data.id ?? crypto.randomUUID() }] : [];
   });
+  const teachingMaterialPackageId = mapTeachingMaterialPackageId(row);
   return {
     id: row.id,
     title: row.title,
@@ -86,6 +100,7 @@ function mapCase(row: Row, phases: Row[]): ClinicalCase {
     publishedAt: row.published_at ?? null,
     attachments,
     isTestFixture: row.is_test_fixture === true,
+    ...(teachingMaterialPackageId ? { teachingMaterialPackageId } : {}),
   };
 }
 
@@ -615,7 +630,16 @@ export class SupabaseTutorRepository implements TutorRepository {
         existingPatientContext = existingRow.patient_context;
       }
     }
-    const payload = { title: input.title, slug: buildCaseVersionSlug(input.title, version, caseId), specialty: "dentistry", presenting_complaint: input.description, status: "draft", created_by: adminId, source_case_id: input.sourceCaseId ?? null, version, published_at: null, patient_context: { ...existingPatientContext, attachments }, attachments, tags: input.learningObjectives };
+    const teachingMaterialPackageId = input.teachingMaterialPackageId?.trim().toLowerCase();
+    if (teachingMaterialPackageId && !HOSTED_PACKAGE_ID.test(teachingMaterialPackageId)) {
+      throw new Error("Case teaching-material reference is invalid.");
+    }
+    const patientContext = {
+      ...existingPatientContext,
+      attachments,
+      ...(teachingMaterialPackageId ? { teachingMaterialPackageId } : {}),
+    };
+    const payload = { title: input.title, slug: buildCaseVersionSlug(input.title, version, caseId), specialty: "dentistry", presenting_complaint: input.description, status: "draft", created_by: adminId, source_case_id: input.sourceCaseId ?? null, version, published_at: null, patient_context: patientContext, attachments, tags: input.learningObjectives };
     const operation = input.id ? this.client.from("cases").update(payload).eq("id", input.id).select("id").single() : this.client.from("cases").insert({ id: caseId, ...payload }).select("id").single();
     let { data, error } = await operation;
     // Keep draft authoring available during the backwards-compatible rollout

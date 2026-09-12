@@ -1,10 +1,14 @@
-import { getMaterialPack, type MaterialArticle, type MaterialArticlePage } from "@/lib/materials/pack";
+import { getMaterialPack, type MaterialArticle, type MaterialArticlePage, type MaterialPack } from "@/lib/materials/pack";
 
 export interface TeachingLiteraturePassage {
   sourceId: string;
   title: string;
   page: number;
   text: string;
+  sourceType?: MaterialArticle["sourceType"];
+  locator?: string;
+  expert?: string;
+  section?: string;
 }
 
 export interface TeachingContext {
@@ -26,6 +30,10 @@ const MAX_QUERY_LENGTH = 2_000;
 const MAX_TERMS = 32;
 const MAX_PASSAGES = 4;
 const MAX_PASSAGES_PER_SOURCE = 2;
+// Keep a small lane for evidence explicitly scoped to this case. It prevents
+// high-frequency generic literature from consuming every slot, while still
+// requiring the interview passage to match the query before it is selected.
+const MAX_CASE_SCOPED_INTERVIEW_RESERVE = 2;
 const MAX_LITERATURE_CHARS = 6_000;
 const MAX_PASSAGE_CHARS = 1_800;
 const ELLIPSIS = "…";
@@ -70,6 +78,11 @@ interface RankedPage {
   page: number;
   text: string;
   score: number;
+  sourceType?: MaterialArticle["sourceType"];
+  locator?: string;
+  expert?: string;
+  section?: string;
+  caseScoped: boolean;
 }
 
 interface IndexedPage {
@@ -108,12 +121,13 @@ function getArticleIndex(articles: MaterialArticle[]): ArticleIndex {
   return index;
 }
 
-function rankPages(articles: MaterialArticle[], terms: string[]): RankedPage[] {
+function rankPages(articles: MaterialArticle[], terms: string[], caseId: string): RankedPage[] {
   if (terms.length === 0) return [];
   const index = getArticleIndex(articles);
   if (index.pages.length === 0) return [];
 
   return index.pages.flatMap(({ article, page, counts, titleCounts }) => {
+    if (page.caseIds && !page.caseIds.includes(caseId)) return [];
     let score = 0;
     let matched = false;
     for (const term of terms) {
@@ -125,7 +139,9 @@ function rankPages(articles: MaterialArticle[], terms: string[]): RankedPage[] {
       if (titleCounts.has(term)) score += informativeWeight * 1.5;
     }
     if (!matched) return [];
-    return [{ sourceId: article.id, title: article.title, page: page.page, text: page.text, score }];
+    return [{ sourceId: article.id, title: article.title, page: page.page, text: page.text, score,
+      sourceType: article.sourceType, locator: page.locator, expert: page.expert, section: page.section,
+      caseScoped: Boolean(page.caseIds?.includes(caseId)) }];
   }).sort((left, right) => right.score - left.score || left.sourceId.localeCompare(right.sourceId) || left.page - right.page);
 }
 
@@ -134,28 +150,53 @@ function rankPages(articles: MaterialArticle[], terms: string[]): RankedPage[] {
  * case. The returned text is evidence for the tutor; it is never interpreted
  * here as an instruction or policy.
  */
-export function getTeachingContext(caseId: string, query: string): TeachingContext | undefined {
-  const pack = getMaterialPack();
-  const entry = pack?.cases.find((item) => item.case.id === caseId);
+export function getTeachingContextFromPack(pack: MaterialPack, caseId: string, query: string): TeachingContext | undefined {
+  const entry = pack.cases.find((item) => item.case.id === caseId);
   if (!entry) return undefined;
 
   const terms = queryTerms(query);
-  const ranked = rankPages(pack?.articles ?? [], terms);
+  const ranked = rankPages(pack.articles, terms, caseId);
   const selected: TeachingLiteraturePassage[] = [];
   const sourceCounts = new Map<string, number>();
+  const selectedExperts = new Set<string>();
+  const selectedCandidates = new Set<string>();
   let totalCharacters = 0;
 
-  for (const candidate of ranked) {
-    if (selected.length >= MAX_PASSAGES || (sourceCounts.get(candidate.sourceId) ?? 0) >= MAX_PASSAGES_PER_SOURCE) continue;
+  const selectCandidate = (candidate: RankedPage): boolean => {
+    const interview = candidate.sourceType === "expert_interview";
+    const expertKey = `${candidate.sourceId}:${candidate.expert}`;
+    const candidateKey = `${candidate.sourceId}:${candidate.page}:${candidate.locator ?? ""}`;
+    if (selected.length >= MAX_PASSAGES
+      || selectedCandidates.has(candidateKey)
+      || (sourceCounts.get(candidate.sourceId) ?? 0) >= (interview ? 3 : MAX_PASSAGES_PER_SOURCE)
+      || (interview && selectedExperts.has(expertKey))) return false;
     const text = trimPassage(candidate.text, terms);
-    if (!text) continue;
+    if (!text) return false;
     const remaining = MAX_LITERATURE_CHARS - totalCharacters;
-    if (remaining <= 0) break;
+    if (remaining <= 0) return false;
     const boundedText = text.length <= remaining ? text : `${text.slice(0, Math.max(0, remaining - ELLIPSIS.length)).trim()}${ELLIPSIS}`;
-    if (!boundedText) continue;
-    selected.push({ sourceId: candidate.sourceId, title: candidate.title, page: candidate.page, text: boundedText });
+    if (!boundedText) return false;
+    selected.push({ sourceId: candidate.sourceId, title: candidate.title, page: candidate.page, text: boundedText,
+      ...(candidate.sourceType ? { sourceType: candidate.sourceType } : {}),
+      ...(candidate.locator ? { locator: candidate.locator } : {}),
+      ...(candidate.expert ? { expert: candidate.expert } : {}),
+      ...(candidate.section ? { section: candidate.section } : {}) });
+    selectedCandidates.add(candidateKey);
+    if (interview) selectedExperts.add(expertKey);
     sourceCounts.set(candidate.sourceId, (sourceCounts.get(candidate.sourceId) ?? 0) + 1);
     totalCharacters += boundedText.length;
+    return true;
+  };
+
+  let reservedInterviewPassages = 0;
+  for (const candidate of ranked) {
+    if (!candidate.caseScoped || candidate.sourceType !== "expert_interview"
+      || reservedInterviewPassages >= MAX_CASE_SCOPED_INTERVIEW_RESERVE) continue;
+    if (selectCandidate(candidate)) reservedInterviewPassages += 1;
+  }
+  for (const candidate of ranked) {
+    if (selected.length >= MAX_PASSAGES) break;
+    selectCandidate(candidate);
   }
 
   return {
@@ -163,4 +204,36 @@ export function getTeachingContext(caseId: string, query: string): TeachingConte
     sourceDocument: entry.sourceDocument,
     literature: selected,
   };
+}
+
+/** Load reference context synchronously from the explicitly opted-in local pack. */
+export function getTeachingContext(caseId: string, query: string): TeachingContext | undefined {
+  const pack = getMaterialPack();
+  return pack ? getTeachingContextFromPack(pack, caseId, query) : undefined;
+}
+
+const HOSTED_CONTEXT_ERROR = "Teaching materials are temporarily unavailable. Please retry.";
+
+/**
+ * Resolve context for a tutor turn. Existing cases without a hosted package
+ * pointer retain the synchronous local-pack behaviour and do not make a
+ * Supabase Storage request.
+ */
+export async function getTeachingContextAsync(
+  caseId: string,
+  query: string,
+  teachingMaterialPackageId?: string,
+): Promise<TeachingContext | undefined> {
+  if (!teachingMaterialPackageId) return getTeachingContext(caseId, query);
+
+  const { getHostedMaterialPack } = await import("@/lib/materials/hosted");
+  try {
+    const pack = await getHostedMaterialPack(teachingMaterialPackageId);
+    const context = getTeachingContextFromPack(pack, caseId, query);
+    if (!context) throw new Error(HOSTED_CONTEXT_ERROR);
+    return context;
+  } catch (error) {
+    if (error instanceof Error && error.message === HOSTED_CONTEXT_ERROR) throw error;
+    throw new Error(HOSTED_CONTEXT_ERROR);
+  }
 }

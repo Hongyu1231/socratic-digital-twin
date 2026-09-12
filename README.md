@@ -24,7 +24,7 @@ The project runs without external services: it uses an in-process repository and
 - User Guide: [English](docs/USER_GUIDE.md) · [中文](docs/USER_GUIDE_ZH.md)
 - Developer Guide: [English](docs/DEVELOPER_GUIDE.md) · [中文](docs/DEVELOPER_GUIDE_ZH.md)
 - [System Architecture](docs/ARCHITECTURE.md) — source map, frontend/backend boundaries, data flows, and engineering decisions
-- [Local teaching materials](docs/TEACHING_MATERIALS.md) — import case DOCX/images and page-attributed PDF references for private tutor tests
+- [Teaching materials](docs/TEACHING_MATERIALS.md) — local import and explicit Supabase publication of case images with server-only, page-attributed reference retrieval
 - [Contributing](CONTRIBUTING.md) — branch, testing, pull-request, security, and review expectations
 - [Tutor Humanization & Professor Feedback Loop](docs/HUMANIZATION_PLAN.md)
 

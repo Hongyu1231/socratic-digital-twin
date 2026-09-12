@@ -80,6 +80,7 @@ function restoreEnvironment() {
 function bundleWithHiddenFields(clinicalCase: ClinicalCase): SessionBundle {
   const caseWithHiddenFields = {
     ...clinicalCase,
+    teachingMaterialPackageId: "f".repeat(64),
     phases: clinicalCase.phases.map((phase, index) => index === 0 ? {
       ...phase,
       tutorGuidance: ["PRIVATE_TUTOR_GUIDANCE"],
@@ -214,6 +215,7 @@ describe("private teaching-materials integration", () => {
     expect(publicCase).not.toHaveProperty("expertNotes");
     expect(publicCase).not.toHaveProperty("sourceDocument");
     expect(publicCase).not.toHaveProperty("literature");
+    expect(publicCase).not.toHaveProperty("teachingMaterialPackageId");
     const publicPhase = (publicCase.phases as Array<Record<string, unknown>>)[0];
     expect(publicPhase).not.toHaveProperty("tutorGuidance");
     expect(publicPhase).not.toHaveProperty("tutorMoves");

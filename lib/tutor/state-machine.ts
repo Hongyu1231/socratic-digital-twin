@@ -10,7 +10,7 @@ import { contentHash } from "@/lib/experiments/privacy";
 import { selectTutorMove } from "@/lib/tutor/question-planner";
 import { mergeLearnerEvidence } from "@/lib/tutor/learner-model";
 import { buildStudentVisibleTutorReply } from "@/lib/tutor/correction-policy";
-import { getTeachingContext } from "@/lib/materials/retrieval";
+import { getTeachingContext, getTeachingContextAsync } from "@/lib/materials/retrieval";
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 
@@ -56,7 +56,13 @@ async function performStudentAnswer(
     title: bundle.case.title,
     description: bundle.case.description,
     learningObjectives: bundle.case.learningObjectives,
-    teachingContext: getTeachingContext(bundle.case.id, `${content} ${currentQuestion ?? ""} ${phase.goal}`),
+    teachingContext: bundle.case.teachingMaterialPackageId
+      ? await getTeachingContextAsync(
+        bundle.case.sourceCaseId ?? bundle.case.id,
+        `${content} ${currentQuestion ?? ""} ${phase.goal}`,
+        bundle.case.teachingMaterialPackageId,
+      )
+      : getTeachingContext(bundle.case.sourceCaseId ?? bundle.case.id, `${content} ${currentQuestion ?? ""} ${phase.goal}`),
     attachments: (bundle.case.attachments ?? []).map(({ kind, title, description, transcript }) => ({
       kind,
       title,

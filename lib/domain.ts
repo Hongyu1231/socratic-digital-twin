@@ -140,6 +140,8 @@ export interface ClinicalCase {
   publishedAt?: string | null;
   attachments?: CaseAttachment[];
   isTestFixture?: boolean;
+  /** Server-only pointer to a validated hosted teaching-material package. */
+  teachingMaterialPackageId?: string;
 }
 
 export interface TutorMessage {
@@ -293,7 +295,8 @@ export interface TutorEvaluateInput {
     teachingContext?: {
       expertNotes: string;
       sourceDocument: string;
-      literature: Array<{ sourceId: string; title: string; page: number; text: string }>;
+      literature: Array<{ sourceId: string; title: string; page: number; text: string;
+        sourceType?: "published_literature" | "expert_interview"; locator?: string; expert?: string; section?: string }>;
     };
   };
   answer: string;

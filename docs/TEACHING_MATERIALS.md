@@ -3,7 +3,8 @@
 The importer prepares DOCX case descriptions, case images and PDF literature for
 local tutor testing. This is retrieval at question time, not model fine-tuning.
 The original archives and their extracted content stay in an ignored local
-directory. The public demo and Supabase teaching data do not load this pack.
+directory. By default the public demo and Supabase teaching data do not load
+this pack; the bounded publication command below is an explicit opt-in.
 
 ## Import and run
 
@@ -50,9 +51,20 @@ because the validated manifest is cached for the process lifetime.
 - Student APIs also omit internal tutor guidance and scripted answer matchers;
   grading rubrics and future starter/example questions are returned empty.
 - Each PDF retains its filename, content hash, title and PDF page number. The
-  retriever selects up to four relevant passages, at most two per source and
+  retriever selects up to four relevant passages, at most two per published source and
   6,000 text characters in total. Titles are taken from the supplied filenames;
   page numbers are PDF page indices, not journal pagination.
+- Expert interviews retain the named expert, section and DOCX paragraph locator.
+  Their numeric `page` is only an internal chunk ordinal, never a physical Word
+  page. Case-specific discussion is restricted to its corresponding case;
+  general discussion remains available to the pack's cases. Retrieval can select
+  up to three different experts from an interview, at most one passage per expert,
+  within the same four-passage/6,000-character overall budget. Up to two slots
+  are reserved for query-matching interview passages explicitly scoped to the
+  active case, so longer general literature cannot displace all case-specific
+  expert context. Unmatched interview passages are not forced into the result.
+  Divergent expert
+  opinions are not collapsed into a single official answer or treated as consensus.
 - References are quoted data. Neither a student answer nor a document can
   supply system instructions. Literature case reports must not be treated as
   facts about the active patient or universal treatment recommendations.
@@ -66,11 +78,18 @@ or diagnostic image change is applied. Embedded file metadata is stripped; this
 does **not** remove patient details burned into the pixels. Image titles describe
 the supplied modality and do not invent findings. The text tutor uses expert
 notes and learner observations; it must not claim to have inspected image pixels.
+When a pack is explicitly published, the same registered WebP objects are served
+from the public teaching-media bucket and the reference manifest is kept in a
+private teaching-reference bucket. The public case stores only a package pointer
+and the allowlisted media metadata; expert notes and article passages stay in the
+private reference object and are read by the server runtime.
 
 ## Verification
 
 See [the recorded local validation](TEACHING_MATERIALS_VALIDATION.md) for the
-import counts, real-model checks, browser flows and measured timings.
+import counts, real-model checks, browser flows and measured timings. See
+[the expert-interview validation](EXPERT_INTERVIEW_VALIDATION.md) for the later
+attributed interview revision and hosted knowledge-base checks.
 
 ```powershell
 python scripts/test_import_teaching_materials.py
@@ -105,10 +124,72 @@ open the Case drawer and confirm the composer remains visible. Confirm the
 catalogue/session JSON contains no `expertNotes`, `sourceDocument` or literature
 excerpts, and that `/api/materials/<id>` serves only registered media.
 
-## Publication boundary
+## Add an expert interview
 
-The existing public POC exposes seeded demo roles. Therefore the private pack is
-disabled on Vercel and whenever the repository is not forced to memory. Keep
-`TUTOR_MATERIALS_DIR` unset on the public site. Do not copy these records, PDFs or
-the manifest into `public/`, migrations, seed data or Git. Publishing the supplied
-records requires a separate decision about permitted access and source rights.
+Build a separate private pack revision; the original pack and document are not
+overwritten. A repeated import of the same document into the same output is a
+no-op. Only the interview's text and provenance are added to server-only reference
+data; neither its teaching suggestions nor quoted commands replace system policy.
+
+```powershell
+python scripts/import-expert-interview.py --document "PATH/expert-panel.docx" --pack-dir work/teaching-materials --output work/teaching-materials-expert-panel
+python scripts/test_import_expert_interview.py
+```
+
+Use the new output directory for the publication commands below. A new reference
+pack has an immutable package ID. The publisher will reject changes to previously
+published case content; do not overwrite an old reference object or mutate a case
+with historical sessions to force a new revision through.
+
+## Online publication (explicit opt-in)
+
+The existing public POC exposes seeded demo roles. The importer remains local-only
+and `TUTOR_MATERIALS_DIR` must stay unset on Vercel. Do not copy the archives,
+PDFs, original DOCX files, or the manifest into `public/`, migrations, seed data,
+or Git. The publication command uploads only the validated WebP attachments to
+`teaching-case-media` and stores the full reference manifest (including expert
+notes and article passages) in the private `teaching-material-references` bucket.
+
+The command is dry-run by default. It validates every manifest attachment, file
+hash, WebP signature, package id and path boundary, then prints counts and stable
+ids without contacting Supabase:
+
+```powershell
+node --env-file-if-exists=.env.local scripts/publish-teaching-materials.mjs `
+  --dry-run --materials-dir work/teaching-materials
+```
+
+Stage drafts and media only after checking the target project and actors. The
+service-role key is read only from the environment and is never printed:
+
+```powershell
+node --env-file=.env.local scripts/publish-teaching-materials.mjs `
+  --apply --confirm-project <SUPABASE_PROJECT_REF> `
+  --class-id <ACTIVE_CLASS_UUID> `
+  --professor-id <ACTIVE_CLASS_PROFESSOR_UUID> `
+  --admin-id <ACTIVE_ADMIN_UUID> `
+  --materials-dir work/teaching-materials
+```
+
+This first write step creates or verifies the two buckets, content-addressed
+objects, draft cases and stable phases; it creates no student assignments. It
+refuses to overwrite an existing object, published case, mismatched package,
+phase, or assignment. After the hosted runtime has been deployed and verified,
+add `--publish` to activate the verified case versions and create one idempotent
+open assignment per case:
+
+```powershell
+node --env-file=.env.local scripts/publish-teaching-materials.mjs `
+  --apply --publish --confirm-project <SUPABASE_PROJECT_REF> `
+  --class-id <ACTIVE_CLASS_UUID> `
+  --professor-id <ACTIVE_CLASS_PROFESSOR_UUID> `
+  --admin-id <ACTIVE_ADMIN_UUID> `
+  --materials-dir work/teaching-materials
+```
+
+The `--publish` step is safe to repeat for the same package and class. It does
+not delete historical sessions or close unrelated assignments. Review the case
+records and run the hosted read-only smoke test before enabling assignments for
+students. The public demo's role selector is synthetic and is not an access
+control boundary; use only appropriately authorized, de-identified teaching
+media and reference material.
