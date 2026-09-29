@@ -431,7 +431,7 @@ function buildCaseRow(candidate, packageId, adminId, supabaseUrl, privateMedia =
         // URL after checking session ownership and phase unlock. Never put a
         // public Storage URL or a permanent signed URL in the case row.
         storagePath: PRIVATE_MEDIA_PATH(packageId, attachment.id),
-        unlockPhase: 1,
+        unlockPhase: attachment.unlockPhase ?? 1,
         unlockOnRequest: false,
         sourceLabel: "Private teaching media (server-authorized)",
         ...(attachment.unlockOnRequest === false ? { unlockOnRequest: false } : {}),

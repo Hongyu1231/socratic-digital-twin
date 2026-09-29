@@ -180,6 +180,39 @@ describe("teaching-material publication boundary", () => {
     expect(plan.cases[0].case.attachments[0]).not.toHaveProperty("sourceUrl");
   });
 
+  it("preserves a later attachment unlock phase in private-media mode", () => {
+    const fixture = makeFixture();
+    fixture.manifest.cases[0].case.phases.push({
+      id: uuid("phase-2"),
+      caseId: fixture.caseId,
+      order: 2,
+      title: "Interpret",
+      goal: "Interpret the finding.",
+      rubric: ["Connect the finding to the decision."],
+      starterQuestion: "What does the finding change?",
+      exampleQuestions: ["Which decision does it affect?"],
+      tutorGuidance: [],
+      tutorMoves: [],
+    });
+    fixture.manifest.cases[0].case.attachments[0].unlockPhase = 2;
+
+    const manifest = validateManifest(fixture.manifest, fixture.root);
+    const plan = buildPublicationPlan({
+      manifest,
+      supabaseUrl: "https://zulvdacbqvmqmtotyeuc.supabase.co",
+      classId: "11111111-1111-4111-8111-111111111111",
+      professorId: "22222222-2222-4222-8222-222222222222",
+      adminId: "99999999-9999-4999-8999-999999999999",
+      privateMedia: true,
+    });
+
+    expect(plan.cases[0].case.attachments[0]).toMatchObject({
+      storagePath: `${fixture.manifest.packageId}/${fixture.mediaId}.webp`,
+      unlockPhase: 2,
+      unlockOnRequest: false,
+    });
+  });
+
   it("normalizes legacy rubric strings, preserves explicit criteria, and writes text-only objectives", () => {
     const fixture = makeFixture();
     fixture.manifest.cases[0].case.phases[0].rubric = [

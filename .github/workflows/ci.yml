@@ -4,7 +4,8 @@ on:
   pull_request:
     branches: [master]
   push:
-    branches: [master]
+    # Verify release candidates before promoting them to the production branch.
+    branches: [master, 'feature/**']
 
 permissions:
   contents: read
