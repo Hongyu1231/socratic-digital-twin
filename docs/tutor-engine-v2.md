@@ -72,10 +72,14 @@ The student bundle already blanks `rubric` (`lib/http.ts:35`).
 
 **What.** The model's output gains two fields:
 
-- `targetCriterionId`: which criterion the next question is aimed at. Must be one of the current phase's criterion IDs. The schema enum is built per turn from the phase.
-- `criteriaMet`: IDs of criteria this answer satisfies.
+- `targetCriterionId`: which criterion the next question is aimed at, as `string | null`. The model returns `null` when no criterion fits. The schema doesn't restrict it to the current phase's IDs. Code checks it against them instead (see "Fails safe" below).
+- `criteriaMet`: the criteria this answer satisfies, as a list of `{ id, evidence }`. `evidence` is a short quote from the student's answer.
 
 The engine stores, per session and phase, the set of criteria met so far and the best classification so far.
+
+**Criteria decide advancement.** A phase completes when all its criteria have been met, accumulated across any number of answers in that phase. The student doesn't have to meet them all in one answer. The classification (`wrong`, `vague`, `partial`, `correct`) stays as a per-answer quality label. It still drives the no-progress counter below, the two-strike correction (3.6) and the professor view, but it no longer decides whether the phase advances. So the progress the student sees (3.5) and the rule that advances them are the same number, and they can't disagree.
+
+**Evidence is recorded, not verified.** `evidence` is stored for professors to review. Code doesn't check that the quote appears in the student's answer. Verifying quotes would reject criteria that students genuinely met whenever they paraphrase, or whenever the model paraphrases them, which breaks the fail-open principle. If professor reviews show the model over-awarding criteria, a check can be added later, with that evidence to justify it.
 
 The prompt also tells the tutor not to repeat or rephrase any of its own earlier questions in this phase, and to change approach instead. This is a first line of defence only. The counter is the enforcement.
 
@@ -90,9 +94,11 @@ Comparing against the best so far, not the previous answer, means a student who 
 
 **Why.** Jessica's loop was the same target, reworded. Tracking the target, not the wording, is what stops it.
 
-**Fails safe.** An invalid or missing `targetCriterionId` is treated as untagged. The counter still runs on classification alone.
+**Fails safe.** Code checks `targetCriterionId` against the current phase's criterion IDs. A missing, `null` or unknown value means the turn is untagged, and the rest of the evaluation is kept. The counter still runs on classification alone. `criteriaMet` entries with unknown IDs are filtered out. They never cause a rejection.
 
-**Touches.** `lib/schemas.ts` output schema, `lib/tutor/prompt.ts` (including `prompt.ts:31`, whose current anti-repeat rule covers only the phase starter question), `lib/tutor/state-machine.ts`, evaluation storage. The output schema is a single module-level constant today, passed to both providers (`lib/tutor/openai.ts:37,44`, `lib/tutor/claude.ts:31`), so a per-turn enum also touches those two files. The deterministic fallback (`lib/tutor/deterministic.ts`) produces the same result shape.
+The general rule: be strict on what the turn needs, and lenient on labels. The turn needs a valid `classification` and a `nextQuestion` with exactly one question mark, and output without them is rejected as today. Labels (`targetCriterionId`, `criteriaMet` IDs) are filtered when invalid, never used to reject a turn.
+
+**Touches.** `lib/schemas.ts` output schema, `lib/tutor/prompt.ts` (including `prompt.ts:31`, whose current anti-repeat rule covers only the phase starter question), `lib/tutor/state-machine.ts`, evaluation storage. The output schema stays a single fixed definition, as it is today, so the providers that receive it (`lib/tutor/openai.ts`, `lib/tutor/claude.ts`) don't change. The deterministic fallback (`lib/tutor/deterministic.ts`) produces the same result shape.
 
 **Where the state lives today (fact note).** Per-session, per-phase state already exists: `LearnerState` (`lib/domain.ts:176-188`) holds maps keyed by phase order, such as `phaseAttempts` and `mastery`. `phaseAttempts` is read at `state-machine.ts:46` and written at `state-machine.ts:144-148`. The whole object is persisted as `session_state.state` JSONB (`schema.sql:178-191`, one row per session). The commit RPC writes it (`p_state`, `schema.sql:487-509`) in the same transaction as the messages and evaluation, guarded by the `version` check. That object is the most natural existing home for the no-progress counter, the best classification so far and the criteria met, as new phase-keyed maps. It needs no new table or column. This state never reaches the student, because the student bundle becomes an allowlist (3.10).
 
@@ -106,27 +112,32 @@ Per-evaluation values (`targetCriterionId`, `criteriaMet`) have an existing home
 |---|---|
 | 0 | Narrower Socratic question on the unmet criterion (current behaviour) |
 | 1 | A hypothetical for the student to critique, e.g. "If someone planned it this way, is that feasible?" |
-| 2 | Reveal the specific finding for the unmet criterion, say briefly why it matters, and ask the student to apply it. Then the phase advances |
+| 2 | Reveal the specific finding for the unmet criterion, say briefly why it matters, and ask the student to apply it. The phase then waits for the application answer and advances |
 
-A phase that advances after level 2 is recorded as `completedWithSupport: true`. Professors see this flag, and the learning summary reflects it.
+**How a phase completes.** A phase completes in one of two ways, at any support level:
 
-**The ceiling.** When the total number of answers in a phase reaches `phaseCeiling` (default 8), the engine jumps straight to level 2, whatever the model says.
+- all its criteria have been met (3.2), or
+- a level 2 reveal happened and the student has given the application answer.
 
-Advancement on a `correct` classification works exactly as today, at any level.
+**After a reveal.** After a level 2 reveal, in every phase, the phase waits for exactly one answer: the application. This is tracked as an explicit boolean in session state, `awaitingApplication`. The application answer is always accepted and never graded as a gate. It's still evaluated and recorded for professors. Then the phase advances.
 
-**The final reflection.** The reflection question is always asked before the session ends, however the final phase completes: a `correct` answer, a level 2 reveal, or the ceiling. When the final phase completes, the next tutor message is the reflection question instead of the completion message. If the final phase completes through a level 2 reveal, the reveal comes first and the student answers it. Then the reflection is asked. Any answer to the reflection ends the session. It's never graded as a gate.
+**Independent or supported.** A phase is recorded as `completedWithSupport: true` if and only if a level 2 reveal happened in it. A phase completed after a level 1 hypothetical still counts as independent. Professors see this flag, and the learning summary shows each phase as independent or supported.
+
+**The ceiling.** `phaseCeiling` (default 8) counts the answers in a phase before the reveal. When that count reaches `phaseCeiling`, the engine jumps straight to level 2 and reveals, whatever the model says. The application answer doesn't count toward the ceiling. So a phase takes at most `phaseCeiling` answers plus one application.
+
+**The final reflection.** The reflection question is always asked before the session ends, however the final phase completes. When the final phase completes by any route, the next tutor message is the reflection question instead of the completion message. If the final phase completes through a level 2 reveal, whether stepped up to or forced by the ceiling, the order is: the reveal, then the student's application answer, then the reflection, then the session ends. Any answer to the reflection ends the session. It's never graded as a gate.
 
 Whether the reflection has been asked is tracked as an explicit boolean in session state, `reflectionAsked`. This replaces today's detection by matching the text of the current question.
 
 That detection is buggy today. `state-machine.ts:107-119` adds the reflection only when the classification is `correct`, no scripted move matched, and the current tutor question doesn't match the reflection regex at line 107. For Cases 1 to 3, the final phase's starter question ("Which finding or uncertainty had the greatest influence…", `scripts/import-teaching-materials.py:90`) matches that regex. So a `correct` first answer there ends the session with no reflection. Once the reflection has been asked, today's code also still requires a `correct` answer to finish (`state-machine.ts:126`).
 
-**Scripted moves.** The ladder and the ceiling override scripted moves that set `blockAdvancement`. Scripted moves still run. The student's answer to one follows the normal progress rule in 3.2. `blockAdvancement` stops a `correct` classification from advancing the phase, but it never stops the ladder or the ceiling, so no scripted move can hold a student past `phaseCeiling`. Today a scripted move with both `recordError` and `blockAdvancement` can fire repeatedly (`lib/tutor/question-planner.ts:38`) and blocks advancement every time (`state-machine.ts:126`).
+**Scripted moves.** The ladder and the ceiling override scripted moves that set `blockAdvancement`. Scripted moves still run. The student's answer to one follows the normal progress rule in 3.2. `blockAdvancement` stops the phase completing on criteria alone on the turn the move fires, but it never stops the ladder, the ceiling or the advance after an application answer, so no scripted move can hold a student past `phaseCeiling`. Today a scripted move with both `recordError` and `blockAdvancement` can fire repeatedly (`lib/tutor/question-planner.ts:38`) and blocks advancement every time (`state-machine.ts:126`).
 
 Each scripted move carries a clinician-written `targetCriterionId`. When a scripted move replaces the model's question (`state-machine.ts:199`), the move's tag is recorded, not the model's. A move with no tag counts as untagged, which is the existing fail-safe in 3.2.
 
 **Why.** It mirrors how the expert panel handles a stuck resident: revisit, offer a hypothetical, tell them if they're wrong, and never let them stay lost. The ceiling guarantees no session can be trapped, and the reflection closes every session the same way.
 
-**Fails safe.** If the model fails to write the level 2 reveal, the engine uses the criterion's optional `revealText`, and failing that, the criterion text itself.
+**Fails safe.** If the model fails to write the level 2 reveal, the engine uses the criterion's optional `revealText`, and failing that, the criterion text itself. While `awaitingApplication` is set, the phase advances on the next answer even if the model call fails.
 
 **Touches.** `lib/tutor/state-machine.ts`, `lib/tutor/question-planner.ts`, `lib/tutor/prompt.ts`, session-phase storage (`session_state.state`, see the note in 3.2), `lib/schemas.ts`, `lib/domain.ts` (`TutorMove`, `LearnerState`). The scripted move schema is strict (`lib/schemas.ts:73-87`), so the editor rejects `targetCriterionId` until it's added there. `mapPhase` passes `metadata.tutorMoves` through without validation (`lib/repository/supabase.ts:60`).
 
@@ -140,7 +151,8 @@ Rules for the acknowledgement, enforced in the prompt:
 - Affirm the reasoning, not correctness, until the phase is complete.
 - When the answer is wrong, acknowledge what's usable in it without endorsing the error.
 - Never reveal hidden case facts.
-- On phase completion, say clearly that they've got it.
+- On independent completion (3.3), say clearly that they've got it. This is the only case where "you've got it" is allowed.
+- On supported completion, after a reveal, acknowledge specifically what the student did with the finding in their application answer. Never claim mastery.
 
 On phase completion, the student sees the acknowledgement, then the next phase's starter question. The model's reply is no longer discarded.
 
@@ -156,7 +168,9 @@ On phase completion, the student sees the acknowledgement, then the next phase's
 
 **Why.** Answers Jessica's second question without handing the student the answers.
 
-**Fails safe.** A wrong count is cosmetic. It never blocks the student.
+The count shown is the same number that decides advancement (3.2). The phase completes when `criteriaMet` reaches `criteriaTotal`, so the display and the rule can't disagree.
+
+**Fails safe.** The count is read from the same stored set of met criteria that the engine uses, so it can't drift from the rule. If the model under-awards criteria, the ladder and the ceiling (3.3) still move the student on.
 
 **Touches.** `lib/http.ts` student bundle (built by the allowlist in 3.10), the student chat UI.
 
@@ -193,13 +207,21 @@ The student bundle includes only unlocked items, filtered on the server. The tut
 - The publish script uploads to the private bucket.
 - When a URL expires, the student image viewer requests a fresh one. It reuses its existing retry path.
 
-This is required regardless of unlocking. Real patient radiographs are expected once IRB approval comes through, and the original technical proposal committed to protecting case materials with storage controls and RLS. A public bucket with URLs that are merely unsent doesn't meet that. Bruce owns the bucket move, signing and the publish script. Arshin owns the viewer's refresh.
+This is required regardless of unlocking. Real patient radiographs are expected once IRB approval comes through, and the original technical proposal committed to protecting case materials with storage controls and RLS. A public bucket with URLs that are merely unsent doesn't meet that. Real patient materials also wait for real accounts (the prerequisite in section 9). Bruce owns the bucket move, signing and the publish script. Arshin owns the viewer's refresh.
+
+**The re-signing route.** The route that re-issues a signed URL takes a session ID and an attachment ID, never an attachment ID alone. Before signing, it verifies that:
+
+- the session belongs to the caller, or the caller is a professor or admin with access to that session's class;
+- the attachment belongs to the session's case version;
+- for students, the attachment is unlocked for the session's current phase. Professors and admins see all attachments.
+
+A locked attachment and a non-existent one return the same not-found response, so the route can't reveal what later phases contain.
 
 **Why.** Restores the natural order of a clinical work-up (history, examination, 2D films, then CBCT), stops the CBCT from answering phase 2 before it starts, and gives the step-by-step reveal Jessica liked, using real findings instead of invented ones.
 
 **Fails safe.** Unlocking depends only on the phase number, never on the model. An expired link shows the viewer's existing error state, and retrying fetches a fresh link.
 
-**Touches.** Attachment schema and storage, a new findings table or column, `lib/http.ts`, `app/api/cases/route.ts`, `lib/tutor/state-machine.ts:66-71`, the attachments panel (`components/case-resources.tsx`), `scripts/publish-teaching-materials.mjs`, a server route that re-issues the signed URL for one unlocked attachment (name agreed in review).
+**Touches.** Attachment schema and storage, a new findings table or column, `lib/http.ts`, `app/api/cases/route.ts`, `lib/tutor/state-machine.ts:66-71`, the attachments panel (`components/case-resources.tsx`), `scripts/publish-teaching-materials.mjs`, the re-signing route described above (name agreed in review).
 
 **Current storage and serving (fact note).**
 
@@ -230,6 +252,17 @@ This is required regardless of unlocking. Real patient radiographs are expected 
 
 A concurrent retry waits on the row lock, then finds the committed turn and returns it. The outcome is exactly one turn, and both requests receive it. There's no 409 and no "still processing" state. The unique constraint remains as a backstop.
 
+**Two layers.** The RPC order above handles concurrent retries. A second, earlier lookup handles late retries. On the message path, the order becomes:
+
+1. Authenticate the caller.
+2. Verify the session belongs to the caller.
+3. Look up `(session_id, client_request_id)`. If the request ID already exists, return that turn immediately.
+4. Only then run the completed and paused checks, the model call and the RPC.
+
+This covers late retries, including a retry of the answer that completed the session. Today that retry would be rejected by the completed-session check before it reached the RPC. It also avoids a second model call. The lookup runs only after ownership is verified, so it can't be used to probe other sessions.
+
+Today the ownership check and the completed and paused checks sit next to each other in `performStudentAnswer`: ownership at `lib/tutor/state-machine.ts:39`, then the completed check at `:40` and the paused check at `:41`. The message route itself only authenticates and parses the request (`app/api/session/message/route.ts`). The early lookup goes between lines 39 and 40, and the repository gains a read of a turn by `(session_id, client_request_id)`.
+
 **Current RPC (fact note).** `commit_tutor_turn` (`schema.sql:291-526`) is a single PL/pgSQL function call, so it runs in one transaction:
 
 - It locks the session row `FOR UPDATE` (344-348), then checks the expected state version (358-365).
@@ -244,11 +277,11 @@ Nothing on the turn path writes the turn to the database before the RPC:
 - Retrieval only reads, with a Storage GET for hosted packs (`lib/materials/hosted.ts:100`).
 - `commitTurn` itself reads the session before and after the RPC (`supabase.ts:421,447`).
 
-The only earlier writes are the humanization experiment's arm assignment and shadow result (`lib/experiments/store.ts:199-200`). They run only for cases without a teaching-material package while an experiment is active (`state-machine.ts:86-100`), are keyed by session and state version, and ignore duplicate-key errors. So if a retry arrives while the first request is still generating, both may call the model, but only the first to commit is saved.
+The only earlier writes are the humanization experiment's arm assignment and shadow result (`lib/experiments/store.ts:199-200`). They run only for cases without a teaching-material package while an experiment is active (`state-machine.ts:86-100`), are keyed by session and state version, and ignore duplicate-key errors. So if a retry arrives while the first request is still generating, before anything is committed, both may call the model, but only the first to commit is saved. A retry that arrives after the commit is answered by the early lookup and never calls the model.
 
 **Why.** The in-memory check can't see across Vercel instances.
 
-**Touches.** A new migration, the commit RPC, `lib/repository/supabase.ts:426-445`, `lib/repository/memory.ts:174-197`, `lib/idempotency.ts` (kept as a fast path or removed).
+**Touches.** A new migration, the commit RPC, `lib/tutor/state-machine.ts:37-41` (the early lookup), `lib/repository/supabase.ts:426-445`, `lib/repository/memory.ts:174-197`, a repository read by request ID in both repositories, `lib/idempotency.ts` (kept as a fast path or removed).
 
 ### 3.9 Retrieval logging, then comparison
 
@@ -270,13 +303,36 @@ The only earlier writes are the humanization experiment's arm assignment and sha
 
 **Touches.** `lib/http.ts`, and every student route that returns `studentView` (`app/api/session/message`, `start`, `[id]`, `[id]/complete`, `[id]/pause`, `[id]/resume`).
 
+### 3.11 Content delivery and versioning
+
+**Near-term path.** The clinical leads approve content in a Google Doc. Arshin converts it into the teaching-material pack format and runs the publish script. Bruce extends the publish script for the new shapes as part of 3.1 and 3.7. The content is published as a new case version.
+
+**On publish.**
+
+- The previous version becomes `superseded`. It's hidden from new assignments, and sessions already running on it continue.
+- It's deliberately not archived, because archiving closes assignments through a database trigger.
+- The publisher chooses whether to move open assignments to the new version. The default is to move them.
+- When an assignment moves, students who haven't started get the new version, students mid-session finish on the old one, and completed sessions are untouched.
+
+**Long-term.** Clinicians edit through the admin case editor once real accounts and a clinician role exist (section 9). The largest blocker is the tutor-only case summary (`expertNotes`). It lives in an immutable private storage manifest, not the database, so it has to move into the database before clinicians can fully own a case.
+
+**Ownership.** The `superseded` status and assignment moving are Bruce's. The publish-time choice UI is Arshin's. Converting and publishing content is Arshin's.
+
+**Current versioning (fact note).**
+
+- Case versions already exist as separate `cases` rows linked by `source_case_id` and `version`, unique per lineage (`supabase/migrations/20260812000000_add_class_collaboration.sql:22,32-33`). The publish script writes `version: 1` today (`scripts/publish-teaching-materials.mjs:339`).
+- `case_status` has only `draft`, `active` and `archived` (`schema.sql:16-20`), and `cases_publication_consistent` names `active` and `archived` explicitly (`20260812000000_add_class_collaboration.sql:24-28`). Adding `superseded` needs a migration that changes both.
+- Archiving a case fires `close_assignments_for_archived_case`, which sets every open assignment for that case to `closed` (`supabase/migrations/20260819010000_harden_summary_jobs_and_data_integrity.sql:237-253`, trigger at `:630-632`). A second trigger rejects new sessions on archived cases (`:286-310`, `:635-637`).
+- Assignments point at one case row through `class_case_assignments.case_id` (`20260812000000_add_class_collaboration.sql:77`), and each session keeps its own `case_id` (`schema.sql:118`). Moving an assignment changes the former. Running sessions keep the latter, which is why mid-session students finish on the old version.
+- `expertNotes` is part of each case entry in the pack manifest (`lib/materials/pack.ts:45,118`). The publish script writes the manifest to a private bucket at `<packageId>/manifest.json` and refuses to overwrite an existing object whose contents differ (`scripts/publish-teaching-materials.mjs:34,551-562,761`). The server reads it from there (`lib/materials/hosted.ts:32`) and passes it to the model (`lib/materials/retrieval.ts:203`).
+
 ---
 
 ## 4. The contract
 
 **Proposed names. Bruce confirms or renames them in review. Both sides build against whatever is agreed here.**
 
-Name check (29 Sep 2026, whole repo excluding `node_modules`): none of `phaseProgress`, `criteriaMet`, `criteriaTotal`, `completedWithSupport`, `moveType`, `unlockPhase`, `unlockOnRequest`, `targetCriterionId`, `supportLevel`, `revealText`, `noProgressLimit`, `phaseCeiling`, `correctionProbes`, `reflectionAsked` or `client_request_id` appear in TypeScript, Zod schemas, SQL migrations, `lib/database.types.ts` or JSON metadata keys. The same is true of their snake_case forms.
+Name check (29 Sep 2026, whole repo excluding `node_modules`): none of `phaseProgress`, `criteriaMet`, `criteriaTotal`, `completedWithSupport`, `moveType`, `unlockPhase`, `unlockOnRequest`, `targetCriterionId`, `supportLevel`, `revealText`, `noProgressLimit`, `phaseCeiling`, `correctionProbes`, `reflectionAsked`, `awaitingApplication`, `superseded` or `client_request_id` appear in TypeScript, Zod schemas, SQL migrations, `lib/database.types.ts` or JSON metadata keys. The same is true of their snake_case forms.
 
 - `acknowledgement` appears only in a test description (`lib/tutor/prompt.test.ts:21`).
 - `findings` appears only in prose. The nearest existing field is `case_phases.expected_findings`, a per-phase JSONB object (`schema.sql:98`) that the app never reads.
@@ -290,9 +346,9 @@ The student bundle is allowlisted (3.10). It contains the fields the current stu
 ```ts
 // Added to each phase in the bundle
 phaseProgress: {
-  criteriaMet: number;          // count only, never criterion text
+  criteriaMet: number;          // count only, never criterion text; the phase completes when it reaches criteriaTotal
   criteriaTotal: number;
-  completedWithSupport: boolean;
+  completedWithSupport: boolean; // the learning summary shows each phase as independent or supported
 }
 
 // Added to tutor messages
@@ -314,20 +370,35 @@ findings: { id; title; text; unlockPhase }[];   // unlocked only
 ### Professor review, per evaluation
 
 ```ts
-targetCriterionId?: string;
-criteriaMet: string[];
+targetCriterionId: string | null;                  // null when untagged
+criteriaMet: { id: string; evidence: string }[];   // evidence recorded, not verified
 supportLevel: 0 | 1 | 2;
-completedWithSupport: boolean;
+completedWithSupport: boolean;                     // true only if a reveal happened in the phase
 retrieval?: { query: string; passages: { sourceId: string; page: number; locator?: string; score: number }[] };
 ```
 
-### Model output schema additions
+### Session state additions (server only, never in the student bundle)
 
 ```ts
-acknowledgement: string;        // one sentence, ≤200 chars, no "?"
-targetCriterionId: string;      // enum of the current phase's criterion IDs
-criteriaMet: string[];          // subset of the same enum
+awaitingApplication: boolean;   // set by a level 2 reveal, cleared by the next answer
+reflectionAsked: boolean;
 ```
+
+The per-phase criteria met, best classification, no-progress counter and support level are phase-keyed maps in the same state (3.2).
+
+### Model output schema additions
+
+The schema is a single fixed definition, not built per turn.
+
+```ts
+acknowledgement: string;                           // one sentence, ≤200 chars, no "?"
+targetCriterionId: string | null;                  // null when no criterion fits
+criteriaMet: { id: string; evidence: string }[];   // evidence is a short quote from the answer
+```
+
+Strict on what the turn needs, lenient on labels. A missing `classification`, or a `nextQuestion` without exactly one question mark, rejects the output as today. A missing, `null` or unknown `targetCriterionId` is recorded as untagged, and `criteriaMet` entries with unknown IDs are filtered out. Neither ever rejects the turn (3.2).
+
+A phase completes when every criterion ID appears in its accumulated `criteriaMet`, or when the application answer after a reveal arrives (3.3). `classification` doesn't gate advancement.
 
 ---
 
@@ -374,24 +445,38 @@ The admin editor is extended to expose these fields where it doesn't already (fr
 
 **Unit tests** (deterministic stub model, memory repository), one or more per change:
 
+- A phase completes when its criteria are met across several answers, none of them classified `correct`.
+- A `correct` classification with criteria still unmet doesn't advance the phase.
+- The `criteriaMet` count in the student bundle equals the count the engine uses to advance.
+- `criteriaMet` evidence is stored as given, including a paraphrase that doesn't appear in the answer.
+- An invalid `targetCriterionId` keeps the evaluation and records it as untagged.
+- `criteriaMet` entries with unknown IDs are filtered out and don't reject the turn.
 - The counter resets on a new criterion met or a new best classification, and does not reset on vague, partial, vague, partial.
 - The ladder steps up exactly at `noProgressLimit`.
-- The ceiling forces level 2 at `phaseCeiling`, and the phase records `completedWithSupport`.
+- The ceiling forces level 2 at `phaseCeiling` answers before the reveal. The application answer doesn't count toward it, so the phase takes at most `phaseCeiling` answers plus one.
+- After a level 2 reveal in a non-final phase, `awaitingApplication` is set, the next answer is accepted whatever its classification, and the phase advances with `completedWithSupport: true`.
+- A phase completed after a level 1 hypothetical, with no reveal, records `completedWithSupport: false`.
 - A missing acknowledgement falls back to the question alone, and never errors.
+- The prompt allows "you've got it" only on independent completion, and asks for a specific, non-mastery acknowledgement on supported completion.
 - Strike two fires without a matching key and respects `correctionProbes`.
 - The student bundle never contains locked attachment URLs or criterion text.
 - The student bundle contains only allowlisted fields.
 - The case catalogue contains no attachment URLs.
 - Locked attachments get no signed URL.
+- Re-signing is refused for another student's session, for a locked attachment and for an attachment from another case. The locked response is identical to the response for a non-existent attachment.
 - The model input contains no retrieval scores.
-- The reflection is asked when the final phase completes via the ceiling.
+- The reflection is asked when the final phase completes by each route: criteria met, a stepped-up reveal and a ceiling reveal.
+- In the final phase, a reveal is followed by the application answer, then the reflection, then the session ends.
 - `reflectionAsked` prevents a second reflection.
 - A blocking scripted move can't hold a student past `phaseCeiling`.
 - When a scripted move replaces the model's question, the move's `targetCriterionId` is the one recorded.
 - Two commits with the same `clientRequestId` produce exactly one turn (migration test against local Supabase).
 - A concurrent retry with the same `clientRequestId` returns the same turn, not a 409 (migration test against local Supabase).
+- A late retry of an ordinary answer returns the committed turn without a second model call.
+- A late retry of the answer that completed the session returns that turn instead of the completed-session error.
+- A late retry on a paused session returns the committed turn instead of the paused error.
 
-**Regression.** Extend `lib/tutor/script-regression.test.ts` with Jessica's Case 1 session: replaying her answers must never produce more than `noProgressLimit` consecutive questions on the same criterion.
+**Regression.** Extend `lib/tutor/script-regression.test.ts` with Jessica's Case 1 session, run against the clinician-approved Case 1 criteria: replaying her answers must never produce more than `noProgressLimit` consecutive questions on the same criterion. It's followed by a full student run of Case 1 checking relevance, acknowledgement and progression.
 
 **Live model.** The live-model tests run with keys before merge. They're currently skipped unless `RUN_MATERIALS_LIVE_TESTS=true` (`lib/materials/live.test.ts:16-17`) or `RUN_HOSTED_MATERIALS_LIVE_TESTS=true` (`lib/materials/hosted-live.test.ts:17`) is set.
 
@@ -407,18 +492,25 @@ The admin editor is extended to expose these fields where it doesn't already (fr
 | A | Draft Case 1 phase content from the expert interviews | Arshin |
 | A | Check the admin case editor: fields exposed, versioning behaviour | Arshin |
 | A | Security PR (Next 15.5.26, sharp 0.35.4, `npm audit fix`) | Arshin |
+| A | Shared-password gate in front of the whole live site | Arshin |
+| B | Real individual accounts (Supabase Auth, with roles). Prerequisite for real patient materials, see below | Bruce |
 | B | Engine changes, sections 3.1 to 3.6 and 3.9 | Bruce |
-| B | Migrations, sections 3.7 and 3.8 | Bruce |
+| B | Migrations, sections 3.7, 3.8 and 3.11 | Bruce |
+| B | `superseded` case status and moving assignments to a new version (3.11) | Bruce |
+| B | Publish-time choice UI: move open assignments or not (3.11) | Arshin |
 | B | Private media bucket, signed URLs, re-signing route, publish script upload (3.7) | Bruce |
 | B | Allowlisted student view (3.10) | Arshin, Bruce reviews |
 | B | Image viewer refresh of expired signed URLs (3.7) | Arshin |
 | B | Student UI: progress, acknowledgement, attachment gating, findings | Arshin |
 | B | Professor Transcript tab and the support flag | Arshin |
 | B | Admin editor extensions for section 5 settings | Arshin |
-| C | Clinician content entered for Cases 1 to 3 | Clinical leads, via the editor |
+| C | Clinician content approved for Cases 1 to 3 | Clinical leads, in a Google Doc (3.11) |
+| C | Content conversion to the pack format and publishing (3.11) | Arshin |
 | C | Manual testing, retrieval comparison | Arshin |
 
 Dependencies: 3.2, 3.3, 3.5 and 3.9 need 3.1's criterion IDs. Frontend work in stage B builds against section 4 and can start as soon as this spec merges.
+
+**Hard prerequisite: real accounts before real patient materials.** No real patient materials are introduced until real individual accounts (Supabase Auth, with roles) ship. In the meantime, the whole live site sits behind a shared-password gate. Under today's demo identity switcher (`app/api/demo/identity/route.ts`), anyone can become any user. So the ownership checks in 3.7 and 3.8 are correct to build now, but they only become real protection once real accounts exist.
 
 **Rollout sequence.**
 
