@@ -117,6 +117,8 @@ Required pairs:
 
 `DEMO_SESSION_SECRET` is required in production. `EXPERIMENT_PSEUDONYM_SECRET` is required in production when freezing Tutor-evaluation datasets. Keep every secret server-only; do not add a `NEXT_PUBLIC_` prefix.
 
+`SITE_GATE_PASSWORD` is a temporary shared password in front of every page and API route, because the demo identity switcher lets any visitor act as any user until Supabase Auth arrives. `middleware.ts` asks for it with the browser's Basic Auth prompt; the username is ignored. On Vercel (detected by `VERCEL`, `VERCEL_ENV` or `VERCEL_URL`) a missing password locks the site with a 503. Off Vercel, an empty value leaves the site open, and a set value enforces the prompt locally too. Only `/_next/static/*` and `/favicon.svg` bypass it. To remove the gate, delete `middleware.ts`, `middleware.test.ts` and `lib/site-gate.ts`.
+
 ## 5. Frontend development
 
 ### Component rules
