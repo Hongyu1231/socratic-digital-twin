@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -165,7 +166,7 @@ describe("private teaching-materials integration", () => {
     temporaryRoot = await createPackDirectory();
 
     const pack = await getMaterialPack();
-    expect(pack?.rootDir?.toLocaleLowerCase()).toBe(temporaryRoot.toLocaleLowerCase());
+    expect(pack?.rootDir && realpathSync(pack.rootDir).toLocaleLowerCase()).toBe(realpathSync(temporaryRoot).toLocaleLowerCase());
     expect(pack?.cases).toHaveLength(1);
     expect(pack?.cases[0].case.id).toBe(CASE_ID);
     expect(pack?.cases[0].case).not.toHaveProperty("expertNotes");
