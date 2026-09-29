@@ -364,19 +364,22 @@ function buildDemoCase(id: string, title: string, description: string, objective
   };
 }
 
-export const acuteToothPainCase = buildDemoCase(
-  ACUTE_TOOTH_PAIN_CASE_ID,
-  "Acute Posterior Tooth Pain",
-  "A 29-year-old simulated patient reports spontaneous throbbing pain from a lower posterior tooth that lingers after cold drinks and disturbed sleep last night.",
-  ["Interpret a structured pain history", "Plan focused diagnostic tests", "Integrate pulpal and apical findings", "Use proportionate treatment and antibiotic stewardship", "Safety-net and reflect"],
-  [
-    ["Pain Pattern & Urgency", "Build a concise problem representation and screen for urgent spread or systemic involvement.", ["onset", "duration", "provocation", "spontaneous pain", "sleep disturbance", "swelling", "systemic features"], "Which details in this pain history are most diagnostically useful, and what urgent features must you still exclude?", "How would duration, provocation, spontaneity, and sleep disturbance change your concern?"],
-    ["Focused Clinical Testing", "Design a sequenced clinical and radiographic assessment using comparison teeth.", ["visual examination", "control tooth", "sensibility tests", "percussion", "palpation", "probing", "radiograph"], "Which examination and diagnostic tests would you perform, in what order, and what would each result tell you?", "Why should sensibility findings be interpreted with percussion, probing, and radiographic information?"],
-    ["Diagnostic Integration", "Integrate the evidence into separate defensible pulpal and apical working diagnoses.", ["pulpal diagnosis", "apical diagnosis", "differentials", "supporting evidence", "uncertainty"], "How would you combine the history and test results into a pulpal and an apical working diagnosis?", "Which conflicting result would make you reconsider the leading explanation?"],
-    ["Immediate Management", "Propose proportionate immediate and definitive management with antibiotic stewardship.", ["source control", "definitive care", "analgesia", "restorability", "consent", "antibiotic stewardship"], "What immediate care would address the source of pain, and how would you plan definitive treatment?", "When would systemic antibiotics become appropriate, and why are they not routine for toothache alone?"],
-    ["Safety Net & Reflection", "Communicate uncertainty, review timing, escalation triggers, and evidence that could change the plan.", ["teach-back", "review interval", "red flags", "escalation", "reflection"], "How would you explain the plan, safety-net the patient, and arrange review?", "Which assumption in your reasoning is most vulnerable to new evidence?"],
-  ],
-);
+export const acuteToothPainCase = {
+  ...buildDemoCase(
+    ACUTE_TOOTH_PAIN_CASE_ID,
+    "Acute Posterior Tooth Pain",
+    "A 29-year-old simulated patient reports spontaneous throbbing pain from a lower posterior tooth that lingers after cold drinks and disturbed sleep last night.",
+    ["Interpret a structured pain history", "Plan focused diagnostic tests", "Integrate pulpal and apical findings", "Use proportionate treatment and antibiotic stewardship", "Safety-net and reflect"],
+    [
+      ["Pain Pattern & Urgency", "Build a concise problem representation and screen for urgent spread or systemic involvement.", ["onset", "duration", "provocation", "spontaneous pain", "sleep disturbance", "swelling", "systemic features"], "Which details in this pain history are most diagnostically useful, and what urgent features must you still exclude?", "How would duration, provocation, spontaneity, and sleep disturbance change your concern?"],
+      ["Focused Clinical Testing", "Design a sequenced clinical and radiographic assessment using comparison teeth.", ["visual examination", "control tooth", "sensibility tests", "percussion", "palpation", "probing", "radiograph"], "Which examination and diagnostic tests would you perform, in what order, and what would each result tell you?", "Why should sensibility findings be interpreted with percussion, probing, and radiographic information?"],
+      ["Diagnostic Integration", "Integrate the evidence into separate defensible pulpal and apical working diagnoses.", ["pulpal diagnosis", "apical diagnosis", "differentials", "supporting evidence", "uncertainty"], "How would you combine the history and test results into a pulpal and an apical working diagnosis?", "Which conflicting result would make you reconsider the leading explanation?"],
+      ["Immediate Management", "Propose proportionate immediate and definitive management with antibiotic stewardship.", ["source control", "definitive care", "analgesia", "restorability", "consent", "antibiotic stewardship"], "What immediate care would address the source of pain, and how would you plan definitive treatment?", "When would systemic antibiotics become appropriate, and why are they not routine for toothache alone?"],
+      ["Safety Net & Reflection", "Communicate uncertainty, review timing, escalation triggers, and evidence that could change the plan.", ["teach-back", "review interval", "red flags", "escalation", "reflection"], "How would you explain the plan, safety-net the patient, and arrange review?", "Which assumption in your reasoning is most vulnerable to new evidence?"],
+    ],
+  ),
+  status: "archived" as const,
+};
 
 export const periodontalRiskCase = buildDemoCase(
   PERIODONTAL_RISK_CASE_ID,
@@ -450,7 +453,7 @@ export const demoAssignments: CaseAssignment[] = [
     classId: DEMO_CLASS_ID,
     caseId: (clinicalCase as ClinicalCase).id,
     assignedBy: DEMO_PROFESSOR_ID,
-    status: "open" as const,
+    status: (clinicalCase as ClinicalCase).id === ACUTE_TOOTH_PAIN_CASE_ID ? ("closed" as const) : ("open" as const),
     opensAt: "2026-08-13T00:00:00.000Z",
     dueAt: null,
     createdAt: "2026-08-13T00:00:00.000Z",

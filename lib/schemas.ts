@@ -56,17 +56,25 @@ export const assignmentInputSchema = z.object({
   // previously persisted assignment can be closed or reopened.
   opensAt: z.string().datetime({ offset: true }),
   dueAt: z.string().datetime({ offset: true }).nullable().default(null),
-  idempotencyKey: z.string().trim().min(1).max(160).optional(),
+  idempotencyKey: z.string().trim().min(1).max(160).nullable().optional(),
 }).refine((value) => !value.dueAt || value.dueAt > value.opensAt, {
   message: "Due date must be after the opening date.",
 });
+
+export const rubricCriterionSchema = z.object({
+  id: z.string().trim().min(1).max(100).regex(/^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/),
+  text: z.string().trim().min(1).max(500),
+  revealText: z.string().trim().min(1).max(500).optional(),
+}).strict();
 
 export const phaseInputSchema = z.object({
   id: z.string().uuid().optional(),
   order: z.number().int().min(1).max(12),
   title: z.string().trim().min(1).max(120),
   goal: z.string().trim().min(1).max(500),
-  rubric: z.array(z.string().trim().min(1).max(180)).min(1),
+  rubric: z.array(z.union([z.string().trim().min(1).max(180), rubricCriterionSchema])).min(1).max(32),
+  noProgressLimit: z.number().int().min(1).max(4).optional(),
+  phaseCeiling: z.number().int().min(2).max(12).optional(),
   starterQuestion: z.string().trim().min(3).max(500),
   exampleQuestions: z.array(z.string().trim().min(3).max(500)).min(1),
   tutorGuidance: z.array(z.string().trim().min(3).max(500)).max(20).default([]),
@@ -84,7 +92,16 @@ export const phaseInputSchema = z.object({
     previousErrorIncludesAny: z.array(z.string().trim().min(1).max(120)).max(12).optional(),
     recordError: z.string().trim().min(1).max(180).optional(),
     blockAdvancement: z.boolean().optional(),
+    targetCriterionId: z.string().trim().min(1).max(100).optional(),
   }).strict()).max(20).default([]),
+}).superRefine((phase, context) => {
+  const ids = phase.rubric.map((item, index) => typeof item === "string" ? `r${index + 1}` : item.id);
+  if (new Set(ids).size !== ids.length) context.addIssue({ code: "custom", path: ["rubric"], message: "Criterion IDs must be unique within a phase." });
+  phase.tutorMoves.forEach((move, index) => {
+    if (move.targetCriterionId && !ids.includes(move.targetCriterionId)) {
+      context.addIssue({ code: "custom", path: ["tutorMoves", index, "targetCriterionId"], message: "A scripted move must target a criterion in this phase." });
+    }
+  });
 });
 
 const mediaUrlSchema = z.string().trim().max(2_048).refine((value) => {
@@ -105,15 +122,24 @@ export const caseAttachmentInputSchema = z.object({
   posterUrl: mediaUrlSchema.optional(),
   transcript: z.string().trim().min(1).max(10_000).optional(),
   sourceLabel: z.string().trim().min(1).max(240).optional(),
+  storagePath: z.string().trim().min(1).max(512).refine(
+    (value) => value.split("/").length >= 2 && value.split("/").every((part) => /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,255}$/.test(part)),
+    "Storage paths must contain safe object-key segments.",
+  ).optional(),
+  unlockPhase: z.number().int().min(1).max(12).optional(),
+  unlockOnRequest: z.literal(false).optional(),
   sourceUrl: z.string().trim().url().max(2_048).refine(
     (value) => new URL(value).protocol === "https:",
     "Source URLs must use HTTPS.",
   ).optional(),
 }).superRefine((attachment, context) => {
-  if ((attachment.kind === "image" || attachment.kind === "video") && !attachment.url) {
+  if (attachment.storagePath && (attachment.url || attachment.posterUrl)) {
+    context.addIssue({ code: "custom", path: ["storagePath"], message: "Private media must not also store public media URLs." });
+  }
+  if ((attachment.kind === "image" || attachment.kind === "video") && !attachment.url && !attachment.storagePath) {
     context.addIssue({ code: "custom", path: ["url"], message: "Images and videos require a media URL." });
   }
-  if (attachment.kind === "audio" && !attachment.url && !attachment.transcript) {
+  if (attachment.kind === "audio" && !attachment.url && !attachment.storagePath && !attachment.transcript) {
     context.addIssue({ code: "custom", path: ["url"], message: "Audio requires a media URL or transcript." });
   }
   if (attachment.url?.startsWith("https://")) {
@@ -133,7 +159,33 @@ export const caseInputSchema = z.object({
   difficulty: z.enum(["foundation", "intermediate", "advanced"]),
   learningObjectives: z.array(z.string().trim().min(1).max(250)).min(1),
   attachments: z.array(caseAttachmentInputSchema).max(12).default([]),
+  findings: z.array(z.object({
+    id: z.string().trim().min(1).max(100),
+    title: z.string().trim().min(1).max(160),
+    text: z.string().trim().min(1).max(1500),
+    unlockPhase: z.number().int().min(1).max(12).default(1),
+    unlockOnRequest: z.literal(false).optional(),
+  }).strict()).max(40).default([]),
+  correctionProbes: z.union([z.literal(1), z.literal(2)]).optional(),
   phases: z.array(phaseInputSchema).min(1).max(12),
+}).superRefine((clinicalCase, context) => {
+  const phaseOrders = new Set(clinicalCase.phases.map((phase) => phase.order));
+  const phaseIds = clinicalCase.phases.flatMap((phase) => phase.id ? [phase.id] : []);
+  if (new Set(phaseIds).size !== phaseIds.length) {
+    context.addIssue({ code: "custom", path: ["phases"], message: "Phase IDs must be unique." });
+  }
+  if (phaseOrders.size !== clinicalCase.phases.length
+    || clinicalCase.phases.some((phase, index) => phase.order !== index + 1)) {
+    context.addIssue({ code: "custom", path: ["phases"], message: "Phases must be ordered consecutively from 1." });
+  }
+  if (new Set(clinicalCase.findings.map((item) => item.id)).size !== clinicalCase.findings.length) {
+    context.addIssue({ code: "custom", path: ["findings"], message: "Finding IDs must be unique." });
+  }
+  for (const key of ["attachments", "findings"] as const) {
+    clinicalCase[key].forEach((item, index) => {
+      if (!phaseOrders.has(item.unlockPhase ?? 1)) context.addIssue({ code: "custom", path: [key, index, "unlockPhase"], message: "Unlock phase must exist in this case." });
+    });
+  }
 });
 
 export const reviewReassignSchema = z.object({
@@ -172,6 +224,12 @@ export const professorReviewSchema = z.object({
 });
 
 export const tutorOutputSchema = z.object({
+  // Optional in the application parser for old adapters. Providers use the
+  // explicit nullable wire contract below; semantic annotation errors are
+  // sanitized independently from the grading result.
+  acknowledgement: z.string().nullable().optional(),
+  targetCriterionId: z.string().nullable().optional(),
+  criteriaMet: z.array(z.string()).max(32).optional(),
   classification: classificationSchema,
   confidence: z.number().min(0).max(1),
   reasoningGap: z.string().min(1).max(500),
@@ -203,6 +261,12 @@ export const tutorOutputSchema = z.object({
   } else if (result.misconceptionKey !== null) {
     context.addIssue({ code: "custom", path: ["misconceptionKey"], message: "Only wrong answers may carry a misconception key." });
   }
+});
+
+export const tutorProviderOutputSchema = tutorOutputSchema.safeExtend({
+  acknowledgement: z.string().nullable(),
+  targetCriterionId: z.string().nullable(),
+  criteriaMet: z.array(z.string()).max(32),
 });
 
 export const summaryOutputSchema = z.object({

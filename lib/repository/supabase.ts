@@ -6,6 +6,7 @@ import type {
   CasePhase,
   ClassMembership,
   ClinicalCase,
+  ClinicalFinding,
   DemoUser,
   Evaluation,
   LearnerState,
@@ -17,14 +18,15 @@ import type {
   TeachingClass,
   TutorMessage,
   TutorTurnReview,
+  RubricCriterion,
 } from "@/lib/domain";
 import { CLASSIFICATION_SCORES } from "@/lib/domain";
-import { ArchivedCaseError, type CommitTurnInput, type SaveReviewInput, type TutorRepository } from "@/lib/repository/types";
+import { ArchivedCaseError, IdempotencyConflictError, type CommitTurnInput, type SaveReviewInput, type TutorRepository } from "@/lib/repository/types";
 import { buildCaseVersionSlug, getCaseLineageId, getNextCaseVersion, getVersionedCaseTitle } from "@/lib/repository/case-version";
 import { buildEvaluationCriteria, readMisconceptionKey } from "@/lib/repository/evaluation-criteria";
 import { getTutorMode } from "@/lib/tutor";
 import { reconcileLearnerStateEvidence } from "@/lib/tutor/learner-model";
-import { caseAttachmentInputSchema } from "@/lib/schemas";
+import { caseAttachmentInputSchema, rubricCriterionSchema } from "@/lib/schemas";
 
 type Row = Record<string, any>;
 const HOSTED_PACKAGE_ID = /^[a-f0-9]{64}$/i;
@@ -40,11 +42,17 @@ export function mapPhase(row: Row): CasePhase {
     ? row.objectives.filter((item: unknown): item is string => typeof item === "string" && Boolean(item.trim()))
     : [];
   const metadata = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
-  const metadataRubric = Array.isArray(metadata.rubric)
-    ? metadata.rubric.filter((item: unknown): item is string => typeof item === "string" && Boolean(item.trim()))
+  const metadataRubric: Array<string | RubricCriterion> = Array.isArray(metadata.rubric)
+    ? metadata.rubric.flatMap((item: unknown) => {
+      if (typeof item === "string" && item.trim()) return [item.trim()];
+      const parsed = rubricCriterionSchema.safeParse(item);
+      return parsed.success ? [parsed.data] : [];
+    })
     : [];
   const rubric = metadataRubric.length ? metadataRubric : objectives.slice(1);
   const goal = objectives[0] ?? row.teaching_notes ?? row.title;
+  const rawNoProgressLimit = metadata.noProgressLimit ?? metadata.no_progress_limit;
+  const rawPhaseCeiling = metadata.phaseCeiling ?? metadata.phase_ceiling;
   return {
     id: row.id,
     caseId: row.case_id,
@@ -58,6 +66,12 @@ export function mapPhase(row: Row): CasePhase {
       ? metadata.tutorGuidance.filter((item: unknown): item is string => typeof item === "string" && Boolean(item.trim()))
       : row.teaching_notes ? [row.teaching_notes] : [],
     tutorMoves: Array.isArray(metadata.tutorMoves) ? metadata.tutorMoves : [],
+    ...(typeof rawNoProgressLimit === "number" && Number.isInteger(rawNoProgressLimit) && rawNoProgressLimit > 0
+      ? { noProgressLimit: rawNoProgressLimit }
+      : {}),
+    ...(typeof rawPhaseCeiling === "number" && Number.isInteger(rawPhaseCeiling) && rawPhaseCeiling > 1
+      ? { phaseCeiling: rawPhaseCeiling }
+      : {}),
   };
 }
 
@@ -85,6 +99,29 @@ export function mapCase(row: Row, phases: Row[]): ClinicalCase {
     return parsed.success ? [{ ...parsed.data, id: parsed.data.id ?? crypto.randomUUID() }] : [];
   });
   const teachingMaterialPackageId = mapTeachingMaterialPackageId(row);
+  const patientContext = row.patient_context && typeof row.patient_context === "object" && !Array.isArray(row.patient_context)
+    ? row.patient_context as Record<string, unknown>
+    : {};
+  const findings: ClinicalFinding[] = Array.isArray(patientContext.findings)
+    ? patientContext.findings.flatMap((value: unknown) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+      const finding = value as Record<string, unknown>;
+      if (typeof finding.id !== "string" || !finding.id.trim() || typeof finding.title !== "string" || !finding.title.trim() || typeof finding.text !== "string" || !finding.text.trim()) return [];
+      const unlockPhase = typeof finding.unlockPhase === "number" && Number.isInteger(finding.unlockPhase) && finding.unlockPhase > 0
+        ? finding.unlockPhase
+        : 1;
+      return [{
+        id: finding.id,
+        title: finding.title,
+        text: finding.text,
+        unlockPhase,
+        ...(finding.unlockOnRequest === false ? { unlockOnRequest: false as const } : {}),
+      }];
+    })
+    : [];
+  const correctionProbes = patientContext.correctionProbes === 1 || patientContext.correctionProbes === 2
+    ? patientContext.correctionProbes
+    : undefined;
   return {
     id: row.id,
     title: row.title,
@@ -99,6 +136,8 @@ export function mapCase(row: Row, phases: Row[]): ClinicalCase {
     version: row.version ?? 1,
     publishedAt: row.published_at ?? null,
     attachments,
+    findings,
+    ...(correctionProbes ? { correctionProbes } : {}),
     isTestFixture: row.is_test_fixture === true,
     ...(teachingMaterialPackageId ? { teachingMaterialPackageId } : {}),
   };
@@ -159,18 +198,28 @@ function summaryGenerationStatus(sessionRow: Row, context: Row, jobRow: Row | nu
 }
 
 function mapMessage(row: Row): TutorMessage {
+  const metadata = row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+    ? row.metadata as Record<string, unknown>
+    : {};
+  const acknowledgement = typeof metadata.acknowledgement === "string" ? metadata.acknowledgement : undefined;
+  const moveType = ["question", "hypothetical", "reveal", "correction", "transition", "reflection"].includes(String(metadata.moveType))
+    ? metadata.moveType as TutorMessage["moveType"]
+    : undefined;
   return {
     id: row.id,
     sessionId: row.session_id,
     sender: row.role === "student" ? "student" : "ai",
     content: row.content,
     timestamp: row.created_at,
-    replyToMessageId: row.metadata?.replyToMessageId,
+    replyToMessageId: typeof metadata.replyToMessageId === "string" ? metadata.replyToMessageId : undefined,
+    ...(acknowledgement ? { acknowledgement } : {}),
+    ...(moveType ? { moveType } : {}),
   };
 }
 
-function mapEvaluation(row: Row): Evaluation {
+export function mapEvaluation(row: Row): Evaluation {
   const criteria = row.criteria ?? {};
+  const retrieval = mapRetrieval(criteria.retrieval);
   return {
     id: row.id,
     messageId: row.message_id,
@@ -187,7 +236,46 @@ function mapEvaluation(row: Row): Evaluation {
     fallbackFrom: criteria.fallbackFrom,
     model: criteria.model,
     promptVersion: criteria.promptVersion,
+    targetCriterionId: typeof criteria.targetCriterionId === "string" && criteria.targetCriterionId.length > 0
+      ? criteria.targetCriterionId
+      : undefined,
+    criteriaMet: Array.isArray(criteria.criteriaMet)
+      ? criteria.criteriaMet.filter((item: unknown): item is string => typeof item === "string" && item.length > 0)
+      : undefined,
+    supportLevel: criteria.supportLevel === 0 || criteria.supportLevel === 1 || criteria.supportLevel === 2
+      ? criteria.supportLevel
+      : undefined,
+    completedWithSupport: typeof criteria.completedWithSupport === "boolean" ? criteria.completedWithSupport : undefined,
+    isReflection: typeof criteria.isReflection === "boolean" ? criteria.isReflection : undefined,
+    ...(retrieval ? { retrieval } : {}),
     createdAt: row.created_at,
+  };
+}
+
+function mapRetrieval(value: unknown): Evaluation["retrieval"] | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.query !== "string" || !Array.isArray(raw.passages)) return undefined;
+  const passages = raw.passages.flatMap((item: unknown) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const passage = item as Record<string, unknown>;
+    if (typeof passage.sourceId !== "string" || typeof passage.page !== "number" || typeof passage.score !== "number") return [];
+    return [{
+      sourceId: passage.sourceId,
+      page: passage.page,
+      ...(typeof passage.locator === "string" ? { locator: passage.locator } : {}),
+      score: passage.score,
+    }];
+  });
+  return { query: raw.query, passages };
+}
+
+function buildMessageMetadata(message: TutorMessage, source: "student" | "socratic_tutor") {
+  return {
+    source,
+    ...(message.replyToMessageId ? { replyToMessageId: message.replyToMessageId } : {}),
+    ...(message.acknowledgement ? { acknowledgement: message.acknowledgement } : {}),
+    ...(message.moveType ? { moveType: message.moveType } : {}),
   };
 }
 
@@ -417,11 +505,48 @@ export class SupabaseTutorRepository implements TutorRepository {
     };
   }
 
+  async findCommittedTurn(sessionId: string, studentId: string, clientRequestId: string, content: string) {
+    const normalizedRequestId = clientRequestId.trim();
+    if (!normalizedRequestId) return null;
+    const { data: sessionRow, error: sessionError } = await this.client
+      .from("sessions")
+      .select("student_id")
+      .eq("id", sessionId)
+      .maybeSingle();
+    if (sessionError) throw new Error(`Find committed turn session: ${sessionError.message}`);
+    if (!sessionRow) return null;
+    if (sessionRow.student_id !== studentId) throw new Error("This session belongs to another learner.");
+    const { data: messageRow, error: messageError } = await this.client
+      .from("messages")
+      .select("id, content, sender_id")
+      .eq("session_id", sessionId)
+      .eq("role", "student")
+      .eq("client_request_id", normalizedRequestId)
+      .maybeSingle();
+    if (messageError) throw new Error(`Find committed turn message: ${messageError.message}`);
+    if (!messageRow) return null;
+    if (messageRow.sender_id !== studentId || messageRow.content !== content) {
+      throw new IdempotencyConflictError();
+    }
+    // The session ownership check above is deliberately separate from this
+    // hydration call: retries return the same authorised bundle as the first
+    // request, including the original student/tutor messages and evaluation.
+    return this.getSession(sessionId);
+  }
+
   async commitTurn(input: CommitTurnInput) {
+    if (input.clientRequestId !== undefined && !input.clientRequestId.trim()) {
+      throw new Error("Client request ID cannot be blank.");
+    }
     const bundle = await this.getSession(input.sessionId);
     if (!bundle) throw new Error("Session not found.");
     const phase = bundle.case.phases.find((item) => item.order === bundle.session.currentPhase)!;
     const nextPhase = bundle.case.phases.find((item) => item.order === input.nextPhase)!;
+    // Reflection turns are formative prompts, not graded answers. Keep their
+    // database score null so analytics cannot count them as partial/correct.
+    const evaluationScore = input.evaluation.isReflection
+      ? null
+      : CLASSIFICATION_SCORES[input.evaluation.classification];
     const context = { score: input.score, summary: input.summary, reviewStatus: bundle.session.reviewStatus, pausedAt: null };
     const { error } = await this.client.rpc("commit_tutor_turn", {
       p_session_id: input.sessionId,
@@ -431,7 +556,7 @@ export class SupabaseTutorRepository implements TutorRepository {
       p_ai_content: input.aiMessage.content,
       p_ai_phase_id: nextPhase.id,
       p_evaluation_type: "formative",
-      p_evaluation_score: CLASSIFICATION_SCORES[input.evaluation.classification],
+      p_evaluation_score: evaluationScore,
       p_evaluation_criteria: buildEvaluationCriteria(input.evaluation),
       p_evaluation_feedback: input.evaluation.feedback,
       p_evaluator_id: null,
@@ -442,8 +567,14 @@ export class SupabaseTutorRepository implements TutorRepository {
       p_unresolved_questions: input.nextState.previousErrors,
       p_current_phase_id: nextPhase.id,
       p_session_status: input.status,
+      p_client_request_id: input.clientRequestId?.trim() || null,
+      p_student_metadata: buildMessageMetadata(input.studentMessage, "student"),
+      p_ai_metadata: buildMessageMetadata(input.aiMessage, "socratic_tutor"),
     });
-    if (error) throw new Error(`Commit tutor turn: ${error.message}`);
+    if (error) {
+      if (error.message.includes("IDEMPOTENCY_CONFLICT")) throw new IdempotencyConflictError();
+      throw new Error(`Commit tutor turn: ${error.message}`);
+    }
     return (await this.getSession(input.sessionId))!;
   }
 
@@ -637,6 +768,8 @@ export class SupabaseTutorRepository implements TutorRepository {
     const patientContext = {
       ...existingPatientContext,
       attachments,
+      findings: input.findings ?? [],
+      ...(input.correctionProbes === undefined ? {} : { correctionProbes: input.correctionProbes }),
       ...(teachingMaterialPackageId ? { teachingMaterialPackageId } : {}),
     };
     const payload = { title: input.title, slug: buildCaseVersionSlug(input.title, version, caseId), specialty: "dentistry", presenting_complaint: input.description, status: "draft", created_by: adminId, source_case_id: input.sourceCaseId ?? null, version, published_at: null, patient_context: patientContext, attachments, tags: input.learningObjectives };
@@ -660,7 +793,7 @@ export class SupabaseTutorRepository implements TutorRepository {
       phase_order: index + 1,
       phase_key: `phase_${index + 1}`,
       title: phase.title,
-      objectives: [phase.goal, ...phase.rubric],
+      objectives: [phase.goal, ...phase.rubric.map((criterion) => typeof criterion === "string" ? criterion : criterion.text)],
       questions: [phase.starterQuestion, ...phase.exampleQuestions],
       teaching_notes: phase.tutorGuidance?.join("\n") || phase.goal,
       expected_findings: {},
@@ -668,6 +801,8 @@ export class SupabaseTutorRepository implements TutorRepository {
         rubric: phase.rubric,
         tutorGuidance: phase.tutorGuidance ?? [],
         tutorMoves: phase.tutorMoves ?? [],
+        ...(phase.noProgressLimit === undefined ? {} : { noProgressLimit: phase.noProgressLimit }),
+        ...(phase.phaseCeiling === undefined ? {} : { phaseCeiling: phase.phaseCeiling }),
       },
     })));
     if (phaseError) throw new Error(`Save case phases: ${phaseError.message}`);

@@ -7,7 +7,7 @@
  *  - dry-run is the default;
  *  - writes require --apply and an exact --confirm-project value;
  *  - the private reference manifest is kept in a private bucket;
- *  - only registered WebP attachments are copied to the public media bucket;
+ *  - only registered WebP attachments are copied to Storage;
  *  - existing objects and published rows are never overwritten.
  *
  * Use with Node's env-file support, for example:
@@ -15,9 +15,12 @@
  *     --apply --confirm-project <project-ref> --class-id <uuid> \
  *     --professor-id <uuid> --admin-id <uuid> --materials-dir work/teaching-materials
  *
- * Add --publish only after the runtime that understands the private material
- * pointer has been deployed. Without it, this command stages media and cases
- * as drafts and creates no assignments.
+ * Add --private-media only after the runtime that understands the private
+ * storagePath pointer and signing route has been deployed. It is intentionally
+ * opt-in during rollout; without it, legacy publications retain their public
+ * teaching-case-media URL shape. Add --publish only after the runtime is
+ * deployed. Without it, this command stages media and cases as drafts and
+ * creates no assignments.
  */
 
 import crypto from "node:crypto";
@@ -30,8 +33,10 @@ import { URL, fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 
 export const PRIVATE_BUCKET = "teaching-material-references";
+export const PRIVATE_MEDIA_BUCKET = "teaching-case-media-private";
 export const PUBLIC_BUCKET = "teaching-case-media";
 export const PRIVATE_MANIFEST_PATH = (packageId) => `${packageId}/manifest.json`;
+export const PRIVATE_MEDIA_PATH = (packageId, mediaId) => `${packageId}/${mediaId}.webp`;
 export const PUBLIC_MEDIA_PATH = (packageId, mediaId) => `${packageId}/${mediaId}.webp`;
 export const MAX_MANIFEST_BYTES = 16 * 1024 * 1024;
 export const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
@@ -115,6 +120,55 @@ function requireArray(value, field, max = 10_000) {
   return value;
 }
 
+const TUTOR_STRATEGIES = new Set(["probe", "challenge", "clarify", "scaffold", "reflect"]);
+const CRITERION_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
+
+function normalizePhaseRubric(rawRubric, caseId) {
+  const rubric = requireArray(rawRubric, "phase rubric", 32);
+  const ids = new Set();
+  const normalized = rubric.map((item, itemIndex) => {
+    let criterion;
+    if (typeof item === "string") {
+      nonBlank(item, "phase rubric item", 180);
+      criterion = { id: `r${itemIndex + 1}`, text: item.trim() };
+    } else if (isObject(item)) {
+      nonBlank(item.id, "rubric criterion id", 100);
+      if (!CRITERION_ID_RE.test(item.id.trim())) fail(`Invalid rubric criterion id in case ${caseId}.`);
+      nonBlank(item.text, "rubric criterion text", 500);
+      criterion = {
+        id: item.id.trim(),
+        text: item.text.trim(),
+        ...(item.revealText === undefined ? {} : { revealText: nonBlank(item.revealText, "rubric reveal text", 500).trim() }),
+      };
+    } else {
+      fail(`Invalid phase rubric item in case ${caseId}.`);
+    }
+    if (ids.has(criterion.id)) fail(`Case ${caseId} contains duplicate rubric criterion id ${criterion.id}.`);
+    ids.add(criterion.id);
+    return criterion;
+  });
+  return { normalized, ids };
+}
+
+function normalizeTutorMoves(rawMoves, criterionIds, caseId) {
+  if (rawMoves === undefined) return [];
+  const moves = requireArray(rawMoves, "phase tutor moves", 20);
+  return moves.map((move, moveIndex) => {
+    if (!isObject(move)) fail(`Invalid scripted tutor move ${moveIndex + 1} in case ${caseId}.`);
+    nonBlank(move.id, "scripted tutor move id", 80);
+    if (!TUTOR_STRATEGIES.has(move.strategy)) fail(`Invalid scripted tutor strategy in case ${caseId}.`);
+    const question = nonBlank(move.question, "scripted tutor question", 500).trim();
+    if ((question.match(/[?？]/g) ?? []).length !== 1) fail(`A scripted tutor move in case ${caseId} must contain exactly one question.`);
+    if (move.targetCriterionId !== undefined) {
+      nonBlank(move.targetCriterionId, "scripted target criterion id", 100);
+      if (!criterionIds.has(move.targetCriterionId.trim())) {
+        fail(`Scripted tutor move ${move.id} targets a criterion outside its phase.`);
+      }
+    }
+    return { ...move, id: move.id.trim(), question, ...(move.targetCriterionId === undefined ? {} : { targetCriterionId: move.targetCriterionId.trim() }) };
+  });
+}
+
 function validatePhase(phase, caseId, index) {
   if (!isObject(phase)) fail(`Invalid phase ${index + 1}.`);
   if (!isUuid(phase.id) || phase.caseId !== caseId || !Number.isInteger(phase.order) || phase.order !== index + 1) {
@@ -122,17 +176,27 @@ function validatePhase(phase, caseId, index) {
   }
   nonBlank(phase.title, "phase title", 160);
   nonBlank(phase.goal, "phase goal", 1_500);
-  const rubric = requireArray(phase.rubric, "phase rubric", 32);
+  const { normalized: rubric, ids: criterionIds } = normalizePhaseRubric(phase.rubric, caseId);
   const exampleQuestions = requireArray(phase.exampleQuestions, "phase example questions", 32);
-  rubric.forEach((item) => nonBlank(item, "phase rubric item", 500));
   nonBlank(phase.starterQuestion, "phase starter question", 1_500);
   exampleQuestions.forEach((item) => nonBlank(item, "phase example question", 1_500));
   if (phase.tutorGuidance !== undefined) {
     requireArray(phase.tutorGuidance, "phase tutor guidance", 32).forEach((item) => nonBlank(item, "phase tutor guidance item", 1_500));
   }
-  if (phase.tutorMoves !== undefined) {
-    requireArray(phase.tutorMoves, "phase tutor moves", 64);
+  if (phase.noProgressLimit !== undefined && (!Number.isInteger(phase.noProgressLimit) || phase.noProgressLimit < 1 || phase.noProgressLimit > 4)) {
+    fail(`Invalid no-progress limit for case ${caseId}.`);
   }
+  if (phase.phaseCeiling !== undefined && (!Number.isInteger(phase.phaseCeiling) || phase.phaseCeiling < 2 || phase.phaseCeiling > 12)) {
+    fail(`Invalid phase ceiling for case ${caseId}.`);
+  }
+  const tutorMoves = normalizeTutorMoves(phase.tutorMoves, criterionIds, caseId);
+  return {
+    ...phase,
+    rubric,
+    tutorMoves,
+    ...(phase.noProgressLimit === undefined ? {} : { noProgressLimit: phase.noProgressLimit }),
+    ...(phase.phaseCeiling === undefined ? {} : { phaseCeiling: phase.phaseCeiling }),
+  };
 }
 
 function validateCaseEntry(entry, caseIndex) {
@@ -148,11 +212,12 @@ function validateCaseEntry(entry, caseIndex) {
   const phases = requireArray(candidate.phases, "case phases", 12);
   if (phases.length === 0) fail(`Case ${candidate.id} needs phases.`);
   const phaseIds = new Set();
-  phases.forEach((phase, index) => {
-    validatePhase(phase, candidate.id, index);
+  const normalizedPhases = phases.map((phase, index) => {
+    const normalized = validatePhase(phase, candidate.id, index);
     const phaseId = phase.id.toLowerCase();
     if (phaseIds.has(phaseId)) fail(`Case ${candidate.id} contains duplicate phases.`);
     phaseIds.add(phaseId);
+    return normalized;
   });
   const attachments = requireArray(candidate.attachments ?? [], "case attachments", 12);
   const attachmentIds = new Set();
@@ -165,10 +230,51 @@ function validateCaseEntry(entry, caseIndex) {
     nonBlank(attachment.title, "attachment title", 500);
     nonBlank(attachment.description, "attachment description", 2_000);
     if (attachment.url !== undefined) nonBlank(attachment.url, "attachment URL", 2_000);
+    if (attachment.unlockPhase !== undefined && (!Number.isInteger(attachment.unlockPhase) || attachment.unlockPhase < 1 || attachment.unlockPhase > normalizedPhases.length)) {
+      fail(`Invalid unlock phase for attachment ${attachment.id} in case ${candidate.id}.`);
+    }
+    if (attachment.unlockOnRequest !== undefined && attachment.unlockOnRequest !== false) {
+      fail(`Attachment ${attachment.id} in case ${candidate.id} must use unlockOnRequest=false.`);
+    }
+  }
+  const findings = requireArray(candidate.findings ?? [], "case findings", 40).map((finding, findingIndex) => {
+    if (!isObject(finding)) fail(`Invalid case finding ${findingIndex + 1} for case ${candidate.id}.`);
+    nonBlank(finding.id, "finding id", 100);
+    nonBlank(finding.title, "finding title", 160);
+    nonBlank(finding.text, "finding text", 1_500);
+    const unlockPhase = finding.unlockPhase === undefined ? 1 : finding.unlockPhase;
+    if (!Number.isInteger(unlockPhase) || unlockPhase < 1 || unlockPhase > normalizedPhases.length) {
+      fail(`Invalid unlock phase for finding ${finding.id} in case ${candidate.id}.`);
+    }
+    if (finding.unlockOnRequest !== undefined && finding.unlockOnRequest !== false) {
+      fail(`Finding ${finding.id} in case ${candidate.id} must use unlockOnRequest=false.`);
+    }
+    return {
+      id: finding.id.trim(),
+      title: finding.title.trim(),
+      text: finding.text.trim(),
+      unlockPhase,
+      ...(finding.unlockOnRequest === false ? { unlockOnRequest: false } : {}),
+    };
+  });
+  const findingIds = new Set();
+  for (const finding of findings) {
+    if (findingIds.has(finding.id)) fail(`Case ${candidate.id} contains duplicate finding id ${finding.id}.`);
+    findingIds.add(finding.id);
+  }
+  if (candidate.correctionProbes !== undefined && candidate.correctionProbes !== 1 && candidate.correctionProbes !== 2) {
+    fail(`Case ${candidate.id} correctionProbes must be 1 or 2.`);
   }
   nonBlank(entry.expertNotes, "case expert notes");
   nonBlank(entry.sourceDocument, "case source document", 500);
-  return { ...candidate, id: candidate.id.toLowerCase(), attachments: attachments.map((item) => ({ ...item, id: item.id.toLowerCase() })) };
+  return {
+    ...candidate,
+    id: candidate.id.toLowerCase(),
+    phases: normalizedPhases,
+    attachments: attachments.map((item) => ({ ...item, id: item.id.toLowerCase() })),
+    findings,
+    ...(candidate.correctionProbes === undefined ? {} : { correctionProbes: candidate.correctionProbes }),
+  };
 }
 
 function validateArticle(article, index, knownCaseIds) {
@@ -312,17 +418,32 @@ function publicMediaUrl(supabaseUrl, objectPath) {
   return `${prefix}/storage/v1/object/public/${PUBLIC_BUCKET}/${objectPath.split("/").map(encodeURIComponent).join("/")}`;
 }
 
-function buildCaseRow(candidate, packageId, adminId, supabaseUrl) {
+function buildCaseRow(candidate, packageId, adminId, supabaseUrl, privateMedia = false) {
   const attachments = (candidate.attachments ?? []).map((attachment) => ({
     id: attachment.id,
     kind: "image",
     title: attachment.title,
     description: attachment.description,
-    url: publicMediaUrl(supabaseUrl, PUBLIC_MEDIA_PATH(packageId, attachment.id)),
-    // The URL itself is the published asset. Do not copy an unverified source
-    // citation from the import into a public case attachment.
-    sourceLabel: "User-supplied teaching case (authorized publication)",
-    sourceUrl: publicMediaUrl(supabaseUrl, PUBLIC_MEDIA_PATH(packageId, attachment.id)),
+    unlockPhase: attachment.unlockPhase ?? 1,
+    ...(privateMedia
+      ? {
+        // The runtime turns this server-owned object key into a short-lived
+        // URL after checking session ownership and phase unlock. Never put a
+        // public Storage URL or a permanent signed URL in the case row.
+        storagePath: PRIVATE_MEDIA_PATH(packageId, attachment.id),
+        unlockPhase: 1,
+        unlockOnRequest: false,
+        sourceLabel: "Private teaching media (server-authorized)",
+        ...(attachment.unlockOnRequest === false ? { unlockOnRequest: false } : {}),
+      }
+      : {
+        url: publicMediaUrl(supabaseUrl, PUBLIC_MEDIA_PATH(packageId, attachment.id)),
+        // The URL itself is the published asset. Do not copy an unverified
+        // source citation from the import into a public case attachment.
+        sourceLabel: "User-supplied teaching case (authorized publication)",
+        sourceUrl: publicMediaUrl(supabaseUrl, PUBLIC_MEDIA_PATH(packageId, attachment.id)),
+        ...(attachment.unlockOnRequest === false ? { unlockOnRequest: false } : {}),
+      }),
   }));
   return {
     id: candidate.id,
@@ -332,7 +453,11 @@ function buildCaseRow(candidate, packageId, adminId, supabaseUrl) {
     diagnosis: null,
     presenting_complaint: candidate.description,
     status: "draft",
-    patient_context: { teachingMaterialPackageId: packageId },
+    patient_context: {
+      teachingMaterialPackageId: packageId,
+      ...(candidate.findings?.length ? { findings: candidate.findings } : {}),
+      ...(candidate.correctionProbes === undefined ? {} : { correctionProbes: candidate.correctionProbes }),
+    },
     tags: candidate.learningObjectives,
     created_by: adminId,
     source_case_id: null,
@@ -349,7 +474,7 @@ function buildPhaseRows(candidate) {
     phase_order: phase.order,
     phase_key: `phase_${phase.order}`,
     title: phase.title,
-    objectives: [phase.goal, ...phase.rubric],
+    objectives: [phase.goal, ...phase.rubric.map((criterion) => typeof criterion === "string" ? criterion : criterion.text)],
     questions: [phase.starterQuestion, ...phase.exampleQuestions],
     teaching_notes: null,
     expected_findings: {},
@@ -357,14 +482,16 @@ function buildPhaseRows(candidate) {
       rubric: phase.rubric,
       tutorGuidance: phase.tutorGuidance ?? [],
       tutorMoves: phase.tutorMoves ?? [],
+      ...(phase.noProgressLimit === undefined ? {} : { noProgressLimit: phase.noProgressLimit }),
+      ...(phase.phaseCeiling === undefined ? {} : { phaseCeiling: phase.phaseCeiling }),
     },
   }));
 }
 
-export function buildPublicationPlan({ manifest, supabaseUrl, classId, professorId, adminId, publish = false }) {
+export function buildPublicationPlan({ manifest, supabaseUrl, classId, professorId, adminId, publish = false, privateMedia = false }) {
   if (!manifest?.packageId || !supabaseUrl) fail("Manifest and Supabase URL are required.");
   const cases = manifest.cases.map((entry) => ({
-    case: buildCaseRow(entry.case, manifest.packageId, adminId, supabaseUrl),
+    case: buildCaseRow(entry.case, manifest.packageId, adminId, supabaseUrl, privateMedia),
     phases: buildPhaseRows(entry.case),
   }));
   const assignments = publish
@@ -383,10 +510,13 @@ export function buildPublicationPlan({ manifest, supabaseUrl, classId, professor
     caseIds: cases.map(({ case: candidate }) => candidate.id),
     mediaIds: manifest.media.map((item) => item.id),
     articleCount: manifest.articles.length,
+    privateMedia,
+    mediaBucket: privateMedia ? PRIVATE_MEDIA_BUCKET : PUBLIC_BUCKET,
     cases,
     assignments,
     privateManifestPath: PRIVATE_MANIFEST_PATH(manifest.packageId),
-    publicMediaPaths: manifest.media.map((item) => PUBLIC_MEDIA_PATH(manifest.packageId, item.id)),
+    publicMediaPaths: privateMedia ? [] : manifest.media.map((item) => PUBLIC_MEDIA_PATH(manifest.packageId, item.id)),
+    privateMediaPaths: privateMedia ? manifest.media.map((item) => PRIVATE_MEDIA_PATH(manifest.packageId, item.id)) : [],
   };
 }
 
@@ -414,7 +544,7 @@ export function buildPrivateManifestPayload(manifest) {
 }
 
 function parseArgs(argv) {
-  const result = { apply: false, publish: false, help: false };
+  const result = { apply: false, publish: false, private_media: false, help: false };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--help" || argument === "-h") {
@@ -423,6 +553,8 @@ function parseArgs(argv) {
       result.apply = true;
     } else if (argument === "--publish") {
       result.publish = true;
+    } else if (argument === "--private-media") {
+      result.private_media = true;
     } else if (VALUE_FLAGS.has(argument)) {
       const value = argv[index + 1];
       if (!value || value.startsWith("--")) fail(`${argument} requires a value.`);
@@ -453,6 +585,7 @@ function printHelp() {
     `  --admin-id <uuid> --materials-dir <path>\n\n` +
     `Optional:\n` +
     `  --publish       activate cases and create idempotent open assignments\n` +
+    `  --private-media  upload media to the private bucket and persist storagePath\n` +
     `  --dry-run       validate and print the bounded plan (the default)\n` +
     `  --supabase-url  override SUPABASE_URL (normally use the environment)\n`);
 }
@@ -475,6 +608,8 @@ function summarize(manifest, plan, apply) {
   return {
     mode: apply ? "apply" : "dry-run",
     publish: Boolean(plan.assignments.length),
+    privateMedia: Boolean(plan.privateMedia),
+    mediaBucket: plan.mediaBucket,
     packageId: manifest.packageId,
     caseIds: plan.caseIds,
     cases: plan.caseIds.length,
@@ -514,12 +649,14 @@ async function ensureActors(client, options) {
   if (!membership) fail("Target professor is not a member of the target class.");
 }
 
-async function ensureBuckets(client) {
+async function ensureBuckets(client, { privateMedia = false } = {}) {
   const { data: buckets, error } = await client.storage.listBuckets();
   if (error) throw new Error("List Supabase Storage buckets failed.");
   const required = [
     { name: PRIVATE_BUCKET, public: false, allowedMimeTypes: ["application/json"], fileSizeLimit: "16MB" },
-    { name: PUBLIC_BUCKET, public: true, allowedMimeTypes: ["image/webp"], fileSizeLimit: "10MB" },
+    privateMedia
+      ? { name: PRIVATE_MEDIA_BUCKET, public: false, allowedMimeTypes: ["image/webp"], fileSizeLimit: "10MB" }
+      : { name: PUBLIC_BUCKET, public: true, allowedMimeTypes: ["image/webp"], fileSizeLimit: "10MB" },
   ];
   for (const desired of required) {
     const current = (buckets ?? []).find((bucket) => bucket.id === desired.name || bucket.name === desired.name);
@@ -752,16 +889,22 @@ async function applyPlan(manifest, plan, options) {
   if (!projectRef || projectRef !== options.confirm_project) fail("--confirm-project does not match SUPABASE_URL.");
   const client = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
   await ensureActors(client, { classId: options.class_id, professorId: options.professor_id, adminId: options.admin_id });
-  await ensureBuckets(client);
+  await ensureBuckets(client, { privateMedia: plan.privateMedia });
 
   // `rootDir` and `absoluteFile` are local implementation details and must
   // never be serialized into the private reference manifest.
   const manifestForUpload = buildPrivateManifestPayload(manifest);
   const manifestBytes = Buffer.from(JSON.stringify(manifestForUpload, null, 2));
-  const storageResults = { references: await uploadIfMissing(client, PRIVATE_BUCKET, plan.privateManifestPath, manifestBytes, "application/json"), mediaUploaded: 0, mediaExisting: 0 };
+  const storageResults = {
+    references: await uploadIfMissing(client, PRIVATE_BUCKET, plan.privateManifestPath, manifestBytes, "application/json"),
+    mediaBucket: plan.mediaBucket,
+    mediaUploaded: 0,
+    mediaExisting: 0,
+  };
+  const mediaPath = plan.privateMedia ? PRIVATE_MEDIA_PATH : PUBLIC_MEDIA_PATH;
   for (const item of manifest.media) {
     const bytes = fs.readFileSync(item.absoluteFile);
-    const result = await uploadIfMissing(client, PUBLIC_BUCKET, PUBLIC_MEDIA_PATH(manifest.packageId, item.id), bytes, "image/webp");
+    const result = await uploadIfMissing(client, plan.mediaBucket, mediaPath(manifest.packageId, item.id), bytes, "image/webp");
     if (result === "uploaded") storageResults.mediaUploaded += 1;
     else storageResults.mediaExisting += 1;
   }
@@ -789,6 +932,7 @@ export async function run(argv = process.argv.slice(2)) {
     professorId: options.professor_id || "00000000-0000-4000-8000-000000000000",
     adminId: options.admin_id || "00000000-0000-4000-8000-000000000000",
     publish: options.publish,
+    privateMedia: options.private_media,
   });
   process.stdout.write(`${JSON.stringify(summarize(manifest, plan, options.apply), null, 2)}\n`);
   if (!options.apply) return { manifest, plan, options };

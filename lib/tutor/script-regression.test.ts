@@ -19,18 +19,21 @@ describe("faculty script regressions", () => {
     resetRepositoryForTests(repository);
   });
 
-  it("does not turn fifteen non-correct canine answers into completion or a score", async () => {
+  it("moves stuck learners on with support without changing their grades or awarding mastery", async () => {
     let bundle = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);
     for (let turn = 0; turn < 15; turn += 1) {
       bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, "I am still unsure about this.");
     }
 
-    expect(bundle.session.currentPhase).toBe(1);
+    expect(bundle.session.currentPhase).toBeGreaterThan(1);
     expect(bundle.session.status).toBe("active");
     expect(bundle.session.score).toBeNull();
     expect(bundle.session.evaluations).toHaveLength(15);
     expect(bundle.session.evaluations.every((evaluation) => evaluation.classification !== "correct")).toBe(true);
-    expect(bundle.session.evaluations.every((evaluation) => !evaluation.phaseComplete)).toBe(true);
+    expect(bundle.session.evaluations.filter((evaluation) => evaluation.phaseComplete)
+      .every((evaluation) => evaluation.completedWithSupport)).toBe(true);
+    expect(bundle.session.state.phaseProgress?.["1"]?.completedWithSupport).toBe(true);
+    expect(bundle.session.state.phaseEvidence?.["1"]?.completed).toBe(false);
   });
 
   it("runs the impacted-canine corrections, revisit, perspective challenge and reflection", async () => {

@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { TutorEvaluateInput, TutorEvaluationResult } from "@/lib/domain";
-import { tutorOutputSchema } from "@/lib/schemas";
+import { tutorProviderOutputSchema } from "@/lib/schemas";
+import { normalizeCriterionTags } from "@/lib/tutor/criteria";
 import { buildTutorInput, TUTOR_INSTRUCTIONS, TUTOR_PROMPT_VERSION } from "@/lib/tutor/prompt";
 export class ClaudeTutor {
   readonly mode = "claude" as const;
@@ -20,7 +21,7 @@ export class ClaudeTutor {
   async evaluate(input: TutorEvaluateInput): Promise<TutorEvaluationResult> {
     const response = await this.client.messages.parse({
       model: this.model,
-      max_tokens: 900,
+      max_tokens: 1200,
       system: this.instructions,
       messages: [
         {
@@ -28,12 +29,12 @@ export class ClaudeTutor {
           content: buildTutorInput(input, this.promptVersion),
         },
       ],
-      output_config: { format: zodOutputFormat(tutorOutputSchema) },
+      output_config: { format: zodOutputFormat(tutorProviderOutputSchema) },
     }, { timeout: 25_000, maxRetries: 0 });
 
     if (response.stop_reason !== "end_turn" || !response.parsed_output) {
       throw new Error(`Claude returned an unusable stop reason: ${response.stop_reason}`);
     }
-    return { ...response.parsed_output, source: "claude" };
+    return normalizeCriterionTags({ ...response.parsed_output, acknowledgement: response.parsed_output.acknowledgement ?? undefined, source: "claude" }, input.phase);
   }
 }

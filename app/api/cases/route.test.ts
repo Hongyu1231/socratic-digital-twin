@@ -39,7 +39,9 @@ describe("student cases API", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
-    expect(body).toEqual({ offerings });
+    expect(body).toEqual({ offerings: offerings.map((offering) => ({
+      ...offering, case: { ...offering.case, attachments: [], findings: [] },
+    })) });
     expect(body).not.toHaveProperty("cases");
     expect(body).not.toHaveProperty("storage");
     expect(mocks.listStudentOfferings).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111");

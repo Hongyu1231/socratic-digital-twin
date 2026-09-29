@@ -29,8 +29,12 @@ describe("human tutor prompt contract", () => {
     expect(TUTOR_INSTRUCTIONS).toContain("flawed, absent, or unsupported reasoning is partial");
     expect(TUTOR_INSTRUCTIONS).toContain("visibly self-corrects");
     expect(TUTOR_INSTRUCTIONS).toContain("explicitly requests help");
-    expect(TUTOR_INSTRUCTIONS).toContain("two consecutive high-confidence wrong classifications");
+    expect(TUTOR_INSTRUCTIONS).toContain("explicit correction");
     expect(TUTOR_INSTRUCTIONS).toContain("reuse an exact recent misconceptionKey");
+    expect(TUTOR_INSTRUCTIONS).toContain("Use acknowledgement to acknowledge one specific idea");
+    expect(TUTOR_INSTRUCTIONS).toContain("Do not repeat it inside nextQuestion");
+    expect(TUTOR_INSTRUCTIONS).toContain("criteriaMet as IDs");
+    expect(TUTOR_INSTRUCTIONS).toContain("targetCriterionId");
   });
 
   it("serializes bounded memory and keeps the student answer as quoted data", () => {
@@ -67,6 +71,9 @@ describe("human tutor prompt contract", () => {
 
   it("rejects structured tutor output with zero or multiple questions", () => {
     const base = {
+      acknowledgement: null,
+      targetCriterionId: null,
+      criteriaMet: [],
       classification: "partial" as const,
       confidence: 0.72,
       reasoningGap: "The answer needs a clearer link to the eruption asymmetry.",

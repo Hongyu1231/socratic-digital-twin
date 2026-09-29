@@ -1,5 +1,6 @@
 import { requireStudent } from "@/lib/auth";
-import { errorResponse, studentView } from "@/lib/http";
+import { errorResponse } from "@/lib/http";
+import { studentResponse } from "@/lib/student-response";
 import { getRepository } from "@/lib/repository";
 
 export const runtime = "nodejs";
@@ -14,7 +15,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     if (bundle.session.studentId !== identity.id) {
       return Response.json({ error: "This session belongs to another learner." }, { status: 403 });
     }
-    return Response.json(studentView(await repository.setSessionPaused(id, new Date().toISOString())));
+    return await studentResponse(await repository.setSessionPaused(id, new Date().toISOString()));
   } catch (error) {
     return errorResponse(error);
   }

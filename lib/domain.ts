@@ -75,6 +75,26 @@ export interface CaseAttachment {
   transcript?: string;
   sourceLabel?: string;
   sourceUrl?: string;
+  /** Server-only object key in the private case-media bucket. Never a signed URL. */
+  storagePath?: string;
+  unlockPhase?: number;
+  unlockOnRequest?: false;
+  /** Derived response metadata, never persisted as a media reference. */
+  expiresAt?: string;
+}
+
+export interface ClinicalFinding {
+  id: string;
+  title: string;
+  text: string;
+  unlockPhase: number;
+  unlockOnRequest?: false;
+}
+
+export interface RubricCriterion {
+  id: string;
+  text: string;
+  revealText?: string;
 }
 
 export interface CaseVersionSummary {
@@ -107,11 +127,15 @@ export interface CasePhase {
   order: number;
   title: string;
   goal: string;
-  rubric: string[];
+  rubric: Array<string | RubricCriterion>;
   starterQuestion: string;
   exampleQuestions: string[];
   tutorGuidance?: string[];
   tutorMoves?: TutorMove[];
+  noProgressLimit?: number;
+  phaseCeiling?: number;
+  /** Student projection only: never IDs or grading text. */
+  phaseProgress?: { criteriaMet: number; criteriaTotal: number; completedWithSupport: boolean };
 }
 
 export interface TutorMove {
@@ -125,6 +149,7 @@ export interface TutorMove {
   previousErrorIncludesAny?: string[];
   recordError?: string;
   blockAdvancement?: boolean;
+  targetCriterionId?: string;
 }
 
 export interface ClinicalCase {
@@ -139,6 +164,8 @@ export interface ClinicalCase {
   version?: number;
   publishedAt?: string | null;
   attachments?: CaseAttachment[];
+  findings?: ClinicalFinding[];
+  correctionProbes?: 1 | 2;
   isTestFixture?: boolean;
   /** Server-only pointer to a validated hosted teaching-material package. */
   teachingMaterialPackageId?: string;
@@ -151,6 +178,8 @@ export interface TutorMessage {
   content: string;
   timestamp: string;
   replyToMessageId?: string;
+  acknowledgement?: string;
+  moveType?: "question" | "hypothetical" | "reveal" | "correction" | "transition" | "reflection";
 }
 
 export interface Evaluation {
@@ -170,7 +199,30 @@ export interface Evaluation {
   fallbackFrom?: "claude" | "openai";
   model?: string;
   promptVersion?: string;
+  targetCriterionId?: string;
+  criteriaMet?: string[];
+  supportLevel?: 0 | 1 | 2;
+  completedWithSupport?: boolean;
+  isReflection?: boolean;
+  retrieval?: { query: string; passages: Array<{ sourceId: string; page: number; locator?: string; score: number }> };
   createdAt: string;
+}
+
+export interface PhaseTutorProgress {
+  criteriaMet: string[];
+  bestClassification: Classification;
+  noProgressCount: number;
+  supportLevel: 0 | 1 | 2;
+  awaitingApplication: boolean;
+  completedWithSupport: boolean;
+  completed: boolean;
+}
+
+export interface PhaseLearnerEvidence {
+  strengths: string[];
+  weaknesses: string[];
+  previousErrors: string[];
+  completed: boolean;
 }
 
 export interface LearnerState {
@@ -183,6 +235,11 @@ export interface LearnerState {
   phaseAttempts: Record<string, number>;
   mastery: Record<string, number>;
   usedTutorMoves?: string[];
+  /** Persisted in session_state.state JSON; legacy sessions may not have provenance. */
+  phaseEvidence?: Record<string, PhaseLearnerEvidence>;
+  phaseProgress?: Record<string, PhaseTutorProgress>;
+  reflectionAsked?: boolean;
+  reflectionAnswered?: boolean;
   version: number;
   updatedAt: string;
 }
@@ -195,6 +252,7 @@ export interface SessionSummary {
   weaknesses: string[];
   nextSteps: string[];
   completedAllPhases: boolean;
+  supportedPhases?: number[];
 }
 
 export interface LearningSession {
@@ -291,6 +349,7 @@ export interface TutorEvaluateInput {
     description: string;
     learningObjectives: string[];
     attachments: Array<Pick<CaseAttachment, "kind" | "title" | "description" | "transcript">>;
+    findings?: ClinicalFinding[];
     /** Server-only reference data. Never part of ClinicalCase or student API responses. */
     teachingContext?: {
       expertNotes: string;
@@ -316,6 +375,9 @@ export interface TutorEvaluationResult {
   strategy: TutorStrategy;
   feedback: string;
   nextQuestion: string;
+  acknowledgement?: string;
+  targetCriterionId?: string | null;
+  criteriaMet?: string[];
   memoryPatch: MemoryPatch;
   source: "deterministic" | "claude" | "openai";
   fallbackFrom?: "claude" | "openai";
@@ -329,10 +391,11 @@ export const CLASSIFICATION_SCORES: Record<Classification, number> = {
 };
 
 export function calculateScore(evaluations: Evaluation[]): number {
-  if (evaluations.length === 0) return 0;
-  const total = evaluations.reduce(
+  const graded = evaluations.filter((evaluation) => !evaluation.isReflection);
+  if (graded.length === 0) return 0;
+  const total = graded.reduce(
     (sum, evaluation) => sum + CLASSIFICATION_SCORES[evaluation.classification],
     0,
   );
-  return Math.round(total / evaluations.length);
+  return Math.round(total / graded.length);
 }

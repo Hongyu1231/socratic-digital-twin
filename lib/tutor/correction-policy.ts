@@ -11,16 +11,12 @@ export function shouldExplicitlyCorrect(
   current: Pick<TutorEvaluationResult, "classification" | "confidence" | "misconceptionKey">,
   previousEvaluations: Evaluation[],
   phaseOrder: number,
+  correctionProbes = 1,
 ) {
   if (!isHighConfidenceWrong(current)) return false;
-  const previous = previousEvaluations.at(-1);
-  return Boolean(
-    current.misconceptionKey
-    && previous
-    && previous.phaseOrder === phaseOrder
-    && previous.misconceptionKey === current.misconceptionKey
-    && isHighConfidenceWrong(previous),
-  );
+  const preceding = previousEvaluations.slice(-correctionProbes);
+  return preceding.length === correctionProbes && preceding.every((previous) =>
+    previous.phaseOrder === phaseOrder && !previous.isReflection && isHighConfidenceWrong(previous));
 }
 
 /**
@@ -32,11 +28,11 @@ export function buildStudentVisibleTutorReply(
   current: Pick<TutorEvaluationResult, "classification" | "confidence" | "misconceptionKey" | "nextQuestion">,
   previousEvaluations: Evaluation[],
   phaseOrder: number,
-  options: { hasScriptedMove?: boolean } = {},
+  options: { hasScriptedMove?: boolean; correctionProbes?: number } = {},
 ) {
-  if (shouldExplicitlyCorrect(current, previousEvaluations, phaseOrder)) {
+  if (shouldExplicitlyCorrect(current, previousEvaluations, phaseOrder, options.correctionProbes)) {
     return `That statement is incorrect. ${current.nextQuestion}`;
   }
-  if (isHighConfidenceWrong(current) && !options.hasScriptedMove) return WRONG_ANSWER_BASIS_PROBE;
+  if (isHighConfidenceWrong(current) && !current.nextQuestion.trim()) return WRONG_ANSWER_BASIS_PROBE;
   return current.nextQuestion;
 }

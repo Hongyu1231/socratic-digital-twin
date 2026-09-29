@@ -39,16 +39,30 @@ const current = {
 
 describe("wrong-answer correction policy", () => {
   it("probes after the first high-confidence wrong classification", () => {
-    expect(buildStudentVisibleTutorReply(current, [], 3)).toBe(WRONG_ANSWER_BASIS_PROBE);
+    expect(shouldExplicitlyCorrect(current, [], 3)).toBe(false);
+    expect(buildStudentVisibleTutorReply(current, [], 3)).toBe(current.nextQuestion);
   });
 
-  it("preserves a specific authored probe after the first high-confidence wrong classification", () => {
+  it("uses the safe basis probe only when the generated first-strike question is missing", () => {
+    expect(buildStudentVisibleTutorReply({ ...current, nextQuestion: "" }, [], 3)).toBe(WRONG_ANSWER_BASIS_PROBE);
+  });
+
+  it("preserves a specific generated probe after the first high-confidence wrong classification", () => {
     expect(buildStudentVisibleTutorReply(current, [], 3, { hasScriptedMove: true })).toBe(current.nextQuestion);
   });
 
-  it("plainly corrects after two consecutive high-confidence wrong classifications", () => {
-    const reply = buildStudentVisibleTutorReply(current, [evaluation("wrong", 0.94)], 3);
+  it("plainly corrects after the configured one-probe high-confidence wrong streak", () => {
+    const reply = buildStudentVisibleTutorReply(current, [evaluation("wrong", 0.94, 3, "different-misconception")], 3, { correctionProbes: 1 });
     expect(reply).toBe(`That statement is incorrect. ${current.nextQuestion}`);
+  });
+
+  it("supports a two-probe correction threshold", () => {
+    const first = evaluation("wrong", 0.94, 3, "different-misconception");
+    const second = evaluation("wrong", 0.95, 3, "another-misconception");
+    expect(shouldExplicitlyCorrect(current, [first], 3, 2)).toBe(false);
+    expect(shouldExplicitlyCorrect(current, [first, second], 3, 2)).toBe(true);
+    expect(buildStudentVisibleTutorReply(current, [first, second], 3, { correctionProbes: 2 }))
+      .toBe(`That statement is incorrect. ${current.nextQuestion}`);
   });
 
   it.each(["partial", "vague", "correct"] as const)("never fires for a current %s classification", (classification) => {
@@ -61,9 +75,11 @@ describe("wrong-answer correction policy", () => {
     expect(shouldExplicitlyCorrect(current, [evaluation("wrong", 0.96), evaluation("partial", 0.92)], 3)).toBe(false);
   });
 
-  it("treats a different misconception in the same phase as a new first strike", () => {
+  it("does not require the same misconception key for a consecutive wrong streak", () => {
     const previous = evaluation("wrong", 0.96, 3, "unsafe-traction-vector");
-    expect(shouldExplicitlyCorrect(current, [previous], 3)).toBe(false);
-    expect(buildStudentVisibleTutorReply(current, [previous], 3)).toBe(WRONG_ANSWER_BASIS_PROBE);
+    expect(shouldExplicitlyCorrect(current, [previous], 3)).toBe(true);
+    expect(buildStudentVisibleTutorReply(current, [previous], 3)).toBe(
+      `That statement is incorrect. ${current.nextQuestion}`,
+    );
   });
 });

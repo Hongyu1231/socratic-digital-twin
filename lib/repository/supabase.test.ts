@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import type { Evaluation, TutorMessage } from "@/lib/domain";
 import { SupabaseTutorRepository } from "@/lib/repository/supabase";
+import { InMemoryTutorRepository } from "@/lib/repository/memory";
+import { DEMO_ASSIGNMENT_ID, DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID } from "@/lib/seed";
 
 type Result = { data: unknown; error: null };
 
@@ -107,4 +110,46 @@ describe("SupabaseTutorRepository student catalogue batching", () => {
 
     expect(calls.filter((table) => table === "class_memberships")).toHaveLength(1);
   });
+
+  it("stores reflection turns without a graded database score", async () => {
+    const memory = new InMemoryTutorRepository();
+    memory.reset();
+    const started = await memory.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID, DEMO_ASSIGNMENT_ID);
+    const now = new Date().toISOString();
+    const studentMessage: TutorMessage = {
+      id: crypto.randomUUID(), sessionId: started.session.id, sender: "student",
+      content: "I would reassess the key uncertainty.", timestamp: now,
+    };
+    const evaluation: Evaluation = {
+      id: crypto.randomUUID(), messageId: studentMessage.id, classification: "correct",
+      confidence: 0.95, reasoningGap: "", strategy: "reflect", phaseComplete: false,
+      feedback: "Reflect on the decision.", isReflection: true, createdAt: now,
+    };
+    const aiMessage: TutorMessage = {
+      id: crypto.randomUUID(), sessionId: started.session.id, sender: "ai",
+      content: "What uncertainty mattered most?", timestamp: now, moveType: "reflection",
+    };
+    const rpc = vi.fn(async () => ({ data: null, error: null }));
+    const repository = Object.create(SupabaseTutorRepository.prototype) as SupabaseTutorRepository;
+    Object.defineProperty(repository, "client", { value: { rpc } });
+    vi.spyOn(repository, "getSession").mockResolvedValue(started);
+
+    await repository.commitTurn({
+      sessionId: started.session.id,
+      expectedVersion: started.session.state.version,
+      clientRequestId: "reflection-turn-123",
+      studentMessage,
+      evaluation,
+      aiMessage,
+      nextState: { ...started.session.state, version: started.session.state.version + 1, updatedAt: now },
+      nextPhase: started.session.currentPhase,
+      status: "active",
+      score: null,
+      summary: null,
+      completedAt: null,
+    });
+
+    expect(rpc).toHaveBeenCalledWith("commit_tutor_turn", expect.objectContaining({ p_evaluation_score: null }));
+  });
+
 });

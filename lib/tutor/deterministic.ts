@@ -1,11 +1,12 @@
 import type { CasePhase, TutorEvaluateInput, TutorEvaluationResult, TutorStrategy } from "@/lib/domain";
+import { phaseCriteria, rubricText } from "@/lib/tutor/criteria";
 
 const normalise = (value: string) => value.toLowerCase().replace(/[^a-z0-9\s-]/g, " ");
 
 const KEYWORD_STOP_WORDS = new Set(["about", "after", "against", "also", "and", "before", "case", "clinical", "from", "goal", "into", "more", "phase", "should", "that", "their", "this", "through", "with"]);
 
 function rubricKeywordGroups(phase: CasePhase) {
-  return phase.rubric.map((criterion) => normalise(criterion).split(/\s+/)
+  return phase.rubric.map((criterion) => normalise(rubricText(criterion)).split(/\s+/)
     .filter((word) => word.length >= 5 && !KEYWORD_STOP_WORDS.has(word))
     .slice(0, 8))
     .filter((group) => group.length);
@@ -60,14 +61,19 @@ export class DeterministicTutor {
           ? `The answer identifies a relevant feature but does not yet connect enough evidence to the goal: ${phase.goal}`
           : classification === "vague"
             ? "The answer does not commit to a specific finding or explain why it matters."
-            : `The reasoning is not yet anchored to the phase rubric: ${phase.rubric.slice(0, 3).join(", ")}.`;
+            : `The reasoning is not yet anchored to the phase rubric: ${phase.rubric.slice(0, 3).map(rubricText).join(", ")}.`;
 
     return {
       classification,
+      // Keyword matching is not reliable evidence for clinician-authored IDs.
+      // Let the support ladder handle explicit-criterion cases when offline.
+      criteriaMet: phase.rubric.every((item) => typeof item === "string") && classification === "correct"
+        ? phaseCriteria(phase).map((item) => item.id) : [],
+      targetCriterionId: phaseCriteria(phase)[0]?.id ?? null,
       confidence: classification === "correct" || classification === "vague" ? 0.82 : 0.74,
       reasoningGap: gap,
       misconceptionKey: classification === "wrong"
-        ? `rubric:${normalise(phase.rubric[0] ?? "unsupported reasoning").trim().replace(/\s+/g, "-").slice(0, 100)}`
+        ? `rubric:${normalise(rubricText(phase.rubric[0] ?? "unsupported reasoning")).trim().replace(/\s+/g, "-").slice(0, 100)}`
         : null,
       strategy,
       feedback:

@@ -5,7 +5,6 @@ import { resetRepositoryForTests } from "@/lib/repository";
 import { DEMO_PROFESSOR_ID, DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID, impactedCanineCase } from "@/lib/seed";
 import * as tutor from "@/lib/tutor";
 import { finishSession, submitStudentAnswer } from "@/lib/tutor/state-machine";
-import { WRONG_ANSWER_BASIS_PROBE } from "@/lib/tutor/correction-policy";
 import * as materials from "@/lib/materials/retrieval";
 import * as experiments from "@/lib/experiments/shadow";
 
@@ -45,7 +44,7 @@ describe("Socratic state machine", () => {
   });
   it("supplies private teaching context only to the main tutor, never to experiment logging", async () => {
     const context = { expertNotes: "PRIVATE_SYNTHETIC_NOTE", sourceDocument: "synthetic.docx", literature: [] };
-    vi.spyOn(materials, "getTeachingContext").mockReturnValueOnce(context);
+    vi.spyOn(materials, "getTeachingContextWithTrace").mockReturnValueOnce({ context, trace: { query: "synthetic query", passages: [] } });
     const evaluate = vi.spyOn(tutor, "evaluateWithFallback").mockResolvedValueOnce(evaluationResult());
     const experiment = vi.spyOn(experiments, "applyHumanizationExperiment");
     const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);
@@ -96,7 +95,7 @@ describe("Socratic state machine", () => {
       DEMO_STUDENT_ID,
       "Impacted canines never resorb lateral incisor roots.",
     );
-    expect(first.session.messages.at(-1)?.content).toBe(WRONG_ANSWER_BASIS_PROBE);
+    expect(first.session.messages.at(-1)?.content).toBe("What evidence supports that statement?");
     expect(first.session.messages.at(-1)?.content).not.toContain("That statement is incorrect.");
 
     const second = await submitStudentAnswer(
@@ -104,16 +103,15 @@ describe("Socratic state machine", () => {
       DEMO_STUDENT_ID,
       "I still think impacted canines never resorb lateral incisor roots.",
     );
-    expect(second.session.messages.at(-1)?.content).toBe(
-      "That statement is incorrect. Which finding would test that claim?",
-    );
+    expect(second.session.messages.at(-1)?.content).toMatch(/^That statement is incorrect\. Suppose/);
+    expect(second.session.messages.at(-1)?.moveType).toBe("hypothetical");
     expect(evaluateSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({
       recentEvaluations: [expect.objectContaining({ misconceptionKey: "root-resorption-claim" })],
     }));
     expect(second.session.currentPhase).toBe(1);
     expect(second.session.evaluations.map((evaluation) => evaluation.classification)).toEqual(["wrong", "wrong"]);
   });
-  it("probes a new misconception instead of treating it as the second strike for the previous error", async () => {
+  it("corrects a second high-confidence wrong statement even when the model changes its key", async () => {
     const evaluateSpy = vi.spyOn(tutor, "evaluateWithFallback");
     evaluateSpy
       .mockResolvedValueOnce(evaluationResult({ misconceptionKey: "root-resorption-claim" }))
@@ -123,8 +121,7 @@ describe("Socratic state machine", () => {
     await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "Impacted canines never resorb lateral incisor roots.");
     const second = await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "The canine should always be pulled straight down across the lateral root.");
 
-    expect(second.session.messages.at(-1)?.content).toBe(WRONG_ANSWER_BASIS_PROBE);
-    expect(second.session.messages.at(-1)?.content).not.toContain("That statement is incorrect.");
+    expect(second.session.messages.at(-1)?.content).toContain("That statement is incorrect.");
     expect(second.session.evaluations.map((evaluation) => evaluation.misconceptionKey)).toEqual([
       "root-resorption-claim",
       "unsafe-traction-vector",
@@ -147,10 +144,7 @@ describe("Socratic state machine", () => {
     await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "The claim is always true.");
     const second = await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "I cannot justify it further.");
 
-    const expectedReply = secondResult.classification === "wrong" && secondResult.confidence >= 0.85
-      ? WRONG_ANSWER_BASIS_PROBE
-      : secondResult.nextQuestion;
-    expect(second.session.messages.at(-1)?.content).toBe(expectedReply);
+    expect(second.session.messages.at(-1)?.content.match(/[?？]/g)).toHaveLength(1);
     expect(second.session.messages.at(-1)?.content).not.toContain("That statement is incorrect.");
   });
   it("creates a formative partial summary when ended early", async () => {
@@ -158,6 +152,27 @@ describe("Socratic state machine", () => {
     const completed = await finishSession(started.session.id, DEMO_STUDENT_ID);
     expect(completed.session.status).toBe("completed");
     expect(completed.session.summary?.completedAllPhases).toBe(false);
+  });
+  it("persists phase evidence and does not carry a resolved deficit into the final summary", async () => {
+    vi.spyOn(tutor, "evaluateWithFallback")
+      .mockResolvedValueOnce(evaluationResult({
+        classification: "partial", misconceptionKey: null,
+        memoryPatch: { addErrors: [], addStrengths: [], addWeaknesses: ["Has not linked the findings to a management consequence."], masteryDelta: 0.1 },
+      }))
+      .mockResolvedValueOnce(evaluationResult({
+        classification: "correct", misconceptionKey: null,
+        memoryPatch: { addErrors: [], addStrengths: ["Explains how canine displacement affects surgical access and traction direction."], addWeaknesses: [], masteryDelta: 0.3 },
+      }));
+    const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID);
+    await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "The canine is not erupted but I cannot explain why that matters yet.");
+    const answered = await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "The unerupted canine and eruption asymmetry matter because age and eruption timing make impaction clinically significant rather than normal variation.");
+    expect(answered.session.currentPhase).toBe(2);
+    expect(answered.session.state.phaseEvidence?.["1"].completed).toBe(true);
+    const reloaded = await repository.getSession(started.session.id);
+    expect(reloaded?.session.state.weaknesses).toEqual([]);
+    const completed = await finishSession(started.session.id, DEMO_STUDENT_ID);
+    expect(completed.session.summary?.weaknesses).toEqual([]);
+    expect(completed.session.summary?.strengths).toContain("Phase 1: Explains how canine displacement affects surgical access and traction direction.");
   });
   it("does not call an external model while completing a session", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");

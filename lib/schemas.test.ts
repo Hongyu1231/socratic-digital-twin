@@ -1,6 +1,26 @@
 import { describe, expect, it } from "vitest";
 
-import { caseAttachmentInputSchema, summaryOutputSchema } from "@/lib/schemas";
+import { assignmentInputSchema, caseAttachmentInputSchema, summaryOutputSchema } from "@/lib/schemas";
+
+describe("assignment input schema", () => {
+  const validAssignment = {
+    classId: "55555555-5555-4555-8555-555555555555",
+    caseId: "33333333-3333-4333-8333-333333333333",
+    opensAt: "2026-08-09T00:00:00.000+00:00",
+    dueAt: null,
+  };
+
+  it("accepts absent or persisted-null idempotency keys", () => {
+    expect(assignmentInputSchema.safeParse(validAssignment).success).toBe(true);
+    expect(assignmentInputSchema.safeParse({ ...validAssignment, idempotencyKey: null }).success).toBe(true);
+    expect(assignmentInputSchema.safeParse({ ...validAssignment, idempotencyKey: "assignment:one" }).success).toBe(true);
+  });
+
+  it("rejects empty and whitespace-only idempotency keys", () => {
+    expect(assignmentInputSchema.safeParse({ ...validAssignment, idempotencyKey: "" }).success).toBe(false);
+    expect(assignmentInputSchema.safeParse({ ...validAssignment, idempotencyKey: "   " }).success).toBe(false);
+  });
+});
 
 describe("summary output schema", () => {
   const validSummary = {

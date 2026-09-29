@@ -16,7 +16,7 @@ export function errorResponse(error: unknown) {
 }
 
 /** Allowlist case fields so server-only reference additions never reach students. */
-export function studentCaseView(clinicalCase: ClinicalCase): ClinicalCase {
+export function studentCaseView(clinicalCase: ClinicalCase, currentPhase?: number): ClinicalCase {
   return {
     id: clinicalCase.id,
     title: clinicalCase.title,
@@ -39,15 +39,36 @@ export function studentCaseView(clinicalCase: ClinicalCase): ClinicalCase {
     sourceCaseId: clinicalCase.sourceCaseId,
     version: clinicalCase.version,
     publishedAt: clinicalCase.publishedAt,
-    attachments: clinicalCase.attachments,
+    // The catalogue has no session phase, so it receives no media references.
+    // Private object keys are never exposed, even before URL signing occurs.
+    attachments: currentPhase === undefined ? [] : (clinicalCase.attachments ?? [])
+      .filter((item) => (item.unlockPhase ?? 1) <= currentPhase)
+      .map(({ id, kind, title, description, url, posterUrl, transcript, sourceLabel, sourceUrl, unlockPhase, storagePath }) => ({
+        id, kind, title, description, transcript, sourceLabel, unlockPhase: unlockPhase ?? 1,
+        ...(!storagePath ? { url, posterUrl, sourceUrl } : {}),
+      })),
+    findings: currentPhase === undefined ? [] : (clinicalCase.findings ?? [])
+      .filter((item) => item.unlockPhase <= currentPhase)
+      .map(({ id, title, text, unlockPhase }) => ({ id, title, text, unlockPhase })),
     isTestFixture: clinicalCase.isTestFixture,
   };
 }
 
 export function studentView(bundle: SessionBundle): SessionBundle {
+  const publicCase = studentCaseView(bundle.case, bundle.session.currentPhase);
   return {
     ...bundle,
-    case: studentCaseView(bundle.case),
+    case: {
+      ...publicCase,
+      phases: publicCase.phases.map((phase) => ({
+        ...phase,
+        phaseProgress: {
+          criteriaMet: bundle.session.state.phaseProgress?.[String(phase.order)]?.criteriaMet.length ?? 0,
+          criteriaTotal: bundle.case.phases.find((item) => item.id === phase.id)?.rubric.length ?? 0,
+          completedWithSupport: bundle.session.state.phaseProgress?.[String(phase.order)]?.completedWithSupport ?? false,
+        },
+      })),
+    },
     session: {
       ...bundle.session,
       evaluations: [],
@@ -55,6 +76,12 @@ export function studentView(bundle: SessionBundle): SessionBundle {
         ...bundle.session.state,
         previousErrors: [],
         weaknesses: [],
+        // Internal phase provenance includes the same private gaps/errors.
+        phaseEvidence: undefined,
+        phaseProgress: undefined,
+        reflectionAsked: undefined,
+        reflectionAnswered: undefined,
+        usedTutorMoves: undefined,
       },
     },
     answerReviews: [],

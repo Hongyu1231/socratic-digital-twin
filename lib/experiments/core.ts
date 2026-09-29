@@ -45,7 +45,7 @@ export function buildFrozenSamples(sessions: readonly SessionBundle[], pseudonym
       samples.push({
         sampleKey,
         reviewerPseudonym: pseudonymHash(review.professorId, pseudonymSalt),
-        phase: { title: phase.title, goal: phase.goal, rubric: [...phase.rubric] },
+        phase: { title: phase.title, goal: phase.goal, rubric: phase.rubric.map((criterion) => typeof criterion === "string" ? criterion : criterion.text) },
         answer: deidentifyText(answer, { knownNames: [bundle.student.name], knownIdentifiers: [bundle.student.email, bundle.session.studentId], salt: pseudonymSalt }).text,
         attempt: evaluation.attempt ?? 1,
         professorLabel: review.label,

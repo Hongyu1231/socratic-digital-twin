@@ -32,7 +32,7 @@ function makeFixture() {
   bytes.write("WEBP", 8, "ascii");
   const file = path.join(root, "media", `${mediaId}.webp`);
   fs.writeFileSync(file, bytes);
-  const manifest = {
+  const manifest: any = {
     formatVersion: 1,
     packageId: "a".repeat(64),
     cases: [{
@@ -152,6 +152,97 @@ describe("teaching-material publication boundary", () => {
     expect(plan.assignments[0].idempotency_key).toBe(`materials:${fixture.manifest.packageId}:11111111-1111-4111-8111-111111111111:${fixture.caseId}`);
     expect(plan.assignments[0].status).toBe("open");
     expect(plan.assignments[0].opens_at).toBe("<execution-time>");
+  });
+
+  it("supports an explicit private-media dry-run without persisting a public URL", () => {
+    const fixture = makeFixture();
+    const manifest = validateManifest(fixture.manifest, fixture.root);
+    const plan = buildPublicationPlan({
+      manifest,
+      supabaseUrl: "https://zulvdacbqvmqmtotyeuc.supabase.co",
+      classId: "11111111-1111-4111-8111-111111111111",
+      professorId: "22222222-2222-4222-8222-222222222222",
+      adminId: "99999999-9999-4999-8999-999999999999",
+      privateMedia: true,
+    });
+
+    expect(plan.privateMedia).toBe(true);
+    expect(plan.mediaBucket).toBe("teaching-case-media-private");
+    expect(plan.privateMediaPaths).toEqual([`${fixture.manifest.packageId}/${fixture.mediaId}.webp`]);
+    expect(plan.publicMediaPaths).toEqual([]);
+    expect(plan.cases[0].case.attachments[0]).toMatchObject({
+      storagePath: `${fixture.manifest.packageId}/${fixture.mediaId}.webp`,
+      unlockPhase: 1,
+      unlockOnRequest: false,
+      sourceLabel: "Private teaching media (server-authorized)",
+    });
+    expect(plan.cases[0].case.attachments[0]).not.toHaveProperty("url");
+    expect(plan.cases[0].case.attachments[0]).not.toHaveProperty("sourceUrl");
+  });
+
+  it("normalizes legacy rubric strings, preserves explicit criteria, and writes text-only objectives", () => {
+    const fixture = makeFixture();
+    fixture.manifest.cases[0].case.phases[0].rubric = [
+      { id: "observation", text: "States the visible observation.", revealText: "State only what the record shows." },
+      "Names the supporting record.",
+    ];
+    fixture.manifest.cases[0].case.phases[0].noProgressLimit = 4;
+    fixture.manifest.cases[0].case.phases[0].phaseCeiling = 12;
+    fixture.manifest.cases[0].case.phases[0].tutorMoves = [{
+      id: "observation-probe",
+      strategy: "probe",
+      question: "Which record supports that observation?",
+      targetCriterionId: "observation",
+    }];
+    fixture.manifest.cases[0].case.findings = [{
+      id: "finding-1",
+      title: "Visible finding",
+      text: "The finding is released with phase one.",
+    }];
+    fixture.manifest.cases[0].case.correctionProbes = 2;
+
+    const manifest = validateManifest(fixture.manifest, fixture.root);
+    const plan = buildPublicationPlan({
+      manifest,
+      supabaseUrl: "https://zulvdacbqvmqmtotyeuc.supabase.co",
+      classId: "11111111-1111-4111-8111-111111111111",
+      professorId: "22222222-2222-4222-8222-222222222222",
+      adminId: "99999999-9999-4999-8999-999999999999",
+    });
+
+    expect(plan.cases[0].phases[0].objectives).toEqual([
+      "Describe a finding.",
+      "States the visible observation.",
+      "Names the supporting record.",
+    ]);
+    expect(plan.cases[0].phases[0].metadata).toMatchObject({
+      rubric: [
+        { id: "observation", text: "States the visible observation.", revealText: "State only what the record shows." },
+        { id: "r2", text: "Names the supporting record." },
+      ],
+      noProgressLimit: 4,
+      phaseCeiling: 12,
+    });
+    expect(plan.cases[0].case.patient_context).toMatchObject({
+      correctionProbes: 2,
+      findings: [{ id: "finding-1", unlockPhase: 1 }],
+    });
+  });
+
+  it("rejects generated criterion id collisions and scripted moves outside their phase", () => {
+    const fixture = makeFixture();
+    const collision = structuredClone(fixture.manifest);
+    collision.cases[0].case.phases[0].rubric = ["first", { id: "r1", text: "collides with the first legacy criterion" }];
+    expect(() => validateManifest(collision, fixture.root)).toThrow(/duplicate rubric criterion id/i);
+
+    const invalidMove = structuredClone(fixture.manifest);
+    invalidMove.cases[0].case.phases[0].tutorMoves = [{
+      id: "bad-target",
+      strategy: "probe",
+      question: "Which record supports that observation?",
+      targetCriterionId: "not-in-this-phase",
+    }];
+    expect(() => validateManifest(invalidMove, fixture.root)).toThrow(/outside its phase/i);
   });
 
   it("rejects an unregistered or modified media object before any write", () => {

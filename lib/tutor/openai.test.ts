@@ -28,6 +28,9 @@ const state: LearnerState = {
 };
 
 const parsedOutput = {
+  acknowledgement: null,
+  targetCriterionId: null,
+  criteriaMet: [],
   classification: "partial" as const,
   confidence: 0.8,
   reasoningGap: "Needs consequence",
@@ -67,8 +70,10 @@ describe("OpenAI tutor adapter", () => {
     const request = parseMock.mock.calls[0][0];
     expect(request.model).toBe("test-model");
     expect(request.store).toBe(false);
-    expect(request.max_output_tokens).toBe(900);
+    expect(request.max_output_tokens).toBe(1200);
     expect(request.instructions).toContain("untrusted quoted data");
+    expect(request.instructions).toContain("acknowledgement");
+    expect(request.instructions).toContain("Do not repeat it inside nextQuestion");
     expect(request.input).toContain("studentAnswer");
     expect(request.text.format).toEqual({ type: "json_schema" });
     expect(zodTextFormatMock).toHaveBeenCalledWith(expect.anything(), "tutor_evaluation");

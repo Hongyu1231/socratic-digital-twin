@@ -1,0 +1,99 @@
+# Tutor engine v2: backend implementation and handoff
+
+Implementation date: 2026-09-29. Branch: `feature/tutor-engine-v2`.
+
+This is a local, backward-compatible implementation of the backend portion discussed in PR #2. It does not merge that draft specification, replace Arshin's frontend work or author the Case 1 clinical criteria. It carries forward pre-existing local changes without reverting them. Nothing has been committed, pushed, migrated to production, uploaded or deployed as part of this implementation.
+
+## Engine contract
+
+- `CasePhase.rubric` accepts legacy strings or `{ id, text, revealText? }`. New content should use stable clinician-authored IDs. Legacy strings get positional `r1`, `r2`, etc.; these are a compatibility bridge, not durable authoring IDs.
+- Criterion IDs are unique within a phase, including collisions with generated legacy IDs. Scripted `targetCriterionId` must belong to that phase. Case phase IDs are unique when supplied; phases must appear in order, consecutive from 1, so saving cannot silently change unlock semantics.
+- Provider output includes nullable `acknowledgement` and `targetCriterionId`, plus `criteriaMet: string[]`. Semantic membership is checked after parsing: unknown tags become untagged/are dropped without discarding the grade. Wrong answers cannot acquire criterion evidence. The provider wire schema uses strings, not a dynamically generated enum; this is a provisional contract clarification for PR #2.
+- Acknowledgement is one grounded sentence, no question mark, at most 200 characters. It is persisted separately **and included in `message.content` for the current UI**. New UI must not prepend it again.
+- Per-phase progress tracks criteria, best classification, no-progress count and support level. Defaults: `noProgressLimit = 2`, `phaseCeiling = 8`; allowed overrides are 1–4 and 2–12 respectively. A classification improvement or new criterion resets the no-progress counter; oscillating back to a previous best does not.
+- Independent advancement requires all criteria and a correct answer, without a blocking scripted move. Legacy adapters without tags retain their old correct-answer completion rule only for all-string rubrics.
+- No progress escalates to a hypothetical, then an explicit review point/application question. The review point uses clinician-provided `revealText`, falling back to criterion text; it does not invent a patient finding. The ceiling also forces this review step. The learner must answer once more before supported advancement. Supported advancement never changes the answer's classification or clears unresolved phase evidence.
+- Exact-repeat detection strips stored acknowledgement/correction prefixes and applies to both model and scripted proposals. The ladder/ceiling bounds semantically repeated questions that exact matching cannot detect.
+- `correctionProbes?: 1 | 2` defaults to 1. A further consecutive wrong answer with confidence at least 0.85, after the configured number of high-confidence wrong turns in the same phase, receives an explicit correction. Partial, vague, low-confidence wrong and reflection turns never trigger it. It does not depend on an LLM reusing the same misconception key.
+- Completing the last teaching phase always asks a separate final reflection. A valid reflection answer completes without a model/classification gate; it is marked `isReflection`, excluded from the reasoning score and persisted with a null database evaluation score. Reflection state is not inferred from wording in a starter question.
+- Supported phase orders are retained in `summary.supportedPhases`; deterministic narrative distinguishes assistance from independent mastery. AI summary enhancement cannot remove that caveat.
+
+## Student response and frontend handoff
+
+The existing `SessionBundle` shape remains compatible. New display metadata:
+
+| Field | Meaning |
+| --- | --- |
+| `message.acknowledgement` | Also already present in `content`; do not render twice |
+| `message.moveType` | question, hypothetical, reveal, correction, transition or reflection |
+| `case.phases[].phaseProgress.criteriaMet` | Count only, never private criterion IDs |
+| `case.phases[].phaseProgress.criteriaTotal` | Total criterion count |
+| `case.phases[].phaseProgress.completedWithSupport` | Pedagogical progression, not mastery |
+| `case.findings[]` | Only findings unlocked at the current session phase |
+| `case.attachments[].expiresAt` | ISO timestamp for signed URLs; absent for legacy URLs |
+
+Student responses omit grading evaluations, private rubrics, scripted moves and their IDs, internal phase evidence/progress, retrieval traces, and raw storage-key fields. Catalogue responses contain no attachment/finding references. The pre-existing learner-state response is still a compatibility projection; replacing it with a complete minimal DTO belongs to the frontend/API contract integration and is not claimed finished here.
+
+Arshin's remaining integration includes the progress/support UI, signed-URL refresh and unavailable-media affordance, object-rubric editor support, explicit ungraded reflection presentation in professor views, and the reviewed Case 1 content. **Do not round-trip v2-authored cases through the old editor until it preserves object rubrics, findings, private-media keys and progression settings.** Clinical relevance of new criteria/reveal text still needs faculty review. The model receives attachment descriptions/released findings and references, not image pixels.
+
+## Durable turn idempotency
+
+`POST /api/session/message` continues to accept optional `clientRequestId`. Clients should supply one stable key per submitted answer and reuse it on retry; an edited answer needs a new key.
+
+Migration: `supabase/migrations/20260929184945_tutor_turn_idempotency.sql`.
+
+- Adds `messages.client_request_id` and a partial unique index per session.
+- New 21-argument `commit_tutor_turn` has **no default arguments**. Existing 18-argument callers retain the original signature/defaults through a wrapper, avoiding ambiguous overload resolution.
+- Both signatures are service-role-only. Under a session row lock, the RPC checks ownership and a prior committed key before active/paused/version checks. Turn messages, evaluation, learner state and session update remain one transaction.
+- Application lookup runs after ownership validation and before model/retrieval work, including for a completed or paused session. A repeated key with changed content returns 409.
+- Replay returns the latest authorized session bundle containing the originally committed pair, not a byte-identical historical snapshot. This prevents a late retry from rolling the client's state backward.
+- The memory adapter has the same contract. Simultaneous requests may still duplicate model work before either commits; the database arbitrates persistence. This is not an exactly-once external LLM invocation guarantee.
+
+Apply the backward-compatible migration before deploying the new repository, which sends all 21 arguments. No automatic fallback should write through the old RPC if the new migration is missing.
+
+## Findings, private media and publication
+
+Case inputs accept `findings: { id, title, text, unlockPhase, unlockOnRequest?: false }[]`; attachments accept `storagePath`, `unlockPhase` and `unlockOnRequest?: false`. Both are validated and persisted; unlock phases must exist. On-request unlocking is intentionally not implemented.
+
+Private media uses only the fixed `teaching-case-media-private` bucket. Object keys must be safe slash-separated segments, never arbitrary URLs. Server-only service-role signing produces one-hour URLs after session ownership, attachment membership and phase-unlock checks. The refresh endpoint is:
+
+```text
+GET /api/session/{sessionId}/attachments/{attachmentId}/url
+200 { attachmentId, url, expiresAt }
+```
+
+Wrong owner/role is denied; locked/missing attachments return 404; unavailable signing returns a safe 503. Responses are `private, no-store`. Student session responses sign unlocked attachments in parallel, bounded to 12 attachments. Each Storage network request has a five-second abort deadline. A signing failure retains safe attachment metadata without URL so the UI can offer a retry. Transcript-only audio remains supported.
+
+`scripts/publish-teaching-materials.mjs --private-media` opts into private-bucket publication. Existing public URLs remain supported; this code does **not** migrate, revoke or remove already-public objects. Before real deployment, verify bucket access policies deny anonymous object reads and test actual signed URL expiry/refresh. Signed URLs are bearer links usable until expiry; a storage path is visible inside the signed URL, although no separate raw key is serialized.
+
+Private storage alone does not make this demo suitable for patient records. The POC still permits public role selection and serves only synthetic/resettable or appropriately authorized teaching material. Real IRB images require real authentication, access controls and an approved handling workflow before upload.
+
+## Retrieval audit
+
+Evaluations retain the retrieval query and the selected passages' source ID, page, optional paragraph locator and actual ranking score. No retrieved passage text or expert note is added to the trace or student response. The query contains learner text and should be treated as learner data. No additional trace/index tables or production data backfill are needed for this JSON metadata.
+
+## Verification and release gate
+
+Final local checks: **246 tests passed, 12 opt-in live tests skipped** (45 passing files, 2 skipped); TypeScript, ESLint, production build and `git diff --check` passed. These counts exclude unexecuted pgTAP/database checks.
+
+Tests cover explicit/legacy rubric contracts, real OpenAI JSON-schema serialization, criteria accumulation and wrong-answer rejection, repeated questions, support/ceiling exits, reflection, correction confidence gating, replay/changed payload/ownership, repository metadata mapping, media phase/ownership checks, signing failure and deadlines, retrieval traces, and summary support preservation.
+
+Browser verification uses local `127.0.0.1:3210`, memory storage and the deterministic tutor, not production. The verified story is: student case → message API → memory repository → support escalation → supported transition → final reflection → deterministic summary UI.
+
+| Boundary | Evidence from 2026-09-29 local run |
+| --- | --- |
+| UI entry | Home and case session render; no framework error overlay/browser exceptions |
+| UI → API | Answers sent with the actual composer; message requests returned 200 |
+| API → memory → response | Phase 1 escalated to hypothetical then reveal; subsequent application advanced to phase 2 with support flag and zero criterion credit |
+| Reflection → completion | Uncertain reflection answer completed all five phases; summary page opened automatically |
+| Response → UI | Summary showed supported phase 1, unresolved gap and a score of 50, not automatic full credit |
+| Completed-request retry | Same key/content returned 200 with identical last-message ID/count; changed content returned 409 |
+| Performance observation | Local deterministic message requests were 8–21 ms; this is **not** a production/LLM latency claim |
+
+Local screenshots are under `output/backend-v2-*.png` (not for production publication). The first screenshot run predates only the final punctuation/singular-plural cleanup and media-signing timeout hardening; core flow behavior is unchanged.
+
+Run `npm test`, `npm run typecheck`, `npm run lint`, and `npm run build`. Opt-in live model/hosted-material tests are skipped by default; do not count them as passed. The new pgTAP test lives in `supabase/tests/database/tutor_turn_idempotency.test.sql`.
+
+**Unverified release gates:** actual PostgreSQL migration/RPC execution and concurrent commits; real Storage RLS and URL expiry/refresh; hosted/live-model rubric quality and latency; frontend/content integration. Local database verification was unavailable because Supabase/Postgres was not running (`127.0.0.1:54322` refused connections). Static review and mocked repository tests do not replace these checks. Run migration/lint/pgTAP in an isolated local or test Supabase database before deployment, never against production as a test target.
+
+Safe rollout: agree the provisional contract → validate isolated migrations and RPC compatibility → complete frontend/content integration → publish only authorized media with reviewed storage policy → stage browser/live-model checks → deploy. Retain old data; do not delete learning sessions to roll back the engine.

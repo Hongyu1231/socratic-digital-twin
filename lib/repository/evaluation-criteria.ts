@@ -21,5 +21,11 @@ export function buildEvaluationCriteria(evaluation: Evaluation) {
     fallbackFrom: evaluation.fallbackFrom,
     model: evaluation.model,
     promptVersion: evaluation.promptVersion,
+    targetCriterionId: evaluation.targetCriterionId ?? null,
+    criteriaMet: evaluation.criteriaMet ?? [],
+    supportLevel: evaluation.supportLevel ?? 0,
+    completedWithSupport: evaluation.completedWithSupport ?? false,
+    isReflection: evaluation.isReflection ?? false,
+    retrieval: evaluation.retrieval ?? null,
   };
 }

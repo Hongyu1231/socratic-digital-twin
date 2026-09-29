@@ -1,16 +1,17 @@
-import type { Evaluation, LearnerState, SessionBundle, TutorMessage, TutorMove } from "@/lib/domain";
+import type { Evaluation, LearnerState, SessionBundle, TutorMessage, TutorEvaluationResult } from "@/lib/domain";
 import { calculateScore } from "@/lib/domain";
 import { getRepository } from "@/lib/repository";
 import { evaluateWithFallback, getTutorMode } from "@/lib/tutor";
 import { buildSessionSummary } from "@/lib/tutor/summary";
-import { withIdempotency } from "@/lib/idempotency";
 import { TUTOR_PROMPT_VERSION } from "@/lib/tutor/prompt";
 import { applyHumanizationExperiment, type ExperimentDecision } from "@/lib/experiments/shadow";
 import { contentHash } from "@/lib/experiments/privacy";
 import { selectTutorMove } from "@/lib/tutor/question-planner";
 import { mergeLearnerEvidence } from "@/lib/tutor/learner-model";
 import { buildStudentVisibleTutorReply } from "@/lib/tutor/correction-policy";
-import { getTeachingContext, getTeachingContextAsync } from "@/lib/materials/retrieval";
+import { getTeachingContextWithTrace, getTeachingContextWithTraceAsync } from "@/lib/materials/retrieval";
+import { normalizeCriterionTags, phaseCriteria } from "@/lib/tutor/criteria";
+import { avoidRepeatedQuestion, progressPhase, supportQuestion } from "@/lib/tutor/progression";
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 
@@ -20,29 +21,35 @@ export async function submitStudentAnswer(
   content: string,
   clientRequestId?: string,
 ): Promise<SessionBundle> {
-  if (clientRequestId) {
-    return withIdempotency(`${studentId}:${sessionId}:${clientRequestId}`, () =>
-      performStudentAnswer(sessionId, studentId, content),
-    );
-  }
-  return performStudentAnswer(sessionId, studentId, content);
+  // Durable repository deduplication is authoritative across instances. Avoid
+  // the old process cache: it bypassed current ownership and payload checks.
+  return performStudentAnswer(sessionId, studentId, content, clientRequestId);
 }
 
 async function performStudentAnswer(
   sessionId: string,
   studentId: string,
   content: string,
+  clientRequestId?: string,
 ): Promise<SessionBundle> {
   const repository = getRepository();
   const bundle = await repository.getSession(sessionId);
   if (!bundle) throw new Error("Session not found.");
   if (bundle.session.studentId !== studentId) throw new Error("This session belongs to another learner.");
+  if (clientRequestId) {
+    const replay = await repository.findCommittedTurn(sessionId, studentId, clientRequestId, content);
+    if (replay) return replay;
+  }
   if (bundle.session.status !== "active") throw new Error("This learning session is already complete.");
   if (bundle.session.pausedAt) throw new Error("Resume this session before submitting another answer.");
 
   const phase = bundle.case.phases.find((item) => item.order === bundle.session.currentPhase);
   if (!phase) throw new Error("The current teaching phase is invalid.");
+  const orderedPhases = [...bundle.case.phases].sort((left, right) => left.order - right.order);
+  const phaseIndex = orderedPhases.findIndex((item) => item.id === phase.id);
+  const isFinalPhase = phaseIndex === orderedPhases.length - 1;
   const phaseKey = String(phase.order);
+  const isReflectionAnswer = isFinalPhase && bundle.session.state.reflectionAsked === true && !bundle.session.state.reflectionAnswered;
   const attempt = (bundle.session.state.phaseAttempts[phaseKey] ?? 0) + 1;
   const currentQuestion = [...bundle.session.messages].reverse().find((message) => message.sender === "ai")?.content;
   const recentDialogue = bundle.session.messages.slice(-8).map(({ sender, content: messageContent }) => ({ sender, content: messageContent }));
@@ -52,18 +59,18 @@ async function performStudentAnswer(
     reasoningGap,
     phaseOrder,
   }));
+  const query = `${content} ${currentQuestion ?? ""} ${phase.goal}`;
+  const retrieval = isReflectionAnswer ? { context: undefined, trace: { query: "", passages: [] } }
+    : bundle.case.teachingMaterialPackageId
+      ? await getTeachingContextWithTraceAsync(bundle.case.sourceCaseId ?? bundle.case.id, query, bundle.case.teachingMaterialPackageId)
+      : getTeachingContextWithTrace(bundle.case.sourceCaseId ?? bundle.case.id, query);
   const caseContext = {
     title: bundle.case.title,
     description: bundle.case.description,
     learningObjectives: bundle.case.learningObjectives,
-    teachingContext: bundle.case.teachingMaterialPackageId
-      ? await getTeachingContextAsync(
-        bundle.case.sourceCaseId ?? bundle.case.id,
-        `${content} ${currentQuestion ?? ""} ${phase.goal}`,
-        bundle.case.teachingMaterialPackageId,
-      )
-      : getTeachingContext(bundle.case.sourceCaseId ?? bundle.case.id, `${content} ${currentQuestion ?? ""} ${phase.goal}`),
-    attachments: (bundle.case.attachments ?? []).map(({ kind, title, description, transcript }) => ({
+    teachingContext: retrieval.context,
+    findings: (bundle.case.findings ?? []).filter((finding) => finding.unlockPhase <= phase.order),
+    attachments: (bundle.case.attachments ?? []).filter((attachment) => (attachment.unlockPhase ?? 1) <= phase.order).map(({ kind, title, description, transcript }) => ({
       kind,
       title,
       description,
@@ -80,10 +87,15 @@ async function performStudentAnswer(
     recentDialogue,
     recentEvaluations,
   };
-  const baselineResult = await evaluateWithFallback(tutorInput);
+  const baselineResult: TutorEvaluationResult = isReflectionAnswer ? {
+    classification: "partial", confidence: 0, misconceptionKey: null, strategy: "reflect",
+    reasoningGap: "Ungraded final reflection.", feedback: "Final reflection recorded without a grading gate.",
+    nextQuestion: "What would you revisit next?", criteriaMet: [], source: "deterministic",
+    memoryPatch: { addErrors: [], addStrengths: [], addWeaknesses: [], masteryDelta: 0 },
+  } : await evaluateWithFallback(tutorInput);
   // Private teaching context must not enter persisted experiment/shadow logs
   // or a separately configured candidate model.
-  const experimentDecision: ExperimentDecision = caseContext.teachingContext
+  const experimentDecision: ExperimentDecision = caseContext.teachingContext || isReflectionAnswer
     ? { studentResult: baselineResult, experimentId: null, arm: "baseline" }
     : await applyHumanizationExperiment({
     sessionId,
@@ -98,40 +110,31 @@ async function performStudentAnswer(
     recentEvaluations,
     baseline: baselineResult,
   });
-  const result = experimentDecision.studentResult;
-  const orderedPhases = [...bundle.case.phases].sort((left, right) => left.order - right.order);
-  const phaseIndex = orderedPhases.findIndex((item) => item.id === phase.id);
-  const isFinalPhase = phaseIndex === orderedPhases.length - 1;
-  const scriptedMove = selectTutorMove(phase, content, bundle.session.state, result.classification);
+  const result = normalizeCriterionTags(experimentDecision.studentResult, phase);
+  const scriptedMove = isReflectionAnswer ? undefined : selectTutorMove(phase, content, bundle.session.state, result.classification);
   const usedTutorMoves = new Set(bundle.session.state.usedTutorMoves ?? []);
-  const currentQuestionIsReflection = /reflect|looking back|across the whole case|highest[- ]leverage|most important|greatest influence|consequential decision point|assumption|uncertainty|change your (?:reasoning|plan|decision)/i.test(currentQuestion ?? "");
-  const systemReflectionMove: TutorMove | undefined = isFinalPhase
-    && result.classification === "correct"
-    && !scriptedMove
-    && !currentQuestionIsReflection
-    && !usedTutorMoves.has("system-final-reflection")
-    ? {
-      id: "system-final-reflection",
-      strategy: "reflect",
-      question: "Looking back, which finding or uncertainty had the greatest influence on your decision?",
-      blockAdvancement: true,
-    }
-    : undefined;
-  const tutorMove = scriptedMove ?? systemReflectionMove;
+  const tutorMove = scriptedMove;
   const misconceptionKey = result.classification === "wrong"
     ? scriptedMove
       ? `move:${scriptedMove.id}`
       : result.misconceptionKey
     : null;
-  const phaseComplete = result.classification === "correct" && !tutorMove?.blockAdvancement;
-  const sessionComplete = phaseComplete && isFinalPhase;
+  const progress = isReflectionAnswer ? null : progressPhase(phase, bundle.session.state.phaseProgress?.[phaseKey], result, attempt,
+    Boolean(tutorMove?.blockAdvancement && !(isFinalPhase && tutorMove.strategy === "reflect")));
+  const phaseComplete = progress?.complete ?? false;
+  const supported = progress?.state.completedWithSupport ?? false;
+  const askReflection = phaseComplete && isFinalPhase;
+  const sessionComplete = isReflectionAnswer;
   const nextPhaseRecord = phaseComplete && !isFinalPhase ? orderedPhases[phaseIndex + 1] : phase;
   const nextPhase = nextPhaseRecord.order;
   const now = new Date().toISOString();
   const memoryPatch = tutorMove?.recordError
     ? { ...result.memoryPatch, addErrors: [...result.memoryPatch.addErrors, tutorMove.recordError] }
     : result.memoryPatch;
-  const evidence = mergeLearnerEvidence(bundle.session.state, memoryPatch, result.classification);
+  const evidence = isReflectionAnswer ? bundle.session.state : mergeLearnerEvidence(bundle.session.state, memoryPatch, result.classification, {
+    phaseOrder: phase.order,
+    phaseComplete: phaseComplete && !supported,
+  });
   const appliedStrategy = tutorMove?.strategy ?? result.strategy;
 
   const nextState: LearnerState = {
@@ -140,10 +143,14 @@ async function performStudentAnswer(
     previousErrors: evidence.previousErrors,
     strengths: evidence.strengths,
     weaknesses: evidence.weaknesses,
+    phaseEvidence: evidence.phaseEvidence,
+    phaseProgress: progress ? { ...bundle.session.state.phaseProgress, [phaseKey]: progress.state } : bundle.session.state.phaseProgress,
+    reflectionAsked: askReflection || (isFinalPhase && bundle.session.state.reflectionAsked === true),
+    reflectionAnswered: isReflectionAnswer || (isFinalPhase && bundle.session.state.reflectionAnswered === true),
     nextStrategy: appliedStrategy,
     phaseAttempts: {
       ...bundle.session.state.phaseAttempts,
-      [phaseKey]: attempt,
+      [phaseKey]: isReflectionAnswer ? attempt - 1 : attempt,
       ...(phaseComplete && !isFinalPhase ? { [String(nextPhaseRecord.order)]: 0 } : {}),
     },
     mastery: {
@@ -173,6 +180,13 @@ async function performStudentAnswer(
     misconceptionKey,
     strategy: appliedStrategy,
     phaseComplete,
+    criteriaMet: result.criteriaMet,
+    targetCriterionId: (tutorMove?.targetCriterionId && phaseCriteria(phase).some((item) => item.id === tutorMove.targetCriterionId)
+      ? tutorMove.targetCriterionId : tutorMove ? undefined : result.targetCriterionId ?? undefined),
+    supportLevel: progress?.state.supportLevel ?? bundle.session.state.phaseProgress?.[phaseKey]?.supportLevel ?? 0,
+    completedWithSupport: supported,
+    isReflection: isReflectionAnswer,
+    retrieval: retrieval.trace,
     feedback: result.feedback,
     phaseOrder: phase.order,
     attempt,
@@ -191,27 +205,57 @@ async function performStudentAnswer(
   // Completion must never wait for an external model. The database enqueues an
   // optional LLM enhancement after this deterministic summary is committed.
   const summary = sessionComplete ? buildSessionSummary(allEvaluations, nextState, true) : null;
-  const nextQuestion = sessionComplete
+  const proposedQuestion = sessionComplete
     ? `You have completed all ${orderedPhases.length} phases. Your learning summary is ready.`
-    : phaseComplete
+    : askReflection
+      ? (scriptedMove?.strategy === "reflect" ? scriptedMove.question : "Looking back, which finding or uncertainty had the greatest influence on your decision?")
+      : phaseComplete
       ? nextPhaseRecord.starterQuestion
-      : buildStudentVisibleTutorReply(
-        { ...result, misconceptionKey, nextQuestion: tutorMove?.question ?? result.nextQuestion },
-        bundle.session.evaluations,
-        phase.order,
-        { hasScriptedMove: Boolean(scriptedMove) },
-      );
+      : progress?.escalated
+        ? supportQuestion(phase, progress.state)
+      : tutorMove?.question ?? result.nextQuestion;
+  // Acknowledgements and correction verdicts are stored in content for the
+  // legacy UI. Compare the actual question, including when it is scripted.
+  const earlierQuestions = bundle.session.messages.filter((message) => message.sender === "ai").map((message) => {
+    const question = message.acknowledgement && message.content.startsWith(`${message.acknowledgement} `)
+      ? message.content.slice(message.acknowledgement.length + 1) : message.content;
+    return question.replace(/^That statement is incorrect\.\s*/, "");
+  });
+  const baseQuestion = phaseComplete || sessionComplete ? proposedQuestion
+    : avoidRepeatedQuestion(proposedQuestion, earlierQuestions, phase, attempt);
+  // Log the actual displayed target, not a discarded model/script proposal.
+  if (phaseComplete || isReflectionAnswer || baseQuestion !== proposedQuestion) evaluation.targetCriterionId = undefined;
+  else if (progress?.escalated) evaluation.targetCriterionId = progress.state.supportLevel === 2
+    ? (phaseCriteria(phase).find((item) => !progress.state.criteriaMet.includes(item.id)) ?? phaseCriteria(phase)[0])?.id
+    : undefined;
+  // Correction is independent of scaffolding: escalating must not suppress
+  // the promised explicit verdict on a repeated high-confidence wrong answer.
+  const nextQuestion = sessionComplete ? baseQuestion : buildStudentVisibleTutorReply(
+    { ...result, misconceptionKey, nextQuestion: baseQuestion }, bundle.session.evaluations, phase.order,
+    { hasScriptedMove: Boolean(scriptedMove), correctionProbes: bundle.case.correctionProbes ?? 1 },
+  );
+  const acknowledgement = isReflectionAnswer ? undefined : supported
+    ? "We have completed this phase with support; any remaining gaps are recorded for review."
+    : result.acknowledgement;
+  const moveType: TutorMessage["moveType"] = askReflection ? "reflection" : phaseComplete || sessionComplete ? "transition"
+    : progress?.escalated ? progress.state.supportLevel === 2 ? "reveal" : "hypothetical"
+      : nextQuestion.startsWith("That statement is incorrect.") ? "correction" : "question";
   const aiMessage: TutorMessage = {
     id: crypto.randomUUID(),
     sessionId,
     sender: "ai",
-    content: nextQuestion,
+    // Keep the existing UI readable. acknowledgement is also stored separately
+    // as metadata; consumers must not append it to content a second time.
+    content: acknowledgement ? `${acknowledgement} ${nextQuestion}` : nextQuestion,
+    acknowledgement,
+    moveType,
     timestamp: new Date(Date.now() + 1).toISOString(),
     replyToMessageId: studentMessage.id,
   };
 
   const committed = await repository.commitTurn({
     sessionId,
+    clientRequestId,
     expectedVersion: bundle.session.state.version,
     studentMessage,
     evaluation,

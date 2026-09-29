@@ -15,7 +15,7 @@ import type {
   TutorTurnReview,
 } from "@/lib/domain";
 import { demoAssignment, demoAssignments, demoCases, demoClass, demoUsers, getDemoUser } from "@/lib/seed";
-import { ArchivedCaseError, type CommitTurnInput, type SaveReviewInput, type TutorRepository } from "@/lib/repository/types";
+import { ArchivedCaseError, IdempotencyConflictError, type CommitTurnInput, type SaveReviewInput, type TutorRepository } from "@/lib/repository/types";
 import { getCaseLineageId, getNextCaseVersion, getVersionedCaseTitle } from "@/lib/repository/case-version";
 import { reconcileLearnerStateEvidence } from "@/lib/tutor/learner-model";
 import { getMaterialPack } from "@/lib/materials/pack";
@@ -23,6 +23,8 @@ import { getConfiguredTutorProvider } from "@/lib/tutor/provider-config";
 
 interface MemoryStore {
   sessions: Map<string, LearningSession>;
+  /** Turn request keys are kept separately so they never leak into student-visible messages. */
+  turnRequests: Map<string, { sessionId: string; studentId: string; content: string }>;
   answerReviews: Map<string, AnswerReview>;
   tutorTurnReviews: Map<string, TutorTurnReview>;
   sessionReviews: Map<string, SessionReview>;
@@ -54,6 +56,7 @@ function createStore(): MemoryStore {
   })) : demoAssignments;
   return {
     sessions: new Map(),
+    turnRequests: new Map(),
     answerReviews: new Map(),
     tutorTurnReviews: new Map(),
     sessionReviews: new Map(),
@@ -74,6 +77,8 @@ export class InMemoryTutorRepository implements TutorRepository {
 
   constructor(store = globalStore.__socraticTutorStore ?? createStore()) {
     this.store = store;
+    // Hot-reloaded dev stores can predate the idempotency map.
+    if (!this.store.turnRequests) this.store.turnRequests = new Map();
     globalStore.__socraticTutorStore = store;
   }
 
@@ -171,9 +176,47 @@ export class InMemoryTutorRepository implements TutorRepository {
     return session ? this.bundle(session) : null;
   }
 
+  private findCommittedTurnSync(
+    sessionId: string,
+    studentId: string,
+    clientRequestId: string,
+    content: string,
+  ) {
+    const current = this.store.sessions.get(sessionId);
+    if (!current) return null;
+    if (current.studentId !== studentId) throw new Error("This session belongs to another learner.");
+    const request = this.store.turnRequests.get(this.turnRequestKey(sessionId, clientRequestId));
+    if (!request) return null;
+    if (request.studentId !== studentId || request.content !== content) {
+      throw new IdempotencyConflictError();
+    }
+    return this.bundle(current);
+  }
+
+  async findCommittedTurn(sessionId: string, studentId: string, clientRequestId: string, content: string) {
+    const normalizedRequestId = clientRequestId.trim();
+    if (!normalizedRequestId) return null;
+    return this.findCommittedTurnSync(sessionId, studentId, normalizedRequestId, content);
+  }
+
   async commitTurn(input: CommitTurnInput) {
     const current = this.store.sessions.get(input.sessionId);
     if (!current) throw new Error("Session not found.");
+    // Keep this lookup synchronous and before status/version checks. An async
+    // lookup here would allow two same-key calls to interleave in memory.
+    const normalizedRequestId = input.clientRequestId?.trim();
+    if (input.clientRequestId !== undefined && !normalizedRequestId) {
+      throw new Error("Client request ID cannot be blank.");
+    }
+    if (normalizedRequestId) {
+      const existing = this.findCommittedTurnSync(
+        input.sessionId,
+        current.studentId,
+        normalizedRequestId,
+        input.studentMessage.content,
+      );
+      if (existing) return existing;
+    }
     if (current.status !== "active") throw new Error("Session is already complete.");
     if (current.pausedAt) throw new Error("Resume this session before submitting another answer.");
     if (current.state.version !== input.expectedVersion) {
@@ -193,6 +236,13 @@ export class InMemoryTutorRepository implements TutorRepository {
       state: clone(input.nextState),
     };
     this.store.sessions.set(next.id, clone(next));
+    if (normalizedRequestId) {
+      this.store.turnRequests.set(this.turnRequestKey(input.sessionId, normalizedRequestId), {
+        sessionId: input.sessionId,
+        studentId: current.studentId,
+        content: input.studentMessage.content,
+      });
+    }
     return this.bundle(next);
   }
 
@@ -289,6 +339,7 @@ export class InMemoryTutorRepository implements TutorRepository {
 
   reset() {
     this.store.sessions.clear();
+    this.store.turnRequests.clear();
     this.store.answerReviews.clear();
     this.store.tutorTurnReviews.clear();
     this.store.sessionReviews.clear();
@@ -432,6 +483,10 @@ export class InMemoryTutorRepository implements TutorRepository {
   private classForAssignment(assignmentId?: string | null) {
     const assignment = assignmentId ? this.store.assignments.get(assignmentId) : undefined;
     return assignment ? this.store.classes.get(assignment.classId) : undefined;
+  }
+
+  private turnRequestKey(sessionId: string, clientRequestId: string) {
+    return `${sessionId}\u0000${clientRequestId}`;
   }
 
   private bundle(session: LearningSession, viewerId?: string): SessionBundle {

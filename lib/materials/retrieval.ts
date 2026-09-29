@@ -17,6 +17,32 @@ export interface TeachingContext {
   literature: TeachingLiteraturePassage[];
 }
 
+/**
+ * Bounded provenance for one literature passage selected for a tutor turn.
+ *
+ * This intentionally contains only identifiers and ranking metadata. Passage
+ * text, expert notes, titles, and source documents remain in TeachingContext
+ * and are never copied into the trace.
+ */
+export interface TeachingRetrievalTracePassage {
+  sourceId: string;
+  page: number;
+  locator?: string;
+  score: number;
+}
+
+/** Metadata-only retrieval trace for observability and evaluation. */
+export interface TeachingRetrievalTrace {
+  /** The bounded query used for this retrieval attempt. */
+  query: string;
+  passages: TeachingRetrievalTracePassage[];
+}
+
+export interface TeachingContextWithTrace {
+  context: TeachingContext | undefined;
+  trace: TeachingRetrievalTrace;
+}
+
 const STOP_WORDS = new Set([
   "a", "about", "after", "again", "all", "also", "an", "and", "any", "are", "as", "at", "be", "because",
   "been", "before", "being", "between", "but", "by", "can", "could", "did", "do", "does", "for", "from",
@@ -145,18 +171,23 @@ function rankPages(articles: MaterialArticle[], terms: string[], caseId: string)
   }).sort((left, right) => right.score - left.score || left.sourceId.localeCompare(right.sourceId) || left.page - right.page);
 }
 
-/**
- * Retrieve bounded, page-attributed local literature context for a material
- * case. The returned text is evidence for the tutor; it is never interpreted
- * here as an instruction or policy.
- */
-export function getTeachingContextFromPack(pack: MaterialPack, caseId: string, query: string): TeachingContext | undefined {
+function emptyTrace(query: string): TeachingRetrievalTrace {
+  return { query: query.slice(0, MAX_QUERY_LENGTH), passages: [] };
+}
+
+function getTeachingContextWithTraceFromPack(
+  pack: MaterialPack,
+  caseId: string,
+  query: string,
+): TeachingContextWithTrace {
+  const boundedQuery = query.slice(0, MAX_QUERY_LENGTH);
   const entry = pack.cases.find((item) => item.case.id === caseId);
-  if (!entry) return undefined;
+  if (!entry) return { context: undefined, trace: emptyTrace(boundedQuery) };
 
   const terms = queryTerms(query);
   const ranked = rankPages(pack.articles, terms, caseId);
   const selected: TeachingLiteraturePassage[] = [];
+  const tracePassages: TeachingRetrievalTracePassage[] = [];
   const sourceCounts = new Map<string, number>();
   const selectedExperts = new Set<string>();
   const selectedCandidates = new Set<string>();
@@ -181,6 +212,8 @@ export function getTeachingContextFromPack(pack: MaterialPack, caseId: string, q
       ...(candidate.locator ? { locator: candidate.locator } : {}),
       ...(candidate.expert ? { expert: candidate.expert } : {}),
       ...(candidate.section ? { section: candidate.section } : {}) });
+    tracePassages.push({ sourceId: candidate.sourceId, page: candidate.page,
+      ...(candidate.locator ? { locator: candidate.locator } : {}), score: candidate.score });
     selectedCandidates.add(candidateKey);
     if (interview) selectedExperts.add(expertKey);
     sourceCounts.set(candidate.sourceId, (sourceCounts.get(candidate.sourceId) ?? 0) + 1);
@@ -200,16 +233,42 @@ export function getTeachingContextFromPack(pack: MaterialPack, caseId: string, q
   }
 
   return {
-    expertNotes: entry.expertNotes.trim().slice(0, 6_000),
-    sourceDocument: entry.sourceDocument,
-    literature: selected,
+    context: {
+      expertNotes: entry.expertNotes.trim().slice(0, 6_000),
+      sourceDocument: entry.sourceDocument,
+      literature: selected,
+    },
+    trace: { query: boundedQuery, passages: tracePassages },
   };
+}
+
+/**
+ * Retrieve bounded, page-attributed local literature context for a material
+ * case. The returned text is evidence for the tutor; it is never interpreted
+ * here as an instruction or policy.
+ */
+export function getTeachingContextFromPack(pack: MaterialPack, caseId: string, query: string): TeachingContext | undefined {
+  return getTeachingContextWithTraceFromPack(pack, caseId, query).context;
 }
 
 /** Load reference context synchronously from the explicitly opted-in local pack. */
 export function getTeachingContext(caseId: string, query: string): TeachingContext | undefined {
   const pack = getMaterialPack();
   return pack ? getTeachingContextFromPack(pack, caseId, query) : undefined;
+}
+
+/**
+ * Retrieve teaching context alongside metadata-only ranking provenance.
+ *
+ * This is a parallel API to getTeachingContext: the existing context shape
+ * and selection policy are unchanged, while the trace contains only the
+ * bounded query and selected source/page/locator/score metadata.
+ */
+export function getTeachingContextWithTrace(caseId: string, query: string): TeachingContextWithTrace {
+  const pack = getMaterialPack();
+  return pack
+    ? getTeachingContextWithTraceFromPack(pack, caseId, query)
+    : { context: undefined, trace: emptyTrace(query) };
 }
 
 const HOSTED_CONTEXT_ERROR = "Teaching materials are temporarily unavailable. Please retry.";
@@ -232,6 +291,26 @@ export async function getTeachingContextAsync(
     const context = getTeachingContextFromPack(pack, caseId, query);
     if (!context) throw new Error(HOSTED_CONTEXT_ERROR);
     return context;
+  } catch (error) {
+    if (error instanceof Error && error.message === HOSTED_CONTEXT_ERROR) throw error;
+    throw new Error(HOSTED_CONTEXT_ERROR);
+  }
+}
+
+/** Async counterpart to getTeachingContextWithTrace for hosted material packs. */
+export async function getTeachingContextWithTraceAsync(
+  caseId: string,
+  query: string,
+  teachingMaterialPackageId?: string,
+): Promise<TeachingContextWithTrace> {
+  if (!teachingMaterialPackageId) return getTeachingContextWithTrace(caseId, query);
+
+  const { getHostedMaterialPack } = await import("@/lib/materials/hosted");
+  try {
+    const pack = await getHostedMaterialPack(teachingMaterialPackageId);
+    const result = getTeachingContextWithTraceFromPack(pack, caseId, query);
+    if (!result.context) throw new Error(HOSTED_CONTEXT_ERROR);
+    return result;
   } catch (error) {
     if (error instanceof Error && error.message === HOSTED_CONTEXT_ERROR) throw error;
     throw new Error(HOSTED_CONTEXT_ERROR);

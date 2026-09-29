@@ -69,6 +69,15 @@ describe("session summary worker core", () => {
     expect(() => validateSummary({ ...validSummary, nextSteps: [] })).toThrow(/nextSteps/i);
   });
 
+  it("bounds supported phase metadata while preserving valid phase numbers", () => {
+    expect(validateSummary({
+      ...validSummary,
+      supportedPhases: [1, 3, 0, 13, 2.5, "2"],
+    }).supportedPhases).toEqual([1, 3]);
+    expect(validateSummary({ ...validSummary, supportedPhases: [] }).supportedPhases).toEqual([]);
+    expect(validateSummary(validSummary).supportedPhases).toBeUndefined();
+  });
+
   it("locks summary generation to exactly one configured provider", () => {
     expect(parseSummaryProvider(undefined)).toBe("deterministic");
     expect(parseSummaryProvider(" OPENAI ")).toBe("openai");
@@ -76,22 +85,61 @@ describe("session summary worker core", () => {
     expect(() => parseSummaryProvider("automatic")).toThrow(/TUTOR_PROVIDER/);
   });
 
-  it("preserves deterministic score/completion and removes contradictory weaknesses", () => {
+  it("keeps deterministic evidence authoritative while accepting generated wording", () => {
+    const fallback = {
+      ...validSummary,
+      headline: "Deterministic evidence summary",
+      narrative: "The learner connected evidence to a proportionate next step.",
+      weaknesses: ["Explain why first-line imaging comes before CBCT"],
+    };
     const generated = {
       ...validSummary,
       overallScore: 99,
+      headline: "Polished evidence-led reasoning",
+      narrative: "A clearer generated account of the learner's reasoning.",
       completedAllPhases: true,
-      strengths: ["Compared permanent-canine extraction with orthodontic retention"],
+      strengths: ["Unsupported generated strength"],
       weaknesses: [
-        "Needs to compare permanent-canine extraction with orthodontic retention",
-        "Clarify CBCT justification",
+        "Needs to clarify CBCT justification",
+        "New unsupported reasoning gap",
       ],
+      nextSteps: ["Generated next step that differs from the evidence"],
     };
-    const reconciled = reconcileGeneratedSummary(generated, validSummary);
+    const reconciled = reconcileGeneratedSummary(generated, fallback);
 
-    expect(reconciled.overallScore).toBe(validSummary.overallScore);
-    expect(reconciled.completedAllPhases).toBe(validSummary.completedAllPhases);
-    expect(reconciled.weaknesses).toEqual(["Clarify CBCT justification"]);
+    expect(reconciled).toMatchObject({
+      overallScore: fallback.overallScore,
+      headline: generated.headline,
+      narrative: generated.narrative,
+      completedAllPhases: fallback.completedAllPhases,
+      strengths: fallback.strengths,
+      weaknesses: fallback.weaknesses,
+      nextSteps: fallback.nextSteps,
+    });
+    expect(reconciled.strengths).not.toBe(fallback.strengths);
+    expect(reconciled.weaknesses).not.toBe(fallback.weaknesses);
+    expect(reconciled.nextSteps).not.toBe(fallback.nextSteps);
+  });
+
+  it("preserves supported-phase metadata and the deterministic caveat when AI claims unqualified mastery", () => {
+    const fallback = {
+      ...validSummary,
+      completedAllPhases: true,
+      supportedPhases: [1, 3],
+      narrative: "Phases 1 and 3 were completed with tutor support, not demonstrated independent mastery.",
+    };
+    const generated = {
+      ...validSummary,
+      completedAllPhases: true,
+      supportedPhases: [],
+      narrative: "The learner independently mastered every phase and demonstrated complete mastery.",
+    };
+
+    const reconciled = reconcileGeneratedSummary(generated, fallback);
+    expect(reconciled.supportedPhases).toEqual([1, 3]);
+    expect(reconciled.narrative).toBe(fallback.narrative);
+    expect(reconciled.narrative).not.toContain("independently mastered");
+    expect(reconciled.completedAllPhases).toBe(fallback.completedAllPhases);
   });
 
   it("aborts a provider call at its deadline", async () => {

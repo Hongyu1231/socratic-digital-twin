@@ -1,7 +1,8 @@
 import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import type { TutorEvaluateInput, TutorEvaluationResult } from "@/lib/domain";
-import { tutorOutputSchema } from "@/lib/schemas";
+import { tutorProviderOutputSchema } from "@/lib/schemas";
+import { normalizeCriterionTags } from "@/lib/tutor/criteria";
 import { createOpenAIClient } from "@/lib/tutor/openai-client";
 import { buildTutorInput, TUTOR_INSTRUCTIONS, TUTOR_PROMPT_VERSION } from "@/lib/tutor/prompt";
 /**
@@ -31,17 +32,17 @@ export class OpenAITutor {
     const response = await this.client.responses.parse({
       model: this.model,
       store: false,
-      max_output_tokens: 900,
+      max_output_tokens: 1200,
       instructions: this.instructions,
       input: buildTutorInput(input, this.promptVersion),
-      text: { format: zodTextFormat(tutorOutputSchema, "tutor_evaluation") },
+      text: { format: zodTextFormat(tutorProviderOutputSchema, "tutor_evaluation") },
     }, { timeout: 25_000, maxRetries: 0 });
 
     if (response.status !== "completed" || !response.output_parsed) {
       throw new Error(`OpenAI returned an unusable response status: ${response.status ?? "unknown"}`);
     }
 
-    const parsed = tutorOutputSchema.safeParse(response.output_parsed);
+    const parsed = tutorProviderOutputSchema.safeParse(response.output_parsed);
     if (!parsed.success) {
       throw new Error("OpenAI returned output that does not match the tutor schema.");
     }
@@ -50,6 +51,6 @@ export class OpenAITutor {
     // used by the rest of the application. Do not apply any model-provided
     // state directly here; the state machine applies only the allow-listed
     // memoryPatch fields.
-    return { ...parsed.data, source: "openai" };
+    return normalizeCriterionTags({ ...parsed.data, acknowledgement: parsed.data.acknowledgement ?? undefined, source: "openai" }, input.phase);
   }
 }

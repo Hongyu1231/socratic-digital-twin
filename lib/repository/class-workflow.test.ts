@@ -9,6 +9,7 @@ import {
   DEMO_PROFESSOR_2_ID,
   DEMO_PROFESSOR_ID,
   DEMO_STUDENT_ID,
+  ACUTE_TOOTH_PAIN_CASE_ID,
   IMPACTED_CANINE_CASE_ID,
 } from "@/lib/seed";
 
@@ -23,7 +24,7 @@ describe("InMemoryTutorRepository class workflows", () => {
 
   it("lists student offerings and resumes one session per assignment", async () => {
     const offerings = await repository.listStudentOfferings(DEMO_STUDENT_ID);
-    expect(offerings).toHaveLength(5);
+    expect(offerings).toHaveLength(4);
     expect(offerings.some((item) => item.case.phases.length === 6)).toBe(true);
     const offering = offerings.find((item) => item.assignment.id === DEMO_ASSIGNMENT_ID);
 
@@ -65,6 +66,29 @@ describe("InMemoryTutorRepository class workflows", () => {
 
     const resumed = await repository.setSessionPaused(started.session.id, null);
     expect(resumed.session.pausedAt).toBeNull();
+  });
+
+  it("excludes the archived acute tooth pain case while retaining its history", async () => {
+    const offerings = await repository.listStudentOfferings(DEMO_STUDENT_ID);
+    expect(offerings).toHaveLength(4);
+    expect(offerings).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ assignment: expect.objectContaining({ caseId: ACUTE_TOOTH_PAIN_CASE_ID }) }),
+      ]),
+    );
+
+    const assignment = (await repository.listAssignments()).find((item) => item.caseId === ACUTE_TOOTH_PAIN_CASE_ID);
+    expect(assignment).toMatchObject({ caseId: ACUTE_TOOTH_PAIN_CASE_ID, status: "closed" });
+
+    await expect(repository.createSessionForAssignment(DEMO_STUDENT_ID, assignment!.id)).rejects.toMatchObject({
+      name: "ArchivedCaseError",
+      message: expect.stringContaining("archived"),
+    });
+    await expect(repository.getCase(ACUTE_TOOTH_PAIN_CASE_ID)).resolves.toMatchObject({
+      id: ACUTE_TOOTH_PAIN_CASE_ID,
+      title: "Acute Posterior Tooth Pain",
+      status: "archived",
+    });
   });
 
   it("keeps sessions readable but removes closed assignments from the case list", async () => {

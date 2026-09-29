@@ -293,3 +293,20 @@ update public.case_phases
 set questions = array['Why not extract the impacted canine and place an implant later?','What new evidence would make you revise your plan?','Where were you most at risk of jumping to a conclusion?']::text[],
     metadata = coalesce(metadata, '{}'::jsonb) || $json${"rubric":["evidence","uncertainty","assumption","alternative","reassessment","reflection"],"tutorGuidance":["Begin with a plausible alternative viewpoint, then end with a metacognitive question about the highest-leverage decision point."],"tutorMoves":[{"id":"canine-metacognitive-closure","strategy":"reflect","question":"Looking back at the whole case, where was the highest-leverage decision point, and what should a general dentist know?","classifications":["correct"],"blockAdvancement":true}]}$json$::jsonb
 where id = '44444444-4444-4444-8444-444444444445'::uuid;
+
+-- Acute Posterior Tooth Pain is retained for existing session history but is
+-- no longer a source-backed offering. Scope the archive to the exact seeded
+-- identity so other cases remain unchanged if a local database has drifted.
+do $$
+begin
+  if exists (
+    select 1
+      from public.cases
+     where id = '33333333-3333-4333-8333-333333333334'::uuid
+       and title = 'Acute Posterior Tooth Pain'
+       and slug = 'acute-posterior-tooth-pain'
+  ) then
+    perform public.archive_case('33333333-3333-4333-8333-333333333334'::uuid);
+  end if;
+end
+$$;

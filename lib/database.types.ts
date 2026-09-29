@@ -753,6 +753,7 @@ export type Database = {
       }
       messages: {
         Row: {
+          client_request_id: string | null
           content: string
           created_at: string
           id: string
@@ -765,6 +766,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          client_request_id?: string | null
           content: string
           created_at?: string
           id?: string
@@ -777,6 +779,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          client_request_id?: string | null
           content?: string
           created_at?: string
           id?: string
@@ -1448,6 +1451,8 @@ export type Database = {
         Args: {
           p_ai_content: string
           p_ai_phase_id?: string
+          p_ai_metadata?: Json
+          p_client_request_id?: string
           p_current_phase_id?: string
           p_evaluation_criteria?: Json
           p_evaluation_feedback?: string
@@ -1461,6 +1466,7 @@ export type Database = {
           p_session_status?: Database["public"]["Enums"]["session_status"]
           p_state?: Json
           p_student_content: string
+          p_student_metadata?: Json
           p_student_phase_id: string
           p_student_sender_id: string
           p_unresolved_questions?: string[]

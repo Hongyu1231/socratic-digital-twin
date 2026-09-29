@@ -1,5 +1,6 @@
 import { getIdentity } from "@/lib/auth";
-import { errorResponse, studentView } from "@/lib/http";
+import { errorResponse } from "@/lib/http";
+import { studentResponse } from "@/lib/student-response";
 import { getRepository } from "@/lib/repository";
 
 export const runtime = "nodejs";
@@ -20,7 +21,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       if (!allowedBundle) return Response.json({ error: "This session belongs to another class." }, { status: 403 });
       return Response.json(allowedBundle);
     }
-    return Response.json(identity.role === "student" ? studentView(bundle) : bundle);
+    return identity.role === "student" ? await studentResponse(bundle) : Response.json(bundle);
   } catch (error) {
     return errorResponse(error);
   }

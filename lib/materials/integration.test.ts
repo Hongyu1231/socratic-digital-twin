@@ -230,4 +230,23 @@ describe("private teaching-materials integration", () => {
     expect(JSON.stringify(view)).not.toContain("PRIVATE_RECORD_ERROR");
     expect(JSON.stringify(view)).not.toContain("PRIVATE_ANSWER_KEY");
   });
+
+  it("keeps internal phase evidence out of the student response without mutating stored feedback", async () => {
+    temporaryRoot = await createPackDirectory();
+    const pack = await getMaterialPack();
+    const bundle = bundleWithHiddenFields(pack!.cases[0].case);
+    bundle.session.state.phaseEvidence = {
+      "1": {
+        strengths: ["PRIVATE_PHASE_STRENGTH"],
+        weaknesses: ["PRIVATE_PHASE_GAP"],
+        previousErrors: ["PRIVATE_PHASE_ERROR"],
+        completed: false,
+      },
+    };
+    const view = studentView(bundle);
+    expect(view.session.state.phaseEvidence).toBeUndefined();
+    expect(JSON.stringify(view)).not.toContain("PRIVATE_PHASE_");
+    expect(JSON.stringify(view)).not.toContain("phaseEvidence");
+    expect(bundle.session.state.phaseEvidence["1"].weaknesses).toEqual(["PRIVATE_PHASE_GAP"]);
+  });
 });

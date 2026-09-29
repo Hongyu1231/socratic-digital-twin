@@ -6,10 +6,11 @@ export type Summary = {
   weaknesses: string[];
   nextSteps: string[];
   completedAllPhases: boolean;
+  supportedPhases?: number[];
 };
 
 export const SUMMARY_INSTRUCTIONS =
-  "Create concise formative feedback for a dentistry learner. Describe observable reasoning only. Do not add clinical facts, diagnoses, or hidden chain-of-thought. Return the requested structured summary.";
+  "Create concise formative feedback for a dentistry learner. Use session.context.summary as the authoritative deterministic summary. Polish only its headline and narrative. Preserve its overallScore, completedAllPhases, strengths, weaknesses, and nextSteps exactly; earlier evaluations are historical context, not current deficits. Do not add, remove, or invent facts, clinical information, diagnoses, deficits, strengths, or next steps. Do not reveal hidden chain-of-thought. Return the requested structured summary.";
 
 export type SummaryProvider = "deterministic" | "openai" | "claude";
 
@@ -148,39 +149,23 @@ export function validateSummary(value: unknown): Summary {
     weaknesses,
     nextSteps,
     completedAllPhases: record.completedAllPhases,
+    ...(Array.isArray(record.supportedPhases) ? { supportedPhases: record.supportedPhases.filter((item): item is number => Number.isInteger(item) && item > 0 && item <= 12) } : {}),
   };
 }
 
-const SUMMARY_STOP_WORDS = new Set([
-  "a", "an", "and", "as", "at", "be", "compared", "compare", "did", "does", "for", "from",
-  "has", "have", "identified", "in", "is", "it", "need", "needed", "needs", "of", "on", "should",
-  "the", "their", "to", "was", "with", "would", "phase", "reasoning",
-]);
-
-function conceptTokens(value: string) {
-  return new Set(value.toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/\s+/)
-    .filter((token) => token.length > 2 && !SUMMARY_STOP_WORDS.has(token)));
-}
-
-function describesSameConcept(left: string, right: string) {
-  const a = conceptTokens(left);
-  const b = conceptTokens(right);
-  if (!a.size || !b.size) return false;
-  const overlap = [...a].filter((token) => b.has(token)).length;
-  return overlap >= 2 && overlap / Math.min(a.size, b.size) >= 0.6;
-}
-
 export function reconcileGeneratedSummary(generated: Summary, fallback: Summary): Summary {
-  const strengths = [...new Set(generated.strengths.map((item) => item.trim()).filter(Boolean))].slice(0, 5);
-  const weaknesses = [...new Set(generated.weaknesses.map((item) => item.trim()).filter(Boolean))]
-    .filter((weakness) => !strengths.some((strength) => describesSameConcept(strength, weakness)))
-    .slice(0, 5);
+  // Deterministic evidence is authoritative; provider output is limited to
+  // clearer prose so stale or unsupported generated findings cannot persist.
   return {
-    ...generated,
     overallScore: fallback.overallScore,
+    headline: generated.headline,
+    // Do not let prose polishing erase the assisted-completion caveat.
+    narrative: fallback.supportedPhases?.length ? fallback.narrative : generated.narrative,
+    strengths: [...fallback.strengths],
+    weaknesses: [...fallback.weaknesses],
+    nextSteps: [...fallback.nextSteps],
     completedAllPhases: fallback.completedAllPhases,
-    strengths: strengths.length ? strengths : fallback.strengths,
-    weaknesses,
+    ...(fallback.supportedPhases ? { supportedPhases: [...fallback.supportedPhases] } : {}),
   };
 }
 

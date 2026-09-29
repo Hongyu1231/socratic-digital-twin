@@ -1,5 +1,6 @@
 import { requireStudent } from "@/lib/auth";
-import { errorResponse, studentView } from "@/lib/http";
+import { errorResponse } from "@/lib/http";
+import { studentResponse } from "@/lib/student-response";
 import { getRepository } from "@/lib/repository";
 import { startSessionSchema } from "@/lib/schemas";
 
@@ -13,7 +14,7 @@ export async function POST(request: Request) {
     const repository = getRepository();
     if (parsed.data.assignmentId) {
       const bundle = await repository.createSessionForAssignment(identity.id, parsed.data.assignmentId);
-      return Response.json(studentView(bundle), { status: 201 });
+      return await studentResponse(bundle, 201);
     }
     return Response.json({ error: "Select a valid class assignment." }, { status: 400 });
   } catch (error) {

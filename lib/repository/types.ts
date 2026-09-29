@@ -27,9 +27,21 @@ export class ArchivedCaseError extends Error {
   }
 }
 
+/** Raised when a client reuses a turn request id with different answer text. */
+export class IdempotencyConflictError extends Error {
+  readonly code = "IDEMPOTENCY_CONFLICT" as const;
+
+  constructor(message = "This client request ID was already used with different content.") {
+    super(message);
+    this.name = "IdempotencyConflictError";
+  }
+}
+
 export interface CommitTurnInput {
   sessionId: string;
   expectedVersion: number;
+  /** Stable client-generated key used to make retries return the original turn. */
+  clientRequestId?: string;
   studentMessage: TutorMessage;
   evaluation: Evaluation;
   aiMessage: TutorMessage;
@@ -58,6 +70,16 @@ export interface TutorRepository {
   /** Start (or resume) the session belonging to an authorised student assignment. */
   createSessionForAssignment(studentId: string, assignmentId: string): Promise<SessionBundle>;
   getSession(sessionId: string): Promise<SessionBundle | null>;
+  /**
+   * Find an already committed student turn for a retry key. Implementations
+   * must verify session ownership and reject the same key with different text.
+   */
+  findCommittedTurn(
+    sessionId: string,
+    studentId: string,
+    clientRequestId: string,
+    content: string,
+  ): Promise<SessionBundle | null>;
   commitTurn(input: CommitTurnInput): Promise<SessionBundle>;
   completeSession(
     sessionId: string,
