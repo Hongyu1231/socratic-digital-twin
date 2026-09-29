@@ -2,7 +2,7 @@
 
 Implementation date: 2026-09-29. Branch: `feature/tutor-engine-v2`.
 
-This is a local, backward-compatible implementation of the backend portion discussed in PR #2. It does not merge that draft specification, replace Arshin's frontend work or author the Case 1 clinical criteria. It carries forward pre-existing local changes without reverting them. Nothing has been committed, pushed, migrated to production, uploaded or deployed as part of this implementation.
+This is a backward-compatible implementation of the backend portion discussed in PR #2. It does not merge that draft specification, replace Arshin's frontend work or author the Case 1 clinical criteria. It carries forward pre-existing local changes without reverting them. The implementation is committed on the functional branch above, including the security updates already merged into `master`. Production promotion is gated on the release checks below; pushing this feature branch alone is not a production deployment.
 
 ## Engine contract
 
@@ -74,7 +74,7 @@ Evaluations retain the retrieval query and the selected passages' source ID, pag
 
 ## Verification and release gate
 
-Final local checks: **246 tests passed, 12 opt-in live tests skipped** (45 passing files, 2 skipped); TypeScript, ESLint, production build and `git diff --check` passed. These counts exclude unexecuted pgTAP/database checks.
+Release-candidate local checks: **247 tests passed, 13 opt-in live tests skipped** (45 passing files, 3 skipped); TypeScript, ESLint, production build and `git diff --check` passed. Dependency installation/audit reports zero vulnerabilities. The opt-in synthetic OpenAI smoke test was separately enabled and passed; default skipped tests are not counted as passed.
 
 Tests cover explicit/legacy rubric contracts, real OpenAI JSON-schema serialization, criteria accumulation and wrong-answer rejection, repeated questions, support/ceiling exits, reflection, correction confidence gating, replay/changed payload/ownership, repository metadata mapping, media phase/ownership checks, signing failure and deadlines, retrieval traces, and summary support preservation.
 
@@ -94,6 +94,10 @@ Local screenshots are under `output/backend-v2-*.png` (not for production public
 
 Run `npm test`, `npm run typecheck`, `npm run lint`, and `npm run build`. Opt-in live model/hosted-material tests are skipped by default; do not count them as passed. The new pgTAP test lives in `supabase/tests/database/tutor_turn_idempotency.test.sql`.
 
-**Unverified release gates:** actual PostgreSQL migration/RPC execution and concurrent commits; real Storage RLS and URL expiry/refresh; hosted/live-model rubric quality and latency; frontend/content integration. Local database verification was unavailable because Supabase/Postgres was not running (`127.0.0.1:54322` refused connections). Static review and mocked repository tests do not replace these checks. Run migration/lint/pgTAP in an isolated local or test Supabase database before deployment, never against production as a test target.
+Additional release smoke: the production build ran locally with memory storage and the real OpenAI provider. A synthetic student answer returned a grounded acknowledgement and follow-up in approximately 7 seconds, without fallback; ending the session opened a deterministic summary with the incomplete-session caveat. There were no browser exceptions. The first attempt exposed a stale local proxy (`127.0.0.1:7890`); the successful test disabled that proxy only in its process environment, without changing application proxy behavior or `.env.local`.
+
+Local PostgreSQL verification is blocked by Docker Desktop's locked runtime socket, so the feature branch also runs the existing GitHub Actions application and isolated-database jobs. All migrations must apply and all pgTAP tests must pass there before production migration/promotion. The first run exposed an incomplete test fixture (missing required assignment), not a migration failure; that fixture must be corrected and the full suite rerun. Do not run database fixture tests or E2E writes against production.
+
+**Remaining integration checks:** simultaneous multi-connection commits; real private Storage RLS and signed URL expiry/refresh; faculty review of rubric quality; Arshin's frontend/content integration and the separate data-integrity work in issue #4. Existing production public media is unchanged. The private publisher now preserves supplied unlock phases, but this release does not upload or migrate private media.
 
 Safe rollout: agree the provisional contract → validate isolated migrations and RPC compatibility → complete frontend/content integration → publish only authorized media with reviewed storage policy → stage browser/live-model checks → deploy. Retain old data; do not delete learning sessions to roll back the engine.

@@ -51,7 +51,8 @@ select ok(
 insert into public.users (id, email, display_name, role)
 values
   ('12121212-1212-4121-8121-121212121201', 'idempotency-admin@test.invalid', 'Idempotency Admin', 'admin'),
-  ('12121212-1212-4121-8121-121212121202', 'idempotency-student@test.invalid', 'Idempotency Student', 'student');
+  ('12121212-1212-4121-8121-121212121202', 'idempotency-student@test.invalid', 'Idempotency Student', 'student'),
+  ('12121212-1212-4121-8121-121212121207', 'idempotency-professor@test.invalid', 'Idempotency Professor', 'professor');
 
 insert into public.cases (id, slug, title, specialty, status, published_at, created_by)
 values (
@@ -75,11 +76,60 @@ values (
   array['What do you notice?']
 );
 
-insert into public.sessions (id, case_id, student_id, status, current_phase_id, context)
+insert into public.classes (id, name, code, term, created_by)
+values (
+  '12121212-1212-4121-8121-121212121208',
+  'Idempotency Test Class',
+  'IDEMPOTENCY-CLASS',
+  'AY2026/27',
+  '12121212-1212-4121-8121-121212121207'
+);
+
+insert into public.class_memberships (class_id, user_id, role, is_lead)
+values
+  (
+    '12121212-1212-4121-8121-121212121208',
+    '12121212-1212-4121-8121-121212121207',
+    'professor',
+    true
+  ),
+  (
+    '12121212-1212-4121-8121-121212121208',
+    '12121212-1212-4121-8121-121212121202',
+    'student',
+    false
+  );
+
+insert into public.class_case_assignments (
+  id, class_id, case_id, assigned_by, status, opens_at, idempotency_key
+)
+values
+  (
+    '12121212-1212-4121-8121-121212121209',
+    '12121212-1212-4121-8121-121212121208',
+    '12121212-1212-4121-8121-121212121203',
+    '12121212-1212-4121-8121-121212121207',
+    'open',
+    timezone('utc', now()) - interval '1 minute',
+    'idempotency:turn:first'
+  ),
+  (
+    '12121212-1212-4121-8121-121212121210',
+    '12121212-1212-4121-8121-121212121208',
+    '12121212-1212-4121-8121-121212121203',
+    '12121212-1212-4121-8121-121212121207',
+    'open',
+    timezone('utc', now()) - interval '1 minute',
+    'idempotency:turn:legacy'
+  );
+
+insert into public.sessions (id, case_id, student_id, professor_id, class_case_assignment_id, status, current_phase_id, context)
 values (
   '12121212-1212-4121-8121-121212121205',
   '12121212-1212-4121-8121-121212121203',
   '12121212-1212-4121-8121-121212121202',
+  '12121212-1212-4121-8121-121212121207',
+  '12121212-1212-4121-8121-121212121209',
   'active',
   '12121212-1212-4121-8121-121212121204',
   '{}'::jsonb
@@ -104,7 +154,7 @@ select lives_ok($$
     70,
     '{"classification":"partial","criteriaMet":["finding"],"supportLevel":1}'::jsonb,
     'Connect the finding to the next step.',
-    null,
+     '12121212-1212-4121-8121-121212121207'::uuid,
     '{"version":2}'::jsonb,
     1,
     '{"pausedAt":null}'::jsonb,
@@ -139,11 +189,13 @@ select is(
   'structured evaluation metadata is persisted'
 );
 
-insert into public.sessions (id, case_id, student_id, status, current_phase_id, context)
+insert into public.sessions (id, case_id, student_id, professor_id, class_case_assignment_id, status, current_phase_id, context)
 values (
   '12121212-1212-4121-8121-121212121206',
   '12121212-1212-4121-8121-121212121203',
   '12121212-1212-4121-8121-121212121202',
+  '12121212-1212-4121-8121-121212121207',
+  '12121212-1212-4121-8121-121212121210',
   'active',
   '12121212-1212-4121-8121-121212121204',
   '{}'::jsonb
