@@ -96,6 +96,13 @@ function firstRow(body) {
   return Array.isArray(body) ? body[0] : body;
 }
 
+function requireTimestampOrder(row, label) {
+  requireCondition(
+    Date.parse(row.created_at) <= Date.parse(row.updated_at),
+    `${label} violated the created_at/updated_at ordering invariant.`,
+  );
+}
+
 const adminId = "99999999-9999-4999-8999-999999999999";
 const studentId = "11111111-1111-4111-8111-111111111111";
 const professorId = "22222222-2222-4222-8222-222222222222";
@@ -251,14 +258,21 @@ try {
   // This assignment is present before publication and must be moved to the
   // target.  The second insert races publication: it either commits first and
   // is moved as well, or observes the superseded parent and is rejected.
+  // Deliberately give the fixture a client timestamp later than the publish
+  // transaction can have started.  The publish update must preserve it rather
+  // than writing transaction-start `now()` back into updated_at.
+  const timestampRegressionFloor = Date.now();
+  const assignmentTimestamp = new Date(timestampRegressionFloor + 60_000).toISOString();
   await insert("class_case_assignments", {
     id: assignmentId,
     class_id: classId,
     case_id: caseId,
     assigned_by: professorId,
     status: "open",
-    opens_at: new Date().toISOString(),
+    opens_at: assignmentTimestamp,
     due_at: null,
+    created_at: assignmentTimestamp,
+    updated_at: assignmentTimestamp,
     idempotency_key: `ci-concurrency-${assignmentId}`,
   });
   assignmentCreated = true;
@@ -274,14 +288,19 @@ try {
     requestResult("/rest/v1/class_case_assignments", {
       method: "POST",
       headers: { Prefer: "return=representation" },
+      // This second timestamp is also intentionally later than the publish
+      // transaction.  Depending on lock order the row is either moved or the
+      // active-case guard rejects it.
       body: JSON.stringify({
         id: racedAssignmentId,
         class_id: classId,
         case_id: caseId,
         assigned_by: professorId,
         status: "open",
-        opens_at: new Date().toISOString(),
+        opens_at: new Date(timestampRegressionFloor + 120_000).toISOString(),
         due_at: null,
+        created_at: new Date(timestampRegressionFloor + 120_000).toISOString(),
+        updated_at: new Date(timestampRegressionFloor + 120_000).toISOString(),
         idempotency_key: `ci-concurrency-${racedAssignmentId}`,
       }),
     }),
@@ -312,6 +331,8 @@ try {
 
   const movedAssignment = await selectRows("class_case_assignments", { id: `eq.${assignmentId}` });
   requireCondition(movedAssignment.length === 1 && movedAssignment[0].case_id === supersedingCaseId, "The pre-existing open assignment was not moved atomically.");
+  requireCondition(Date.parse(movedAssignment[0].created_at) > timestampRegressionFloor, "The timestamp regression fixture was not later than the publish transaction start.");
+  requireTimestampOrder(movedAssignment[0], "The moved assignment");
   const oldOpenAssignments = await selectRows("class_case_assignments", {
     case_id: `eq.${caseId}`,
     status: "eq.open",
@@ -320,6 +341,7 @@ try {
   const racedAssignment = await selectRows("class_case_assignments", { id: `eq.${racedAssignmentId}` });
   if (racedAssignmentCreated) {
     requireCondition(racedAssignment.length === 1 && racedAssignment[0].case_id === supersedingCaseId, "The racing assignment was not moved after winning the lock.");
+    requireTimestampOrder(racedAssignment[0], "The racing assignment");
   } else {
     requireCondition(racedAssignment.length === 0, "A rejected racing assignment left a row behind.");
   }
@@ -420,6 +442,13 @@ try {
     await cleanupRpc("archive_case", { p_case_id: caseId }, [200]).catch((error) => console.error(`Case fixture cleanup failed: ${error.message}`));
   }
   if (classCreated) {
+    // Delete by the fixture's random class id as a final bounded cleanup.  It
+    // catches either race outcome and keeps the class FK-safe if a failed REST
+    // transaction returned after the row was accepted.
+    await request(`/rest/v1/class_case_assignments?class_id=eq.${encodeURIComponent(classId)}`, {
+      method: "DELETE",
+      headers: { Prefer: "return=minimal" },
+    }, [200, 204]).catch((error) => console.error(`Assignment class-scope cleanup failed: ${error.message}`));
     await request(`/rest/v1/classes?id=eq.${encodeURIComponent(classId)}`, {
       method: "DELETE",
       headers: { Prefer: "return=minimal" },

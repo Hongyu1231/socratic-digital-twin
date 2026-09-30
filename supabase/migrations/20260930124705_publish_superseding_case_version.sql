@@ -454,7 +454,10 @@ begin
     if coalesce(p_move_open_assignments, true) then
       update public.class_case_assignments
          set case_id = p_case_id,
-             updated_at = timezone('utc', now())
+             -- now() is transaction-start time.  A racing assignment insert
+             -- can commit after publish_case begins, so use wall-clock time
+             -- and preserve the row's timestamp invariant.
+             updated_at = greatest(updated_at, created_at, clock_timestamp())
        where case_id = v_active_id
          and status = 'open';
     end if;
