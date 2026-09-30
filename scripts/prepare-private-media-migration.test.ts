@@ -157,6 +157,9 @@ describe("private-media metadata cutover candidate", () => {
   it("is a privileged, transactional metadata-only migration", () => {
     const sqlPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "sql", "case-media-private-cutover.sql");
     const sql = fs.readFileSync(sqlPath, "utf8");
+    const migrationPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "supabase", "migrations", "20260930140812_private_case_media_cutover.sql");
+    const migration = fs.readFileSync(migrationPath, "utf8");
+    expect(migration.replaceAll("\r\n", "\n").trim()).toBe(sql.replaceAll("\r\n", "\n").trim());
     expect(sql).toMatch(/begin;/i);
     expect(sql).toMatch(/set local app\.allow_published_case_writes\s*=\s*'true'/i);
     expect(sql).toMatch(/published_write_bypass_enabled\(\)/i);
