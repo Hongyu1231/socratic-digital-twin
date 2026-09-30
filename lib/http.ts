@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { AuthError } from "@/lib/auth";
-import type { ClinicalCase, SessionBundle } from "@/lib/domain";
-import { ArchivedCaseError } from "@/lib/repository/types";
+import type { ClinicalCase, SessionBundle, SessionSummary, StudentCaseOffering } from "@/lib/domain";
+import type { StudentCase, StudentOffering, StudentSessionBundle } from "@/lib/student-contract";
+import { ArchivedCaseError, SupersededCaseError } from "@/lib/repository/types";
 
 export function errorResponse(error: unknown) {
   if (error instanceof AuthError) {
@@ -10,13 +11,16 @@ export function errorResponse(error: unknown) {
   if (error instanceof ArchivedCaseError) {
     return NextResponse.json({ error: error.message, code: error.code }, { status: 410 });
   }
+  if (error instanceof SupersededCaseError) {
+    return NextResponse.json({ error: error.message, code: error.code }, { status: 410 });
+  }
   const message = error instanceof Error ? error.message : "Unexpected server error.";
   const status = /not found/i.test(message) ? 404 : /belongs|role|required|outside|not available|not a member/i.test(message) ? 403 : /already|changed|conflict|claimed|immutable|published|completed review/i.test(message) ? 409 : 400;
   return NextResponse.json({ error: message }, { status });
 }
 
 /** Allowlist case fields so server-only reference additions never reach students. */
-export function studentCaseView(clinicalCase: ClinicalCase, currentPhase?: number): ClinicalCase {
+export function studentCaseView(clinicalCase: ClinicalCase, currentPhase?: number): StudentCase {
   return {
     id: clinicalCase.id,
     title: clinicalCase.title,
@@ -26,19 +30,11 @@ export function studentCaseView(clinicalCase: ClinicalCase, currentPhase?: numbe
     learningObjectives: clinicalCase.learningObjectives,
     phases: clinicalCase.phases?.map((phase) => ({
       id: phase.id,
-      caseId: phase.caseId,
       order: phase.order,
       title: phase.title,
       goal: phase.goal,
-      // Keep the public case shape stable without exposing grading criteria,
-      // scripted answer matchers, or future teaching questions.
-      rubric: [],
-      starterQuestion: "",
-      exampleQuestions: [],
     })),
-    sourceCaseId: clinicalCase.sourceCaseId,
     version: clinicalCase.version,
-    publishedAt: clinicalCase.publishedAt,
     // The catalogue has no session phase, so it receives no media references.
     // Private object keys are never exposed, even before URL signing occurs.
     attachments: currentPhase === undefined ? [] : (clinicalCase.attachments ?? [])
@@ -50,14 +46,34 @@ export function studentCaseView(clinicalCase: ClinicalCase, currentPhase?: numbe
     findings: currentPhase === undefined ? [] : (clinicalCase.findings ?? [])
       .filter((item) => item.unlockPhase <= currentPhase)
       .map(({ id, title, text, unlockPhase }) => ({ id, title, text, unlockPhase })),
-    isTestFixture: clinicalCase.isTestFixture,
   };
 }
 
-export function studentView(bundle: SessionBundle): SessionBundle {
+function summaryView(summary: SessionSummary | null): SessionSummary | null {
+  if (!summary) return null;
+  return {
+    overallScore: summary.overallScore, headline: summary.headline, narrative: summary.narrative,
+    strengths: [...summary.strengths], weaknesses: [...summary.weaknesses], nextSteps: [...summary.nextSteps],
+    completedAllPhases: summary.completedAllPhases,
+    supportedPhases: summary.supportedPhases ? [...summary.supportedPhases] : undefined,
+  };
+}
+
+export function studentOfferingView(offering: StudentCaseOffering): StudentOffering {
+  return {
+    assignment: { id: offering.assignment.id, opensAt: offering.assignment.opensAt, dueAt: offering.assignment.dueAt },
+    teachingClass: { name: offering.teachingClass.name, term: offering.teachingClass.term },
+    case: studentCaseView(offering.case),
+    existingSessionId: offering.existingSessionId,
+    existingSessionStatus: offering.existingSessionStatus,
+    existingSessionPausedAt: offering.existingSessionPausedAt,
+    availability: offering.availability,
+  };
+}
+
+export function studentView(bundle: SessionBundle): StudentSessionBundle {
   const publicCase = studentCaseView(bundle.case, bundle.session.currentPhase);
   return {
-    ...bundle,
     case: {
       ...publicCase,
       phases: publicCase.phases.map((phase) => ({
@@ -70,22 +86,20 @@ export function studentView(bundle: SessionBundle): SessionBundle {
       })),
     },
     session: {
-      ...bundle.session,
-      evaluations: [],
-      state: {
-        ...bundle.session.state,
-        previousErrors: [],
-        weaknesses: [],
-        // Internal phase provenance includes the same private gaps/errors.
-        phaseEvidence: undefined,
-        phaseProgress: undefined,
-        reflectionAsked: undefined,
-        reflectionAnswered: undefined,
-        usedTutorMoves: undefined,
-      },
+      id: bundle.session.id,
+      caseId: bundle.session.caseId,
+      currentPhase: bundle.session.currentPhase,
+      status: bundle.session.status,
+      pausedAt: bundle.session.pausedAt,
+      messages: bundle.session.messages.map((message) => ({
+        id: message.id, sessionId: message.sessionId, sender: message.sender,
+        content: message.content, timestamp: message.timestamp,
+        replyToMessageId: message.replyToMessageId, acknowledgement: message.acknowledgement,
+        moveType: message.moveType,
+      })),
+      summary: summaryView(bundle.session.summary),
     },
-    answerReviews: [],
-    tutorTurnReviews: [],
-    sessionReview: bundle.sessionReview?.status === "completed" ? bundle.sessionReview : null,
+    runtime: { tutor: bundle.runtime.tutor, fallbackFrom: bundle.runtime.fallbackFrom },
+    summaryGenerationStatus: bundle.summaryGenerationStatus,
   };
 }

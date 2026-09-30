@@ -8,10 +8,10 @@ This is a backward-compatible implementation of the backend portion discussed in
 
 - `CasePhase.rubric` accepts legacy strings or `{ id, text, revealText? }`. New content should use stable clinician-authored IDs. Legacy strings get positional `r1`, `r2`, etc.; these are a compatibility bridge, not durable authoring IDs.
 - Criterion IDs are unique within a phase, including collisions with generated legacy IDs. Scripted `targetCriterionId` must belong to that phase. Case phase IDs are unique when supplied; phases must appear in order, consecutive from 1, so saving cannot silently change unlock semantics.
-- Provider output includes nullable `acknowledgement` and `targetCriterionId`, plus `criteriaMet: string[]`. Semantic membership is checked after parsing: unknown tags become untagged/are dropped without discarding the grade. Wrong answers cannot acquire criterion evidence. The provider wire schema uses strings, not a dynamically generated enum; this is a provisional contract clarification for PR #2.
+- Provider output includes nullable `acknowledgement` and `targetCriterionId`, plus `criteriaMet: { id, evidence }[]`. Evidence is a short, bounded quote retained for professor review and is not verified against the answer. Semantic membership is checked after parsing: unknown tags are untagged/dropped without discarding the grade. Criterion evidence is independent from the classification quality label, so a wrong, vague or partial answer may still contribute a directly supported criterion. Historical persisted `string[]` rows remain readable without fabricated evidence.
 - Acknowledgement is one grounded sentence, no question mark, at most 200 characters. It is persisted separately **and included in `message.content` for the current UI**. New UI must not prepend it again.
 - Per-phase progress tracks criteria, best classification, no-progress count and support level. Defaults: `noProgressLimit = 2`, `phaseCeiling = 8`; allowed overrides are 1–4 and 2–12 respectively. A classification improvement or new criterion resets the no-progress counter; oscillating back to a previous best does not.
-- Independent advancement requires all criteria and a correct answer, without a blocking scripted move. Legacy adapters without tags retain their old correct-answer completion rule only for all-string rubrics.
+- Advancement requires all criteria accumulated across turns, without a `correct`-classification gate and without a blocking scripted move. Classification remains a per-answer quality label used by the no-progress counter, correction policy and scoring. Legacy adapters without tags retain their old correct-answer completion rule only for all-string rubrics.
 - No progress escalates to a hypothetical, then an explicit review point/application question. The review point uses clinician-provided `revealText`, falling back to criterion text; it does not invent a patient finding. The ceiling also forces this review step. The learner must answer once more before supported advancement. Supported advancement never changes the answer's classification or clears unresolved phase evidence.
 - Exact-repeat detection strips stored acknowledgement/correction prefixes and applies to both model and scripted proposals. The ladder/ceiling bounds semantically repeated questions that exact matching cannot detect.
 - `correctionProbes?: 1 | 2` defaults to 1. A further consecutive wrong answer with confidence at least 0.85, after the configured number of high-confidence wrong turns in the same phase, receives an explicit correction. Partial, vague, low-confidence wrong and reflection turns never trigger it. It does not depend on an LLM reusing the same misconception key.
@@ -20,7 +20,7 @@ This is a backward-compatible implementation of the backend portion discussed in
 
 ## Student response and frontend handoff
 
-The existing `SessionBundle` shape remains compatible. New display metadata:
+The server-side `SessionBundle` remains the internal contract. Student API responses use a separate allowlisted `StudentSessionBundle`; consumers must not rely on learner state or grading internals. Display metadata:
 
 | Field | Meaning |
 | --- | --- |
@@ -32,9 +32,9 @@ The existing `SessionBundle` shape remains compatible. New display metadata:
 | `case.findings[]` | Only findings unlocked at the current session phase |
 | `case.attachments[].expiresAt` | ISO timestamp for signed URLs; absent for legacy URLs |
 
-Student responses omit grading evaluations, private rubrics, scripted moves and their IDs, internal phase evidence/progress, retrieval traces, and raw storage-key fields. Catalogue responses contain no attachment/finding references. The pre-existing learner-state response is still a compatibility projection; replacing it with a complete minimal DTO belongs to the frontend/API contract integration and is not claimed finished here.
+Student responses omit grading evaluations, private rubrics, scripted moves and their IDs, learner state, internal phase evidence/progress, retrieval traces, and raw storage-key fields. Catalogue responses contain no attachment/finding references. Explicit allowlists and sentinel tests prevent new internal fields from leaking through object spreads.
 
-Arshin's remaining integration includes the progress/support UI, signed-URL refresh and unavailable-media affordance, object-rubric editor support, explicit ungraded reflection presentation in professor views, and the reviewed Case 1 content. **Do not round-trip v2-authored cases through the old editor until it preserves object rubrics, findings, private-media keys and progression settings.** Clinical relevance of new criteria/reveal text still needs faculty review. The model receives attachment descriptions/released findings and references, not image pixels.
+The 2026-09-30 integration adds progress/support UI, signed-URL refresh/retry, object-rubric editor preservation and ungraded reflection in professor views. Clinical relevance of actual criteria/reveal text still needs faculty review. The model receives attachment descriptions/released findings and references, not image pixels. See `CASE_INTEGRITY_VERIFICATION_2026-09-30.md` for current evidence; older results below are historical.
 
 ## Durable turn idempotency
 
@@ -64,6 +64,8 @@ GET /api/session/{sessionId}/attachments/{attachmentId}/url
 
 Wrong owner/role is denied; locked/missing attachments return 404; unavailable signing returns a safe 503. Responses are `private, no-store`. Student session responses sign unlocked attachments in parallel, bounded to 12 attachments. Each Storage network request has a five-second abort deadline. A signing failure retains safe attachment metadata without URL so the UI can offer a retry. Transcript-only audio remains supported.
 
+The refresh route accepts the owning student, a professor who is a member of the session's class, or an admin. It verifies that the requested attachment belongs to the session's exact `caseId` and returns the same 404 for locked and missing attachments. Student, professor and admin session reads all sign only attachments unlocked at that session's current phase. Neither path serializes the raw `storagePath`. The route and session-read authorization matrix are covered by 16 tests; real Supabase Storage RLS and signed-URL expiry still require live verification.
+
 `scripts/publish-teaching-materials.mjs --private-media` opts into private-bucket publication. Existing public URLs remain supported; this code does **not** migrate, revoke or remove already-public objects. Before real deployment, verify bucket access policies deny anonymous object reads and test actual signed URL expiry/refresh. Signed URLs are bearer links usable until expiry; a storage path is visible inside the signed URL, although no separate raw key is serialized.
 
 Private storage alone does not make this demo suitable for patient records. The POC still permits public role selection and serves only synthetic/resettable or appropriately authorized teaching material. Real IRB images require real authentication, access controls and an approved handling workflow before upload.
@@ -76,7 +78,7 @@ Evaluations retain the retrieval query and the selected passages' source ID, pag
 
 Release-candidate local checks: **247 tests passed, 13 opt-in live tests skipped** (45 passing files, 3 skipped); TypeScript, ESLint, production build and `git diff --check` passed. Dependency installation/audit reports zero vulnerabilities. The opt-in synthetic OpenAI smoke test was separately enabled and passed; default skipped tests are not counted as passed.
 
-Tests cover explicit/legacy rubric contracts, real OpenAI JSON-schema serialization, criteria accumulation and wrong-answer rejection, repeated questions, support/ceiling exits, reflection, correction confidence gating, replay/changed payload/ownership, repository metadata mapping, media phase/ownership checks, signing failure and deadlines, retrieval traces, and summary support preservation.
+Tests cover explicit/legacy rubric contracts, real OpenAI JSON-schema serialization, criteria accumulation and wrong-answer correction, repeated questions, support/ceiling exits, reflection, correction confidence gating, replay/changed payload/ownership, repository metadata mapping, media phase/ownership checks, signing failure and deadlines, retrieval traces, and summary support preservation.
 
 Browser verification uses local `127.0.0.1:3210`, memory storage and the deterministic tutor, not production. The verified story is: student case → message API → memory repository → support escalation → supported transition → final reflection → deterministic summary UI.
 
@@ -98,6 +100,6 @@ Additional release smoke: the production build ran locally with memory storage a
 
 Local PostgreSQL verification is blocked by Docker Desktop's locked runtime socket, so the feature branch also runs the existing GitHub Actions application and isolated-database jobs. [Release CI run 36622560445](https://github.com/Hongyu1231/socratic-digital-twin/actions/runs/36622560445), at commit `7e02c02`, passed both jobs: all migrations applied, all **55 pgTAP assertions across three files passed**, and application/worker/importer checks passed. The first run exposed an incomplete test fixture (missing required assignment), not a migration failure; the corrected fixture preserves all 15 idempotency assertions. Do not run database fixture tests or E2E writes against production.
 
-**Remaining integration checks:** simultaneous multi-connection commits; real private Storage RLS and signed URL expiry/refresh; faculty review of rubric quality; Arshin's frontend/content integration and the separate data-integrity work in issue #4. Existing production public media is unchanged. The private publisher now preserves supplied unlock phases, but this release does not upload or migrate private media.
+**2026-09-30 update:** multi-connection save/publish and duplicate-turn tests passed in isolated CI; private Storage expiry/refresh passed with a disposable synthetic object; frontend/data-integrity integration is implemented. Consult the newer verification report for final superseded-version CI and deployment status. Faculty rubric/reveal-text approval remains external. Existing public media is unchanged; no patient media was uploaded.
 
 Legacy-compatible rollout: validate isolated migrations and RPC compatibility → apply the backward-compatible production migration → update the summary worker → promote the verified application through `master` → read-only production smoke. The migration and worker were deployed to the linked `zulvdacbqvmqmtotyeuc` project on 2026-09-29, without seed execution, content reimport, session deletion or media migration. New v2-authored content/private-media publication remains gated on frontend/content integration and storage-policy verification. Retain old data; do not delete learning sessions to roll back the engine.

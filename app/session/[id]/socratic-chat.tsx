@@ -3,7 +3,8 @@
 import { FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, ArrowUp, BookOpen, Check, Info, LoaderCircle, Mic, MicOff, PauseCircle, Play, RotateCw, Volume2, VolumeX, X } from "lucide-react";
-import type { SessionBundle, TutorMessage } from "@/lib/domain";
+import type { TutorMessage } from "@/lib/domain";
+import type { StudentSessionBundle as SessionBundle } from "@/lib/student-contract";
 import { CaseResources } from "@/components/case-resources";
 import { selectPreferredEnglishVoice } from "@/lib/speech";
 import { describeRequestFailure, readJsonBody, requestSignal } from "@/lib/client-request";
@@ -496,7 +497,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
   const currentPhaseIndex = [...clinicalCase.phases]
     .sort((left, right) => left.order - right.order)
     .findIndex((phase) => phase.order === session.currentPhase);
-  const completedPhaseCount = session.status === "completed"
+  const completedPhaseCount = session.summary?.completedAllPhases
     ? clinicalCase.phases.length
     : Math.max(0, currentPhaseIndex);
   const progress = Math.round((completedPhaseCount / clinicalCase.phases.length) * 100);
@@ -520,12 +521,12 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
           ))}
         </ul>
         <div className="safety-note"><Info size={13} /> For learning and discussion. Explain your interpretation of the supplied records.</div>
-        <CaseResources clinicalCase={clinicalCase} />
+        <CaseResources clinicalCase={clinicalCase} sessionId={sessionId} />
       </aside>
 
       <section className="chat-panel" aria-label="Socratic conversation">
         <header className="chat-topbar">
-          <div><span className="sidebar-label">Phase {session.currentPhase} of {clinicalCase.phases.length}</span><br /><strong>{currentPhase.title}</strong></div>
+          <div><span className="sidebar-label">Phase {session.currentPhase} of {clinicalCase.phases.length}</span><br /><strong>{currentPhase.title}</strong>{currentPhase.phaseProgress ? <small className="criterion-progress" role="status">{currentPhase.phaseProgress.criteriaMet} of {currentPhase.phaseProgress.criteriaTotal} criteria evidenced{currentPhase.phaseProgress.completedWithSupport ? " · With tutor support" : ""}</small> : null}</div>
           <div className="session-top-actions">
             <button
               ref={mobileCaseTriggerRef}
@@ -647,7 +648,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
                 </li>
               ))}
             </ul>
-            <CaseResources clinicalCase={clinicalCase} />
+            <CaseResources clinicalCase={clinicalCase} sessionId={sessionId} />
           </aside>
         </div>
       ) : null}

@@ -15,8 +15,14 @@ import type {
   TutorTurnReview,
 } from "@/lib/domain";
 import { demoAssignment, demoAssignments, demoCases, demoClass, demoUsers, getDemoUser } from "@/lib/seed";
-import { ArchivedCaseError, IdempotencyConflictError, type CommitTurnInput, type SaveReviewInput, type TutorRepository } from "@/lib/repository/types";
+import { ArchivedCaseError, IdempotencyConflictError, SupersededCaseError, type CommitTurnInput, type SaveReviewInput, type TutorRepository } from "@/lib/repository/types";
 import { getCaseLineageId, getNextCaseVersion, getVersionedCaseTitle } from "@/lib/repository/case-version";
+import {
+  inspectStoredAttachments,
+  normalizeWritableAttachments,
+  reportAttachmentDiagnostics,
+} from "@/lib/repository/case-attachments";
+import { assertCaseStatusTransition } from "@/lib/repository/case-status";
 import { reconcileLearnerStateEvidence } from "@/lib/tutor/learner-model";
 import { getMaterialPack } from "@/lib/materials/pack";
 import { getConfiguredTutorProvider } from "@/lib/tutor/provider-config";
@@ -83,11 +89,14 @@ export class InMemoryTutorRepository implements TutorRepository {
   }
 
   async listCases() {
-    return clone([...this.store.cases.values()].filter((item) => item.status === "available"));
+    return [...this.store.cases.values()]
+      .filter((item) => item.status === "available")
+      .map((item) => this.readableCase(item));
   }
 
   async getCase(caseId: string) {
-    return clone(this.store.cases.get(caseId) ?? null);
+    const current = this.store.cases.get(caseId);
+    return current ? this.readableCase(current) : null;
   }
 
   async createSession(studentId: string, caseId: string, assignmentId?: string) {
@@ -99,7 +108,7 @@ export class InMemoryTutorRepository implements TutorRepository {
       if (!isMember) throw new Error("This case assignment is not available to you.");
       const clinicalCase = this.store.cases.get(caseId);
       if (clinicalCase?.status === "archived") throw new ArchivedCaseError();
-      if (!clinicalCase || clinicalCase.status !== "available") throw new Error("This case is not currently available.");
+      if (!clinicalCase || (clinicalCase.status !== "available" && clinicalCase.status !== "superseded")) throw new Error("This case is not currently available.");
       const existing = [...this.store.sessions.values()].find((item) => item.studentId === studentId && item.assignmentId === assignmentId);
       if (existing) return this.bundle(existing);
       const now = new Date().toISOString();
@@ -113,7 +122,8 @@ export class InMemoryTutorRepository implements TutorRepository {
       throw new Error("Unable to create session for the selected case and learner.");
     }
     if (clinicalCase.status === "archived") throw new ArchivedCaseError();
-    if (clinicalCase.status !== "available") throw new Error("This case is not currently available.");
+    if (clinicalCase.status === "superseded" && !assignmentId) throw new SupersededCaseError();
+    if (clinicalCase.status !== "available" && !(clinicalCase.status === "superseded" && assignmentId)) throw new Error("This case is not currently available.");
 
     const now = new Date().toISOString();
     const sessionId = crypto.randomUUID();
@@ -167,7 +177,7 @@ export class InMemoryTutorRepository implements TutorRepository {
     if (!assignment || !teachingClass || !isMember) throw new Error("This case assignment is not available to you.");
     const clinicalCase = this.store.cases.get(assignment.caseId);
     if (clinicalCase?.status === "archived") throw new ArchivedCaseError();
-    if (!clinicalCase || clinicalCase.status !== "available") throw new Error("This case is not currently available.");
+    if (!clinicalCase || (clinicalCase.status !== "available" && clinicalCase.status !== "superseded")) throw new Error("This case is not currently available.");
     return this.createSession(studentId, assignment.caseId, assignmentId);
   }
 
@@ -288,11 +298,13 @@ export class InMemoryTutorRepository implements TutorRepository {
     }
     if (session.reviewerId && session.reviewerId !== input.professorId) throw new Error("Review already claimed by another professor.");
     const validEvaluationIds = new Set(session.evaluations.map((evaluation) => evaluation.id));
+    const evaluationById = new Map(session.evaluations.map((evaluation) => [evaluation.id, evaluation]));
     const validTutorMessages = new Set(session.messages.filter((message) => message.sender === "ai").map((message) => message.id));
     const now = new Date().toISOString();
     for (const review of input.reviews) {
       if (!validEvaluationIds.has(review.evaluationId)) throw new Error("Review references an answer outside this session.");
     }
+    const gradedReviews = input.reviews.filter((review) => !evaluationById.get(review.evaluationId)?.isReflection);
     for (const review of input.tutorReviews ?? []) {
       if (!validEvaluationIds.has(review.evaluationId) || !validTutorMessages.has(review.tutorMessageId)) {
         throw new Error("Tutor review references a turn outside this session.");
@@ -303,7 +315,7 @@ export class InMemoryTutorRepository implements TutorRepository {
       if (expectedTutorMessage?.id !== review.tutorMessageId) throw new Error("Tutor review does not match the evaluated answer.");
     }
     session.reviewerId = input.professorId;
-    for (const review of input.reviews) {
+    for (const review of gradedReviews) {
       this.store.answerReviews.set(review.evaluationId, {
         ...review,
         professorId: input.professorId,
@@ -317,7 +329,7 @@ export class InMemoryTutorRepository implements TutorRepository {
         updatedAt: now,
       });
     }
-    const labels = input.reviews.map((review) => review.label);
+    const labels = gradedReviews.map((review) => review.label);
     const scoreMap = { correct: 100, partial: 70, vague: 40, wrong: 0 } as const;
     const finalScore = labels.length
       ? Math.round(labels.reduce((sum, label) => sum + scoreMap[label], 0) / labels.length)
@@ -380,21 +392,70 @@ export class InMemoryTutorRepository implements TutorRepository {
     return clone(next);
   }
 
-  async listCaseVersions() { return clone([...this.store.cases.values()]); }
+  async listCaseVersionsWithDiagnostics() {
+    const mapped = [...this.store.cases.values()].map((item) => {
+      const inspection = inspectStoredAttachments(item.id, item.attachments ?? [], item.phases.map((phase) => phase.order));
+      reportAttachmentDiagnostics(inspection.diagnostics);
+      return {
+        case: clone({ ...item, attachments: inspection.valid }),
+        diagnostics: inspection.diagnostics,
+      };
+    });
+    return { cases: mapped.map((item) => item.case), diagnostics: mapped.flatMap((item) => item.diagnostics) };
+  }
+
+  async listCaseVersions() { return (await this.listCaseVersionsWithDiagnostics()).cases; }
 
   async saveCase(input: ClinicalCase, adminId: string) {
     void adminId;
     const current = input.id ? this.store.cases.get(input.id) : undefined;
+    if (input.id && !current) throw new Error("Case not found.");
+    const existingInspection = current ? inspectStoredAttachments(current.id, current.attachments ?? [], current.phases.map((phase) => phase.order)) : null;
+    if (existingInspection?.diagnostics.length) {
+      throw new Error("Cannot save a case while it contains invalid stored attachments.");
+    }
     if (current && current.status !== "draft") throw new Error("Published cases are immutable. Clone a new version.");
-    const next = { ...clone(input), id: input.id || crypto.randomUUID(), status: "draft" as const, version: input.version ?? 1, publishedAt: null };
+    const id = input.id || crypto.randomUUID();
+    const attachments = normalizeWritableAttachments(id, input.attachments ?? current?.attachments ?? []);
+    const next = { ...clone(input), id, status: "draft" as const, version: input.version ?? 1, publishedAt: null, attachments };
     next.phases = next.phases.map((phase, index) => ({ ...phase, id: phase.id || crypto.randomUUID(), caseId: next.id, order: index + 1 }));
     this.store.cases.set(next.id, next);
     return clone(next);
   }
 
-  async publishCase(caseId: string) {
+  async publishCase(caseId: string, moveOpenAssignments = true) {
     const current = this.store.cases.get(caseId);
     if (!current) throw new Error("Case not found.");
+    const inspection = inspectStoredAttachments(caseId, current.attachments ?? [], current.phases.map((phase) => phase.order));
+    if (inspection.diagnostics.length) throw new Error("Cannot publish a case while it contains invalid stored attachments.");
+    if (!current.phases.length) throw new Error("Case must contain at least one phase before publication.");
+    assertCaseStatusTransition("publish", current.status === "available" ? "active" : current.status);
+    const lineageId = getCaseLineageId(current);
+    const lineageRoot = this.store.cases.get(lineageId);
+    if (!lineageRoot || lineageRoot.sourceCaseId) throw new Error("Case sourceCaseId must point to a lineage root.");
+    if ((lineageRoot.version ?? 1) !== 1) throw new Error("A lineage root must use version 1.");
+    if (current.sourceCaseId === null || current.sourceCaseId === undefined) {
+      if ((current.version ?? 1) !== 1) throw new Error("A root case must use version 1.");
+    } else if ((current.version ?? 1) <= (lineageRoot.version ?? 1)) {
+      throw new Error("A linked case version must be newer than its source root.");
+    }
+    const lineage = [...this.store.cases.values()].filter((item) => getCaseLineageId(item) === lineageId);
+    const activeVersions = lineage.filter((item) => item.status === "available");
+    if (activeVersions.length > 1) throw new Error("Cannot publish a lineage with multiple active versions.");
+    if (lineage.some((item) => (item.version ?? 1) > (current.version ?? 1))) {
+      throw new Error("Case version is older than an existing version in its lineage.");
+    }
+    const previous = activeVersions[0];
+    if (previous) {
+      this.store.cases.set(previous.id, clone({ ...previous, status: "superseded" }));
+      if (moveOpenAssignments) {
+        for (const [assignmentId, assignment] of this.store.assignments) {
+          if (assignment.caseId === previous.id && assignment.status === "open") {
+            this.store.assignments.set(assignmentId, clone({ ...assignment, caseId, caseTitle: current.title }));
+          }
+        }
+      }
+    }
     const next = { ...current, status: "available" as const, publishedAt: new Date().toISOString() };
     this.store.cases.set(caseId, next);
     return clone(next);
@@ -403,6 +464,7 @@ export class InMemoryTutorRepository implements TutorRepository {
   async archiveCase(caseId: string) {
     const current = this.store.cases.get(caseId);
     if (!current) throw new Error("Case not found.");
+    assertCaseStatusTransition("archive", current.status === "available" ? "active" : current.status);
     const next: ClinicalCase = { ...current, status: "archived" };
     this.store.cases.set(caseId, next);
     for (const [assignmentId, assignment] of this.store.assignments) {
@@ -417,6 +479,8 @@ export class InMemoryTutorRepository implements TutorRepository {
     void adminId;
     const current = this.store.cases.get(caseId);
     if (!current) throw new Error("Case not found.");
+    const inspection = inspectStoredAttachments(caseId, current.attachments ?? [], current.phases.map((phase) => phase.order));
+    if (inspection.diagnostics.length) throw new Error("Cannot clone a case while it contains invalid stored attachments.");
     const id = crypto.randomUUID();
     const version = getNextCaseVersion([...this.store.cases.values()], current);
     const next: ClinicalCase = { ...clone(current), id, title: getVersionedCaseTitle(current.title, version), status: "draft", sourceCaseId: getCaseLineageId(current), version, publishedAt: null, phases: current.phases.map((phase) => ({ ...phase, id: crypto.randomUUID(), caseId: id })) };
@@ -429,14 +493,27 @@ export class InMemoryTutorRepository implements TutorRepository {
   }
 
   async saveAssignment(input: Omit<CaseAssignment, "id" | "createdAt" | "assignedBy"> & { id?: string }, professorId: string) {
-    const teachingClass = this.store.classes.get(input.classId);
-    if (!teachingClass?.members.some((item) => item.userId === professorId && item.role === "professor")) throw new Error("Professor is outside this class.");
-    const clinicalCase = this.store.cases.get(input.caseId);
-    if (!clinicalCase || clinicalCase.status !== "available") throw new Error("Only published cases can be assigned.");
     const idempotencyKey = input.idempotencyKey?.trim() || null;
     if (input.idempotencyKey !== undefined && input.idempotencyKey !== null && !idempotencyKey) throw new Error("Assignment idempotency key cannot be blank.");
     const existingByKey = idempotencyKey ? [...this.store.assignments.values()].find((item) => item.idempotencyKey === idempotencyKey) : undefined;
     const current = input.id ? this.store.assignments.get(input.id) : existingByKey;
+    if (input.id && !current) throw new Error("Assignment not found.");
+    const teachingClass = this.store.classes.get(input.classId);
+    if (!teachingClass?.members.some((item) => item.userId === professorId && item.role === "professor")) throw new Error("Professor is outside this class.");
+    if (current) {
+      const currentClass = this.store.classes.get(current.classId);
+      if (!currentClass?.members.some((item) => item.userId === professorId && item.role === "professor")) throw new Error("Professor is outside this class.");
+    }
+    const clinicalCase = this.store.cases.get(input.caseId);
+    if (!clinicalCase) throw new Error("Case not found.");
+    const caseOrClassChanged = current ? current.caseId !== input.caseId || current.classId !== input.classId : true;
+    if (caseOrClassChanged) {
+      if (clinicalCase.status !== "available") throw new Error("Case assignment conflict: only active cases can be assigned.");
+    } else if (clinicalCase.status === "archived") {
+      if (input.status === "open") throw new Error("Archived case assignments cannot be reopened.");
+    } else if (clinicalCase.status !== "available" && clinicalCase.status !== "superseded") {
+      throw new Error("Case assignment conflict: only active cases can be assigned.");
+    }
     const next: CaseAssignment = { ...input, id: input.id || existingByKey?.id || crypto.randomUUID(), idempotencyKey, assignedBy: professorId, createdAt: current?.createdAt ?? new Date().toISOString(), className: teachingClass.name, caseTitle: clinicalCase.title };
     this.store.assignments.set(next.id, clone(next));
     return clone(next);
@@ -446,9 +523,10 @@ export class InMemoryTutorRepository implements TutorRepository {
     const now = new Date().toISOString();
     const classes = [...this.store.classes.values()].filter((item) => item.members.some((member) => member.userId === studentId && member.role === "student"));
     return classes.flatMap((teachingClass): StudentCaseOffering[] => [...this.store.assignments.values()].filter((item) => item.classId === teachingClass.id).flatMap((assignment) => {
-      const clinicalCase = this.store.cases.get(assignment.caseId);
-      if (!clinicalCase || clinicalCase.status === "archived" || (clinicalCase as ClinicalCase & { isTestFixture?: boolean }).isTestFixture) return [];
       const existing = [...this.store.sessions.values()].find((item) => item.studentId === studentId && item.assignmentId === assignment.id);
+      const storedCase = this.store.cases.get(existing?.caseId ?? assignment.caseId);
+      const clinicalCase = storedCase ? this.readableCase(storedCase) : undefined;
+      if (!clinicalCase || (clinicalCase.status === "archived" && !existing) || (clinicalCase as ClinicalCase & { isTestFixture?: boolean }).isTestFixture) return [];
       const offering: StudentCaseOffering = {
         assignment: clone(assignment),
         teachingClass: clone(teachingClass),
@@ -485,12 +563,19 @@ export class InMemoryTutorRepository implements TutorRepository {
     return assignment ? this.store.classes.get(assignment.classId) : undefined;
   }
 
+  private readableCase(current: ClinicalCase): ClinicalCase {
+    const inspection = inspectStoredAttachments(current.id, current.attachments ?? [], current.phases.map((phase) => phase.order));
+    reportAttachmentDiagnostics(inspection.diagnostics);
+    return clone({ ...current, attachments: inspection.valid });
+  }
+
   private turnRequestKey(sessionId: string, clientRequestId: string) {
     return `${sessionId}\u0000${clientRequestId}`;
   }
 
   private bundle(session: LearningSession, viewerId?: string): SessionBundle {
-    const clinicalCase = this.store.cases.get(session.caseId);
+    const storedCase = this.store.cases.get(session.caseId);
+    const clinicalCase = storedCase ? this.readableCase(storedCase) : undefined;
     const student = this.store.users.get(session.studentId) ?? getDemoUser(session.studentId);
     if (!clinicalCase || !student) throw new Error("Seed relationship is invalid.");
     const reconciledSession = { ...session, state: reconcileLearnerStateEvidence(session.state) };

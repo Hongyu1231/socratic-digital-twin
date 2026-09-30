@@ -5,10 +5,11 @@ import { AudioLines, ExternalLink, FileImage, Minus, Pause, Play, Plus, RotateCc
 import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { CaseAttachment, ClinicalCase } from "@/lib/domain";
+import { needsMediaRefresh, refreshMediaReference } from "@/lib/media-refresh";
 
 const subscribeToBrowserCapability = () => () => undefined;
 
-export function CaseResources({ clinicalCase }: { clinicalCase: ClinicalCase }) {
+export function CaseResources({ clinicalCase, sessionId }: { clinicalCase: Pick<ClinicalCase, "attachments" | "findings">; sessionId?: string }) {
   const headingId = useId();
   const dialogHeadingId = useId();
   const dialogDescriptionId = useId();
@@ -18,6 +19,9 @@ export function CaseResources({ clinicalCase }: { clinicalCase: ClinicalCase }) 
   const [imageZoom, setImageZoom] = useState(1);
   const [imageStatus, setImageStatus] = useState<"loading" | "ready" | "error">("loading");
   const [imageRetry, setImageRetry] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const [mediaError, setMediaError] = useState("");
+  const refreshController = useRef<AbortController | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const imageStageRef = useRef<HTMLDivElement | null>(null);
   const imageDragRef = useRef<{ pointerId: number; x: number; y: number; left: number; top: number } | null>(null);
@@ -29,19 +33,54 @@ export function CaseResources({ clinicalCase }: { clinicalCase: ClinicalCase }) 
     () => false,
   );
 
-  useEffect(() => () => window.speechSynthesis?.cancel(), []);
+  useEffect(() => () => {
+    window.speechSynthesis?.cancel();
+    refreshController.current?.abort();
+  }, []);
 
-  const closePreview = useCallback(() => setPreview(null), []);
+  const closePreview = useCallback(() => {
+    refreshController.current?.abort();
+    setPreview(null);
+  }, []);
+
+  async function refreshPreview(attachment: CaseAttachment) {
+    if (!sessionId) return;
+    refreshController.current?.abort();
+    const controller = new AbortController();
+    refreshController.current = controller;
+    setRefreshing(true);
+    setMediaError("");
+    try {
+      const reference = await refreshMediaReference(sessionId, attachment.id, controller);
+      if (controller.signal.aborted) return;
+      setPreview((current) => current?.id === attachment.id ? { ...current, ...reference } : current);
+      setImageStatus("loading");
+      setImageRetry((retry) => retry + 1);
+    } catch {
+      if (!controller.signal.aborted) setMediaError("Teaching media could not be loaded. Please try again.");
+    } finally {
+      if (!controller.signal.aborted) setRefreshing(false);
+    }
+  }
 
   function openPreview(attachment: CaseAttachment, trigger: HTMLButtonElement) {
+    refreshController.current?.abort();
+    setRefreshing(false);
+    setMediaError("");
     previewTriggerRef.current = trigger;
     setImageZoom(1);
     setImageStatus("loading");
     setImageRetry(0);
     setPreview(attachment);
+    if (sessionId && needsMediaRefresh(attachment)) void refreshPreview(attachment);
   }
 
   function retryImage() {
+    if (sessionId && preview) {
+      void refreshPreview(preview);
+      return;
+    }
+    setMediaError("");
     setImageStatus("loading");
     setImageRetry((retry) => retry + 1);
   }
@@ -155,7 +194,7 @@ export function CaseResources({ clinicalCase }: { clinicalCase: ClinicalCase }) 
         {attachments.map((attachment) => {
           const Icon = attachment.kind === "image" ? FileImage : attachment.kind === "video" ? Video : AudioLines;
           const hasAudioFile = attachment.kind === "audio" && Boolean(attachment.url);
-          const canPreview = Boolean(attachment.url) && (attachment.kind !== "audio" || hasAudioFile);
+          const canPreview = Boolean(attachment.url) || Boolean(sessionId && (attachment.kind !== "audio" || !attachment.transcript || attachment.expiresAt));
           const actionLabel = canPreview ? "Open" : playingId === attachment.id ? "Pause" : "Play";
           return (
             <button
@@ -169,7 +208,7 @@ export function CaseResources({ clinicalCase }: { clinicalCase: ClinicalCase }) 
                   toggleNarration(attachment);
                 }
               }}
-              disabled={attachment.kind === "audio" ? !hasAudioFile && (!speechAvailable || !attachment.transcript) : !canPreview}
+              disabled={!canPreview && (attachment.kind !== "audio" || (!hasAudioFile && (!speechAvailable || !attachment.transcript)))}
               aria-label={`${actionLabel} ${attachment.title}`}
             >
               <Icon size={15} />
@@ -184,13 +223,16 @@ export function CaseResources({ clinicalCase }: { clinicalCase: ClinicalCase }) 
         </p>
       )}
       <small className="resource-disclaimer">Teaching records for this case. Use the source and image together when explaining your findings.</small>
+      {clinicalCase.findings?.length ? <div className="released-findings"><h3>Released clinical findings</h3>{clinicalCase.findings.map((finding) => <article key={finding.id}><strong>{finding.title}</strong><p>{finding.text}</p></article>)}</div> : null}
 
       {preview ? createPortal(
         <div className="media-dialog-backdrop">
           <button className="media-dialog-dismiss" type="button" tabIndex={-1} onClick={closePreview} aria-label="Close attachment preview" />
           <div ref={dialogRef} className="media-dialog" role="dialog" aria-modal="true" aria-labelledby={dialogHeadingId} aria-describedby={dialogDescriptionId}>
             <div className="media-dialog-heading"><div><span className="section-kicker">Teaching attachment</span><h2 id={dialogHeadingId}>{preview.title}</h2></div><button ref={closeButtonRef} type="button" onClick={closePreview} aria-label="Close attachment"><X size={18} /></button></div>
-            {preview.kind === "image" && preview.url ? <>
+            {refreshing ? <p role="status">Refreshing teaching media…</p> : null}
+            {mediaError ? <div className="error-banner" role="alert">{mediaError} <button type="button" onClick={retryImage} disabled={refreshing}>Try again</button></div> : null}
+            {!refreshing && !mediaError && preview.kind === "image" && preview.url ? <>
               <div className="media-image-toolbar" aria-label="Image controls">
                 <button type="button" onClick={() => changeImageZoom(imageZoom - 0.25)} disabled={imageZoom <= 0.75} aria-label="Zoom out"><Minus size={15} /></button>
                 <output aria-live="polite">{Math.round(imageZoom * 100)}%</output>
@@ -220,8 +262,8 @@ export function CaseResources({ clinicalCase }: { clinicalCase: ClinicalCase }) 
                 ) : <Image key={imageRetry} src={preview.url} alt={preview.description} draggable={false} width={1200} height={760} unoptimized={preview.url.startsWith("/api/materials/")} style={{ width: `${imageZoom * 100}%` }} onLoad={() => setImageStatus("ready")} onError={() => setImageStatus("error")} />}
               </div>
             </> : null}
-            {preview.kind === "video" && preview.url ? <video src={preview.url} poster={preview.posterUrl} controls playsInline><track kind="captions" src="/media/english-captions.vtt" srcLang="en" label="English" default /></video> : null}
-            {preview.kind === "audio" && preview.url ? <audio src={preview.url} controls><track kind="captions" /></audio> : null}
+            {!refreshing && !mediaError && preview.kind === "video" && preview.url ? <video key={imageRetry} src={preview.url} poster={preview.posterUrl} controls playsInline onError={() => setMediaError("Teaching video could not be loaded.")}><track kind="captions" src="/media/english-captions.vtt" srcLang="en" label="English" default /></video> : null}
+            {!refreshing && !mediaError && preview.kind === "audio" && preview.url ? <audio key={imageRetry} src={preview.url} controls onError={() => setMediaError("Teaching audio could not be loaded.")}><track kind="captions" /></audio> : null}
             <p id={dialogDescriptionId}>{preview.description}</p>
             {preview.sourceLabel ? <p className="resource-source">Source: {preview.sourceUrl ? <a href={preview.sourceUrl} target="_blank" rel="noreferrer">{preview.sourceLabel}</a> : preview.sourceLabel}</p> : null}
           </div>

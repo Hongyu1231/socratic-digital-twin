@@ -1,4 +1,10 @@
 import { z } from "zod";
+import { CRITERION_EVIDENCE_MAX_LENGTH } from "@/lib/domain";
+import {
+  CASE_DESCRIPTION_MAX_LENGTH,
+  CASE_TITLE_MAX_LENGTH,
+  MEDIA_URL_MAX_LENGTH,
+} from "@/lib/case-limits.mjs";
 
 export const classificationSchema = z.enum(["correct", "partial", "vague", "wrong"]);
 export const strategySchema = z.enum(["probe", "challenge", "clarify", "scaffold", "reflect"]);
@@ -67,6 +73,25 @@ export const rubricCriterionSchema = z.object({
   revealText: z.string().trim().min(1).max(500).optional(),
 }).strict();
 
+/**
+ * A model-awarded criterion and the short answer quote retained for review.
+ * Evidence is intentionally recorded, not verified against the answer.
+ */
+export const criterionEvidenceSchema = z.object({
+  id: z.string().trim().min(1).max(100),
+  evidence: z.string().trim().min(1).max(CRITERION_EVIDENCE_MAX_LENGTH),
+}).strict();
+
+/**
+ * Existing stored/provider adapters may still emit the historical string-only
+ * form. The provider schema below is deliberately stricter and only accepts
+ * structured evidence for new model calls.
+ */
+export const criteriaMetSchema = z.union([
+  z.array(criterionEvidenceSchema).max(32),
+  z.array(z.string().trim().min(1).max(100)).max(32),
+]);
+
 export const phaseInputSchema = z.object({
   id: z.string().uuid().optional(),
   order: z.number().int().min(1).max(12),
@@ -104,7 +129,7 @@ export const phaseInputSchema = z.object({
   });
 });
 
-const mediaUrlSchema = z.string().trim().max(2_048).refine((value) => {
+const mediaUrlSchema = z.string().trim().max(MEDIA_URL_MAX_LENGTH).refine((value) => {
   if (value.startsWith("/") && !value.startsWith("//")) return true;
   try {
     return new URL(value).protocol === "https:";
@@ -116,8 +141,8 @@ const mediaUrlSchema = z.string().trim().max(2_048).refine((value) => {
 export const caseAttachmentInputSchema = z.object({
   id: z.string().uuid().optional(),
   kind: z.enum(["image", "audio", "video"]),
-  title: z.string().trim().min(1).max(160),
-  description: z.string().trim().min(1).max(500),
+  title: z.string().trim().min(1).max(CASE_TITLE_MAX_LENGTH),
+  description: z.string().trim().min(1).max(CASE_DESCRIPTION_MAX_LENGTH),
   url: mediaUrlSchema.optional(),
   posterUrl: mediaUrlSchema.optional(),
   transcript: z.string().trim().min(1).max(10_000).optional(),
@@ -128,7 +153,7 @@ export const caseAttachmentInputSchema = z.object({
   ).optional(),
   unlockPhase: z.number().int().min(1).max(12).optional(),
   unlockOnRequest: z.literal(false).optional(),
-  sourceUrl: z.string().trim().url().max(2_048).refine(
+  sourceUrl: z.string().trim().url().max(MEDIA_URL_MAX_LENGTH).refine(
     (value) => new URL(value).protocol === "https:",
     "Source URLs must use HTTPS.",
   ).optional(),
@@ -154,8 +179,8 @@ export const caseAttachmentInputSchema = z.object({
 
 export const caseInputSchema = z.object({
   id: z.string().uuid().optional(),
-  title: z.string().trim().min(2).max(160),
-  description: z.string().trim().min(5).max(1500),
+  title: z.string().trim().min(2).max(CASE_TITLE_MAX_LENGTH),
+  description: z.string().trim().min(5).max(CASE_DESCRIPTION_MAX_LENGTH),
   difficulty: z.enum(["foundation", "intermediate", "advanced"]),
   learningObjectives: z.array(z.string().trim().min(1).max(250)).min(1),
   attachments: z.array(caseAttachmentInputSchema).max(12).default([]),
@@ -229,7 +254,7 @@ export const tutorOutputSchema = z.object({
   // sanitized independently from the grading result.
   acknowledgement: z.string().nullable().optional(),
   targetCriterionId: z.string().nullable().optional(),
-  criteriaMet: z.array(z.string()).max(32).optional(),
+  criteriaMet: criteriaMetSchema.optional(),
   classification: classificationSchema,
   confidence: z.number().min(0).max(1),
   reasoningGap: z.string().min(1).max(500),
@@ -266,7 +291,7 @@ export const tutorOutputSchema = z.object({
 export const tutorProviderOutputSchema = tutorOutputSchema.safeExtend({
   acknowledgement: z.string().nullable(),
   targetCriterionId: z.string().nullable(),
-  criteriaMet: z.array(z.string()).max(32),
+  criteriaMet: z.array(criterionEvidenceSchema).max(32),
 });
 
 export const summaryOutputSchema = z.object({

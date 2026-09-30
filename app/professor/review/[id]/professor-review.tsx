@@ -54,7 +54,7 @@ export function ProfessorReview({ sessionId }: { sessionId: string }) {
       .then((data) => {
         setBundle(data);
         setFeedback(data.sessionReview?.overallFeedback ?? "");
-        setDrafts(Object.fromEntries(data.session.evaluations.map((evaluation) => {
+        setDrafts(Object.fromEntries(data.session.evaluations.filter((evaluation) => !evaluation.isReflection).map((evaluation) => {
           const existing = data.answerReviews.find((review) => review.evaluationId === evaluation.id);
           return [evaluation.id, { label: existing?.label ?? evaluation.classification, comments: existing?.comments ?? "" }];
         })));
@@ -112,7 +112,7 @@ export function ProfessorReview({ sessionId }: { sessionId: string }) {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sessionId,
-          reviews: bundle.session.evaluations.map((evaluation) => ({ evaluationId: evaluation.id, ...drafts[evaluation.id] })),
+          reviews: bundle.session.evaluations.filter((evaluation) => !evaluation.isReflection).map((evaluation) => ({ evaluationId: evaluation.id, ...drafts[evaluation.id] })),
           tutorReviews: bundle.session.evaluations.flatMap((evaluation) => tutorDrafts[evaluation.id] ? [{ evaluationId: evaluation.id, ...tutorDrafts[evaluation.id] }] : []),
           overallFeedback: feedback,
           status,
@@ -164,15 +164,16 @@ export function ProfessorReview({ sessionId }: { sessionId: string }) {
       <div className="review-layout">
         <section className="transcript-card"><span className="section-kicker">Conversation transcript</span>
           {turns.length === 0 ? <div className="empty-state"><p>No student answers have been submitted yet.</p></div> : turns.map(({ evaluation, answer, question, tutorReply }, index) => {
+            const isReflection = evaluation.isReflection === true;
             const draft = drafts[evaluation.id] ?? { label: evaluation.classification, comments: "" };
             const tutorDraft = tutorDrafts[evaluation.id];
             return <article className="review-turn" key={evaluation.id}>
               <span className="sidebar-label">Answer {index + 1}</span>
               <p className="review-question">{question?.content}</p>
               <div className="review-answer">{answer?.content}</div>
-              <div className="ai-evaluation"><span><strong>AI evaluation:</strong> {evaluation.classification} · {Math.round(evaluation.confidence * 100)}% confidence</span><span><strong>Reasoning gap:</strong> {evaluation.reasoningGap}</span><span><strong>Strategy:</strong> {evaluation.strategy}</span>{evaluation.promptVersion ? <span><strong>Experiment:</strong> {evaluation.provider} · {evaluation.model} · {evaluation.promptVersion} · phase {evaluation.phaseOrder} attempt {evaluation.attempt}</span> : null}</div>
-              <div className="label-buttons" aria-label={`Professor label for answer ${index + 1}`}>{labels.map((label) => <button type="button" disabled={readOnly} aria-pressed={draft.label === label} className={draft.label === label ? "selected" : ""} key={label} onClick={() => setDrafts((current) => ({ ...current, [evaluation.id]: { ...draft, label } }))}>{label}</button>)}</div>
-              <textarea readOnly={readOnly} aria-label={`Comments for answer ${index + 1}`} placeholder="Add an expert calibration note…" value={draft.comments} onChange={(event) => setDrafts((current) => ({ ...current, [evaluation.id]: { ...draft, comments: event.target.value } }))} />
+              {isReflection ? <div className="ai-evaluation" role="status"><span><strong>Final reflection:</strong> Not graded for the learner score or professor answer label.</span><span>This reflection remains in the transcript and can still inform tutor intervention review.</span></div> : <><div className="ai-evaluation"><span><strong>AI evaluation:</strong> {evaluation.classification} · {Math.round(evaluation.confidence * 100)}% confidence</span><span><strong>Reasoning gap:</strong> {evaluation.reasoningGap}</span><span><strong>Strategy:</strong> {evaluation.strategy}</span>{evaluation.promptVersion ? <span><strong>Experiment:</strong> {evaluation.provider} · {evaluation.model} · {evaluation.promptVersion} · phase {evaluation.phaseOrder} attempt {evaluation.attempt}</span> : null}</div>
+                <div className="label-buttons" aria-label={`Professor label for answer ${index + 1}`}>{labels.map((label) => <button type="button" disabled={readOnly} aria-pressed={draft.label === label} className={draft.label === label ? "selected" : ""} key={label} onClick={() => setDrafts((current) => ({ ...current, [evaluation.id]: { ...draft, label } }))}>{label}</button>)}</div>
+                <textarea readOnly={readOnly} aria-label={`Comments for answer ${index + 1}`} placeholder="Add an expert calibration note…" value={draft.comments} onChange={(event) => setDrafts((current) => ({ ...current, [evaluation.id]: { ...draft, comments: event.target.value } }))} /></>}
               {tutorDraft && tutorReply ? <section className={styles.tutorQuality} aria-label={`Tutor quality for turn ${index + 1}`}>
                 <div className={styles.qualityHeading}><span className="sidebar-label">Tutor intervention quality</span><strong>{tutorReply.content}</strong></div>
                 <div className={styles.qualityGrid}>{qualityDimensions.map(([key, label]) => <div className={styles.ratingRow} key={key}><span>{label}</span><div aria-label={`${label} rating for turn ${index + 1}`}>{[1, 2, 3, 4, 5].map((rating) => <button type="button" disabled={readOnly} aria-pressed={tutorDraft[key] === rating} className={tutorDraft[key] === rating ? styles.ratingSelected : ""} key={rating} onClick={() => setTutorDrafts((current) => ({ ...current, [evaluation.id]: { ...tutorDraft, [key]: rating } }))}>{rating}</button>)}</div></div>)}</div>

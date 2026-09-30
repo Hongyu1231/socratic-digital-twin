@@ -21,12 +21,19 @@ import type {
   RubricCriterion,
 } from "@/lib/domain";
 import { CLASSIFICATION_SCORES } from "@/lib/domain";
-import { ArchivedCaseError, IdempotencyConflictError, type CommitTurnInput, type SaveReviewInput, type TutorRepository } from "@/lib/repository/types";
+import { ArchivedCaseError, IdempotencyConflictError, SupersededCaseError, type CommitTurnInput, type SaveReviewInput, type TutorRepository } from "@/lib/repository/types";
 import { buildCaseVersionSlug, getCaseLineageId, getNextCaseVersion, getVersionedCaseTitle } from "@/lib/repository/case-version";
-import { buildEvaluationCriteria, readMisconceptionKey } from "@/lib/repository/evaluation-criteria";
+import { buildEvaluationCriteria, readCriteriaMet, readMisconceptionKey } from "@/lib/repository/evaluation-criteria";
+import {
+  inspectStoredAttachments,
+  normalizeWritableAttachments,
+  reportAttachmentDiagnostics,
+  type CaseAttachmentDiagnostic,
+} from "@/lib/repository/case-attachments";
+import { assertCaseStatusTransition } from "@/lib/repository/case-status";
 import { getTutorMode } from "@/lib/tutor";
 import { reconcileLearnerStateEvidence } from "@/lib/tutor/learner-model";
-import { caseAttachmentInputSchema, rubricCriterionSchema } from "@/lib/schemas";
+import { rubricCriterionSchema } from "@/lib/schemas";
 
 type Row = Record<string, any>;
 const HOSTED_PACKAGE_ID = /^[a-f0-9]{64}$/i;
@@ -87,17 +94,13 @@ function mapTeachingMaterialPackageId(row: Row): string | undefined {
   return raw.trim().toLowerCase();
 }
 
-export function mapCase(row: Row, phases: Row[]): ClinicalCase {
+export function mapCaseWithDiagnostics(row: Row, phases: Row[]): { case: ClinicalCase; diagnostics: CaseAttachmentDiagnostic[] } {
   const mappedPhases = phases.map(mapPhase).sort((a, b) => a.order - b.order);
-  const rawAttachments = Array.isArray(row.attachments)
+  const rawAttachments = row.attachments !== undefined && row.attachments !== null
     ? row.attachments
-    : Array.isArray(row.patient_context?.attachments)
-      ? row.patient_context.attachments
-      : [];
-  const attachments = rawAttachments.flatMap((value: unknown) => {
-    const parsed = caseAttachmentInputSchema.safeParse(value);
-    return parsed.success ? [{ ...parsed.data, id: parsed.data.id ?? crypto.randomUUID() }] : [];
-  });
+    : row.patient_context?.attachments;
+  const attachmentInspection = inspectStoredAttachments(String(row.id), rawAttachments, mappedPhases.map((phase) => phase.order));
+  reportAttachmentDiagnostics(attachmentInspection.diagnostics);
   const teachingMaterialPackageId = mapTeachingMaterialPackageId(row);
   const patientContext = row.patient_context && typeof row.patient_context === "object" && !Array.isArray(row.patient_context)
     ? row.patient_context as Record<string, unknown>
@@ -122,12 +125,15 @@ export function mapCase(row: Row, phases: Row[]): ClinicalCase {
   const correctionProbes = patientContext.correctionProbes === 1 || patientContext.correctionProbes === 2
     ? patientContext.correctionProbes
     : undefined;
-  return {
+  const difficulty = row.difficulty === "foundation" || row.difficulty === "advanced" || row.difficulty === "intermediate"
+    ? row.difficulty
+    : "intermediate";
+  const caseValue: ClinicalCase = {
     id: row.id,
     title: row.title,
     description: row.presenting_complaint ?? "Clinical reasoning case",
-    difficulty: "intermediate",
-    status: row.status === "active" ? "available" : row.status === "archived" ? "archived" : "draft",
+    difficulty,
+    status: row.status === "active" ? "available" : row.status === "archived" ? "archived" : row.status === "superseded" ? "superseded" : "draft",
     learningObjectives: Array.isArray(row.tags) && row.tags.length
       ? row.tags.filter((item: unknown): item is string => typeof item === "string" && Boolean(item.trim()))
       : mappedPhases.map((phase) => phase.goal),
@@ -135,12 +141,17 @@ export function mapCase(row: Row, phases: Row[]): ClinicalCase {
     sourceCaseId: row.source_case_id ?? null,
     version: row.version ?? 1,
     publishedAt: row.published_at ?? null,
-    attachments,
+    attachments: attachmentInspection.valid,
     findings,
     ...(correctionProbes ? { correctionProbes } : {}),
     isTestFixture: row.is_test_fixture === true,
     ...(teachingMaterialPackageId ? { teachingMaterialPackageId } : {}),
   };
+  return { case: caseValue, diagnostics: attachmentInspection.diagnostics };
+}
+
+export function mapCase(row: Row, phases: Row[]): ClinicalCase {
+  return mapCaseWithDiagnostics(row, phases).case;
 }
 
 function mapUser(row: Row): DemoUser {
@@ -239,9 +250,7 @@ export function mapEvaluation(row: Row): Evaluation {
     targetCriterionId: typeof criteria.targetCriterionId === "string" && criteria.targetCriterionId.length > 0
       ? criteria.targetCriterionId
       : undefined,
-    criteriaMet: Array.isArray(criteria.criteriaMet)
-      ? criteria.criteriaMet.filter((item: unknown): item is string => typeof item === "string" && item.length > 0)
-      : undefined,
+    criteriaMet: readCriteriaMet(criteria),
     supportLevel: criteria.supportLevel === 0 || criteria.supportLevel === 1 || criteria.supportLevel === 2
       ? criteria.supportLevel
       : undefined,
@@ -301,9 +310,16 @@ export class SupabaseTutorRepository implements TutorRepository {
   }
 
   async getCase(caseId: string) {
+    const result = await this.readCaseWithDiagnostics(caseId);
+    return result?.case ?? null;
+  }
+
+  private async readCaseWithDiagnostics(caseId: string): Promise<{ row: Row; case: ClinicalCase; diagnostics: CaseAttachmentDiagnostic[] } | null> {
     const { data, error } = await this.client.from("cases").select("*").eq("id", caseId).maybeSingle();
     if (error) throw new Error(`Get case: ${error.message}`);
-    return data ? mapCase(data, await this.getPhaseRows(caseId)) : null;
+    if (!data) return null;
+    const mapped = mapCaseWithDiagnostics(data, await this.getPhaseRows(caseId));
+    return { row: data, ...mapped };
   }
 
   async createSession(studentId: string, caseId: string, assignmentId?: string) {
@@ -347,7 +363,8 @@ export class SupabaseTutorRepository implements TutorRepository {
       : await this.getCase(caseId);
     if (!clinicalCase) throw new Error("Case not found.");
     if (clinicalCase.status === "archived") throw new ArchivedCaseError();
-    if (clinicalCase.status !== "available") throw new Error("This case is not currently available.");
+    if (clinicalCase.status === "superseded" && !assignmentId) throw new SupersededCaseError();
+    if (clinicalCase.status !== "available" && !(clinicalCase.status === "superseded" && assignmentId)) throw new Error("This case is not currently available.");
     if (assignmentId) {
       const { data: existing, error: existingError } = await this.client
         .from("sessions")
@@ -379,7 +396,14 @@ export class SupabaseTutorRepository implements TutorRepository {
       .insert({ case_id: caseId, student_id: studentId, class_case_assignment_id: assignmentId, current_phase_id: firstPhase.id, context: { reviewStatus: "pending" } })
       .select("id")
       .single();
-    const session = must(sessionData, sessionError, "Create session");
+    if (sessionError || !sessionData) {
+      // The database trigger closes the status-check/insert race. Preserve the
+      // public 410 contract when it wins after the repository's preflight.
+      if (/archived case/i.test(sessionError?.message ?? "")) throw new ArchivedCaseError();
+      if (/superseded case/i.test(sessionError?.message ?? "")) throw new SupersededCaseError();
+      throw new Error(`Create session: ${sessionError?.message ?? "no data"}`);
+    }
+    const session = sessionData;
     state.sessionId = session.id;
     const { error: stateError } = await this.client.from("session_state").insert({
       session_id: session.id, current_phase_id: firstPhase.id, state,
@@ -618,6 +642,7 @@ export class SupabaseTutorRepository implements TutorRepository {
     for (const review of input.reviews) {
       if (!evaluationMap.has(review.evaluationId)) throw new Error("Review references an answer outside this session.");
     }
+    const gradedReviews = input.reviews.filter((review) => !evaluationMap.get(review.evaluationId)?.isReflection);
     for (const review of input.tutorReviews ?? []) {
       const evaluation = evaluationMap.get(review.evaluationId);
       if (!evaluation || !tutorMessageIds.has(review.tutorMessageId)) {
@@ -634,7 +659,7 @@ export class SupabaseTutorRepository implements TutorRepository {
       if (claimError) throw new Error(`Claim review: ${claimError.message}`);
       if (!claimed?.length) throw new Error("Review already claimed by another professor.");
     }
-    for (const review of input.reviews) {
+    for (const review of gradedReviews) {
       const evaluation = evaluationMap.get(review.evaluationId)!;
       const { error } = await this.client.from("answer_reviews").upsert({
         message_id: evaluation.messageId,
@@ -663,8 +688,8 @@ export class SupabaseTutorRepository implements TutorRepository {
       }, { onConflict: "evaluation_id" });
       if (error) throw new Error(`Save tutor turn review: ${error.message}`);
     }
-    const finalScore = input.reviews.length
-      ? Math.round(input.reviews.reduce((sum, item) => sum + CLASSIFICATION_SCORES[item.label], 0) / input.reviews.length)
+    const finalScore = gradedReviews.length
+      ? Math.round(gradedReviews.reduce((sum, item) => sum + CLASSIFICATION_SCORES[item.label], 0) / gradedReviews.length)
       : null;
     const { error: sessionReviewError } = await this.client.from("session_reviews").upsert({
       session_id: input.sessionId,
@@ -738,28 +763,43 @@ export class SupabaseTutorRepository implements TutorRepository {
     return (await this.listClasses()).find((item) => item.id === classId)!;
   }
 
-  async listCaseVersions() {
+  async listCaseVersionsWithDiagnostics() {
     const { data, error } = await this.client.from("cases").select("*").order("created_at");
-    return Promise.all(must(data, error, "List case versions").map(async (row) => mapCase(row, await this.getPhaseRows(row.id))));
+    const rows = must(data, error, "List case versions");
+    if (!rows.length) return { cases: [], diagnostics: [] as CaseAttachmentDiagnostic[] };
+    const { data: phaseRows, error: phaseError } = await this.client
+      .from("case_phases")
+      .select("*")
+      .in("case_id", rows.map((row) => row.id))
+      .order("phase_order");
+    const phases = must(phaseRows, phaseError, "List case version phases");
+    const phasesByCase = new Map<string, Row[]>();
+    for (const phase of phases) phasesByCase.set(phase.case_id, [...(phasesByCase.get(phase.case_id) ?? []), phase]);
+    const mapped = rows.map((row) => mapCaseWithDiagnostics(row, phasesByCase.get(row.id) ?? []));
+    return {
+      cases: mapped.map((item) => item.case),
+      diagnostics: mapped.flatMap((item) => item.diagnostics),
+    };
+  }
+
+  async listCaseVersions() {
+    return (await this.listCaseVersionsWithDiagnostics()).cases;
   }
 
   async saveCase(input: ClinicalCase, adminId: string) {
-    const existing = input.id ? await this.getCase(input.id) : null;
+    const existingRecord = input.id ? await this.readCaseWithDiagnostics(input.id) : null;
+    if (input.id && !existingRecord) throw new Error("Case not found.");
+    if (existingRecord?.diagnostics.length) {
+      throw new Error("Cannot save a case while it contains invalid stored attachments.");
+    }
+    const existing = existingRecord?.case ?? null;
     if (existing && existing.status !== "draft") throw new Error("Published cases are immutable. Clone a new version.");
     const caseId = input.id || crypto.randomUUID();
     const version = input.version ?? 1;
-    const attachments = input.attachments ?? [];
+    const attachments = normalizeWritableAttachments(caseId, input.attachments ?? existing?.attachments ?? []);
     let existingPatientContext: Record<string, unknown> = {};
-    if (input.id) {
-      const { data: existingRow, error: existingRowError } = await this.client
-        .from("cases")
-        .select("patient_context")
-        .eq("id", input.id)
-        .maybeSingle();
-      if (existingRowError) throw new Error(`Read case patient context: ${existingRowError.message}`);
-      if (existingRow?.patient_context && typeof existingRow.patient_context === "object") {
-        existingPatientContext = existingRow.patient_context;
-      }
+    if (existingRecord?.row.patient_context && typeof existingRecord.row.patient_context === "object") {
+      existingPatientContext = existingRecord.row.patient_context;
     }
     const teachingMaterialPackageId = input.teachingMaterialPackageId?.trim().toLowerCase();
     if (teachingMaterialPackageId && !HOSTED_PACKAGE_ID.test(teachingMaterialPackageId)) {
@@ -772,24 +812,8 @@ export class SupabaseTutorRepository implements TutorRepository {
       ...(input.correctionProbes === undefined ? {} : { correctionProbes: input.correctionProbes }),
       ...(teachingMaterialPackageId ? { teachingMaterialPackageId } : {}),
     };
-    const payload = { title: input.title, slug: buildCaseVersionSlug(input.title, version, caseId), specialty: "dentistry", presenting_complaint: input.description, status: "draft", created_by: adminId, source_case_id: input.sourceCaseId ?? null, version, published_at: null, patient_context: patientContext, attachments, tags: input.learningObjectives };
-    const operation = input.id ? this.client.from("cases").update(payload).eq("id", input.id).select("id").single() : this.client.from("cases").insert({ id: caseId, ...payload }).select("id").single();
-    let { data, error } = await operation;
-    // Keep draft authoring available during the backwards-compatible rollout
-    // window before the dedicated attachments column is migrated. The same
-    // validated data is mirrored in the existing patient_context JSONB field.
-    if (error && /attachments.*column|column.*attachments|schema cache/i.test(error.message)) {
-      const legacyPayload: Record<string, unknown> = { ...payload };
-      delete legacyPayload.attachments;
-      const fallback = input.id
-        ? this.client.from("cases").update(legacyPayload).eq("id", input.id).select("id").single()
-        : this.client.from("cases").insert({ id: caseId, ...legacyPayload }).select("id").single();
-      ({ data, error } = await fallback);
-    }
-    const savedCaseId = must(data, error, "Save case").id;
-    if (input.id) await this.client.from("case_phases").delete().eq("case_id", savedCaseId);
-    const { error: phaseError } = await this.client.from("case_phases").insert(input.phases.map((phase, index) => ({
-      case_id: savedCaseId,
+    const phaseRows = input.phases.map((phase, index) => ({
+      id: phase.id || crypto.randomUUID(),
       phase_order: index + 1,
       phase_key: `phase_${index + 1}`,
       title: phase.title,
@@ -804,26 +828,56 @@ export class SupabaseTutorRepository implements TutorRepository {
         ...(phase.noProgressLimit === undefined ? {} : { noProgressLimit: phase.noProgressLimit }),
         ...(phase.phaseCeiling === undefined ? {} : { phaseCeiling: phase.phaseCeiling }),
       },
-    })));
-    if (phaseError) throw new Error(`Save case phases: ${phaseError.message}`);
-    return (await this.listCaseVersions()).find((item) => item.id === savedCaseId)!;
+    }));
+    const { data, error } = await this.client.rpc("save_case_draft", {
+      p_case_id: caseId,
+      p_title: input.title,
+      p_slug: buildCaseVersionSlug(input.title, version, caseId),
+      p_specialty: "dentistry",
+      p_presenting_complaint: input.description,
+      p_created_by: adminId,
+      p_source_case_id: input.sourceCaseId ?? null,
+      p_version: version,
+      p_patient_context: patientContext,
+      p_attachments: attachments,
+      p_tags: input.learningObjectives,
+      p_difficulty: input.difficulty,
+      p_phases: phaseRows,
+    });
+    const savedRow = (Array.isArray(data) ? data[0] : data) as Row | null;
+    const savedCaseId = must(savedRow, error, "Save case").id;
+    return (await this.getCase(savedCaseId))!;
   }
 
-  async publishCase(caseId: string) {
-    const { error } = await this.client.from("cases").update({ status: "active", published_at: new Date().toISOString() }).eq("id", caseId);
+  async publishCase(caseId: string, moveOpenAssignments = true) {
+    const current = await this.readCaseWithDiagnostics(caseId);
+    if (!current) throw new Error("Case not found.");
+    if (current.diagnostics.length) throw new Error("Cannot publish a case while it contains invalid stored attachments.");
+    if (!current.case.phases.length) throw new Error("Case must contain at least one phase before publication.");
+    assertCaseStatusTransition("publish", current.row.status);
+    const { error } = await this.client.rpc("publish_case", {
+      p_case_id: caseId,
+      p_published_at: new Date().toISOString(),
+      p_move_open_assignments: moveOpenAssignments,
+    });
     if (error) throw new Error(`Publish case: ${error.message}`);
     return (await this.getCase(caseId))!;
   }
 
   async archiveCase(caseId: string) {
+    const current = await this.readCaseWithDiagnostics(caseId);
+    if (!current) throw new Error("Case not found.");
+    assertCaseStatusTransition("archive", current.row.status);
     const { error } = await this.client.rpc("archive_case", { p_case_id: caseId });
     if (error) throw new Error(`Archive case: ${error.message}`);
     return (await this.getCase(caseId))!;
   }
 
   async cloneCase(caseId: string, adminId: string) {
-    const source = await this.getCase(caseId);
-    if (!source) throw new Error("Case not found.");
+    const sourceRecord = await this.readCaseWithDiagnostics(caseId);
+    if (!sourceRecord) throw new Error("Case not found.");
+    if (sourceRecord.diagnostics.length) throw new Error("Cannot clone a case while it contains invalid stored attachments.");
+    const source = sourceRecord.case;
     const version = getNextCaseVersion(await this.listCaseVersions(), source);
     return this.saveCase({ ...source, id: "", title: getVersionedCaseTitle(source.title, version), status: "draft", sourceCaseId: getCaseLineageId(source), version, publishedAt: null, phases: source.phases.map((phase) => ({ ...phase, id: "" })) }, adminId);
   }
@@ -835,11 +889,38 @@ export class SupabaseTutorRepository implements TutorRepository {
   }
 
   async saveAssignment(input: Omit<CaseAssignment, "id" | "createdAt" | "assignedBy"> & { id?: string }, professorId: string) {
-    if (!(await this.listClasses(professorId)).some((item) => item.id === input.classId)) throw new Error("Professor is outside this class.");
-    const clinicalCase = await this.getCase(input.caseId);
-    if (!clinicalCase || clinicalCase.status !== "available") throw new Error("Only published cases can be assigned.");
     if (input.idempotencyKey !== undefined && input.idempotencyKey !== null && !input.idempotencyKey.trim()) {
       throw new Error("Assignment idempotency key cannot be blank.");
+    }
+    const idempotencyKey = input.idempotencyKey?.trim() || null;
+    let current: Row | null = null;
+    if (input.id || idempotencyKey) {
+      const lookup = this.client.from("class_case_assignments").select("*");
+      const { data, error } = await (input.id
+        ? lookup.eq("id", input.id).maybeSingle()
+        : lookup.eq("idempotency_key", idempotencyKey).maybeSingle());
+      if (error) throw new Error(`Get case assignment: ${error.message}`);
+      current = data;
+      if (input.id && !current) throw new Error("Assignment not found.");
+    }
+    const professorClasses = (await this.listClasses(professorId)).filter((item) =>
+      item.members.some((member) => member.userId === professorId && member.role === "professor"),
+    );
+    if (!professorClasses.some((item) => item.id === input.classId)) throw new Error("Professor is outside this class.");
+    if (current && !professorClasses.some((item) => item.id === current!.class_id)) {
+      throw new Error("Professor is outside this class.");
+    }
+    const clinicalCase = await this.getCase(input.caseId);
+    if (!clinicalCase) throw new Error("Case not found.");
+    const caseOrClassChanged = current
+      ? current.case_id !== input.caseId || current.class_id !== input.classId
+      : true;
+    if (caseOrClassChanged) {
+      if (clinicalCase.status !== "available") throw new Error("Case assignment conflict: only active cases can be assigned.");
+    } else if (clinicalCase.status === "archived") {
+      if (input.status === "open") throw new Error("Archived case assignments cannot be reopened.");
+    } else if (clinicalCase.status !== "available" && clinicalCase.status !== "superseded") {
+      throw new Error("Case assignment conflict: only active cases can be assigned.");
     }
     const payload = {
       class_id: input.classId,
@@ -848,14 +929,17 @@ export class SupabaseTutorRepository implements TutorRepository {
       status: input.status,
       opens_at: input.opensAt,
       due_at: input.dueAt,
-      ...(input.idempotencyKey === undefined ? {} : { idempotency_key: input.idempotencyKey?.trim() || null }),
+      ...(input.idempotencyKey === undefined ? {} : { idempotency_key: idempotencyKey }),
     };
     const operation = input.id
       ? this.client.from("class_case_assignments").update(payload).eq("id", input.id).select("id").single()
-      : input.idempotencyKey
+      : idempotencyKey
       ? this.client.from("class_case_assignments").upsert(payload, { onConflict: "idempotency_key" }).select("id").single()
       : this.client.from("class_case_assignments").insert(payload).select("id").single();
     const { data, error } = await operation;
+    if (error && /assignments may target only active cases/i.test(error.message)) {
+      throw new Error("Case assignment conflict: only active cases can be assigned.");
+    }
     const id = must(data, error, "Save assignment").id;
     return (await this.listAssignments(professorId)).find((item) => item.id === id)!;
   }
@@ -891,20 +975,11 @@ export class SupabaseTutorRepository implements TutorRepository {
     if (!assignments.length) return [];
 
     const assignmentIds = assignments.map((item) => item.id);
-    const caseIds = [...new Set(assignments.map((item) => item.caseId))];
-    const [
-      { data: sessionRows, error: sessionError },
-      { data: caseRows, error: caseError },
-      { data: phaseRows, error: phaseError },
-    ] = await Promise.all([
-      this.client
-        .from("sessions")
-        .select("id, class_case_assignment_id, status, context")
-        .eq("student_id", studentId)
-        .in("class_case_assignment_id", assignmentIds),
-      this.client.from("cases").select("*").in("id", caseIds),
-      this.client.from("case_phases").select("*").in("case_id", caseIds).order("phase_order"),
-    ]);
+    const { data: sessionRows, error: sessionError } = await this.client
+      .from("sessions")
+      .select("id, case_id, class_case_assignment_id, status, context")
+      .eq("student_id", studentId)
+      .in("class_case_assignment_id", assignmentIds);
     const sessions = must(sessionRows, sessionError, "List student sessions");
     const sessionByAssignment = new Map<string, Row>();
     for (const session of sessions) {
@@ -912,6 +987,17 @@ export class SupabaseTutorRepository implements TutorRepository {
         sessionByAssignment.set(session.class_case_assignment_id, session);
       }
     }
+    const caseIds = [...new Set([
+      ...assignments.map((item) => item.caseId),
+      ...sessions.map((session) => session.case_id).filter((id): id is string => typeof id === "string"),
+    ])];
+    const [
+      { data: caseRows, error: caseError },
+      { data: phaseRows, error: phaseError },
+    ] = await Promise.all([
+      this.client.from("cases").select("*").in("id", caseIds),
+      this.client.from("case_phases").select("*").in("case_id", caseIds).order("phase_order"),
+    ]);
     const cases = must(caseRows, caseError, "List student cases");
     const phases = must(phaseRows, phaseError, "List student case phases");
     const phasesByCase = new Map<string, Row[]>();
@@ -925,16 +1011,18 @@ export class SupabaseTutorRepository implements TutorRepository {
     const now = new Date().toISOString();
     const offerings: StudentCaseOffering[] = [];
     for (const assignment of assignments) {
-      const caseRow = caseById.get(assignment.caseId);
-      const teachingClass = classById.get(assignment.classId);
-      // Archived cases and explicit test fixtures are never startable or
-      // visible to a student, even if an old assignment/session remains.
-      if (!caseRow || caseRow.status !== "active" || caseRow.is_test_fixture === true || !teachingClass) continue;
       const existing = sessionByAssignment.get(assignment.id);
+      const offeringCaseId = existing?.case_id ?? assignment.caseId;
+      const caseRow = caseById.get(offeringCaseId);
+      const teachingClass = classById.get(assignment.classId);
+      // A superseded case can remain an explicit open assignment when the
+      // publisher chose not to move it. Existing sessions always use their
+      // own case_id, even after an assignment is moved to a newer version.
+      if (!caseRow || (caseRow.status !== "active" && caseRow.status !== "superseded" && !existing) || caseRow.is_test_fixture === true || !teachingClass) continue;
       const offering: StudentCaseOffering = {
         assignment,
         teachingClass,
-        case: mapCase(caseRow, phasesByCase.get(assignment.caseId) ?? []),
+        case: mapCase(caseRow, phasesByCase.get(offeringCaseId) ?? []),
         existingSessionId: existing?.id ?? null,
         existingSessionStatus: existing?.status ?? null,
         existingSessionPausedAt: existing?.context?.pausedAt ?? null,

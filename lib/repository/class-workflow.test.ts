@@ -123,7 +123,6 @@ describe("InMemoryTutorRepository class workflows", () => {
     ]);
     const assignment = await repository.saveAssignment(
       {
-        id: "77777777-7777-4777-8777-777777777777",
         classId: privateClass.id,
         caseId: IMPACTED_CANINE_CASE_ID,
         status: "open",

@@ -15,10 +15,9 @@
  *     --apply --confirm-project <project-ref> --class-id <uuid> \
  *     --professor-id <uuid> --admin-id <uuid> --materials-dir work/teaching-materials
  *
- * Add --private-media only after the runtime that understands the private
- * storagePath pointer and signing route has been deployed. It is intentionally
- * opt-in during rollout; without it, legacy publications retain their public
- * teaching-case-media URL shape. Add --publish only after the runtime is
+ * New publications always default to private media and storagePath pointers.
+ * --private-media remains an accepted compatibility flag. Add --publish after
+ * the runtime that understands private signing has been
  * deployed. Without it, this command stages media and cases as drafts and
  * creates no assignments.
  */
@@ -31,6 +30,11 @@ import process from "node:process";
 import { URL, fileURLToPath } from "node:url";
 
 import { createClient } from "@supabase/supabase-js";
+import {
+  CASE_DESCRIPTION_MAX_LENGTH,
+  CASE_TITLE_MAX_LENGTH,
+  MEDIA_URL_MAX_LENGTH,
+} from "../lib/case-limits.mjs";
 
 export const PRIVATE_BUCKET = "teaching-material-references";
 export const PRIVATE_MEDIA_BUCKET = "teaching-case-media-private";
@@ -203,8 +207,8 @@ function validateCaseEntry(entry, caseIndex) {
   if (!isObject(entry) || !isObject(entry.case)) fail(`Invalid case ${caseIndex + 1}.`);
   const candidate = entry.case;
   if (!isUuid(candidate.id)) fail(`Invalid case id at index ${caseIndex + 1}.`);
-  nonBlank(candidate.title, "case title", 160);
-  nonBlank(candidate.description, "case description", 1_500);
+  nonBlank(candidate.title, "case title", CASE_TITLE_MAX_LENGTH);
+  nonBlank(candidate.description, "case description", CASE_DESCRIPTION_MAX_LENGTH);
   if (!["foundation", "intermediate", "advanced"].includes(candidate.difficulty)) fail(`Invalid difficulty for case ${candidate.id}.`);
   const objectives = requireArray(candidate.learningObjectives, "case learning objectives", 32);
   if (objectives.length === 0) fail(`Case ${candidate.id} needs learning objectives.`);
@@ -227,9 +231,9 @@ function validateCaseEntry(entry, caseIndex) {
     }
     if (attachmentIds.has(attachment.id.toLowerCase())) fail(`Case ${candidate.id} contains duplicate media attachments.`);
     attachmentIds.add(attachment.id.toLowerCase());
-    nonBlank(attachment.title, "attachment title", 500);
-    nonBlank(attachment.description, "attachment description", 2_000);
-    if (attachment.url !== undefined) nonBlank(attachment.url, "attachment URL", 2_000);
+    nonBlank(attachment.title, "attachment title", CASE_TITLE_MAX_LENGTH);
+    nonBlank(attachment.description, "attachment description", CASE_DESCRIPTION_MAX_LENGTH);
+    if (attachment.url !== undefined) nonBlank(attachment.url, "attachment URL", MEDIA_URL_MAX_LENGTH);
     if (attachment.unlockPhase !== undefined && (!Number.isInteger(attachment.unlockPhase) || attachment.unlockPhase < 1 || attachment.unlockPhase > normalizedPhases.length)) {
       fail(`Invalid unlock phase for attachment ${attachment.id} in case ${candidate.id}.`);
     }
@@ -267,9 +271,17 @@ function validateCaseEntry(entry, caseIndex) {
   }
   nonBlank(entry.expertNotes, "case expert notes");
   nonBlank(entry.sourceDocument, "case source document", 500);
+  const sourceCaseId = candidate.sourceCaseId ?? null;
+  const version = candidate.version ?? 1;
+  if (!Number.isSafeInteger(version) || version < 1 || (sourceCaseId === null && version !== 1)
+    || (sourceCaseId !== null && (!isUuid(sourceCaseId) || sourceCaseId.toLowerCase() === candidate.id.toLowerCase() || version < 2))) {
+    fail(`Case ${candidate.id} has invalid version lineage. A replacement needs a new id, a sourceCaseId and version >= 2.`);
+  }
   return {
     ...candidate,
     id: candidate.id.toLowerCase(),
+    ...(candidate.sourceCaseId === undefined ? {} : { sourceCaseId: sourceCaseId?.toLowerCase() ?? null }),
+    ...(candidate.version === undefined ? {} : { version }),
     phases: normalizedPhases,
     attachments: attachments.map((item) => ({ ...item, id: item.id.toLowerCase() })),
     findings,
@@ -346,9 +358,13 @@ export function validateManifest(raw, materialsDir) {
     };
   });
   const caseIds = new Set();
+  const lineageIds = new Set();
   for (const entry of cases) {
     if (caseIds.has(entry.case.id)) fail(`Duplicate case ${entry.case.id}.`);
     caseIds.add(entry.case.id);
+    const lineageId = entry.case.sourceCaseId ?? entry.case.id;
+    if (lineageIds.has(lineageId)) fail("A materials package can publish only one case per version lineage.");
+    lineageIds.add(lineageId);
   }
   const articleIds = new Set();
   const validatedArticles = articles.map((article, index) => {
@@ -418,7 +434,7 @@ function publicMediaUrl(supabaseUrl, objectPath) {
   return `${prefix}/storage/v1/object/public/${PUBLIC_BUCKET}/${objectPath.split("/").map(encodeURIComponent).join("/")}`;
 }
 
-function buildCaseRow(candidate, packageId, adminId, supabaseUrl, privateMedia = false) {
+function buildCaseRow(candidate, packageId, adminId, supabaseUrl, privateMedia = true) {
   const attachments = (candidate.attachments ?? []).map((attachment) => ({
     id: attachment.id,
     kind: "image",
@@ -449,6 +465,7 @@ function buildCaseRow(candidate, packageId, adminId, supabaseUrl, privateMedia =
     id: candidate.id,
     slug: `teaching-${packageId.slice(0, 16)}-${candidate.id}`,
     title: candidate.title,
+    difficulty: candidate.difficulty,
     specialty: "dentistry",
     diagnosis: null,
     presenting_complaint: candidate.description,
@@ -460,8 +477,8 @@ function buildCaseRow(candidate, packageId, adminId, supabaseUrl, privateMedia =
     },
     tags: candidate.learningObjectives,
     created_by: adminId,
-    source_case_id: null,
-    version: 1,
+    source_case_id: candidate.sourceCaseId ?? null,
+    version: candidate.version ?? 1,
     published_at: null,
     attachments,
   };
@@ -488,7 +505,7 @@ function buildPhaseRows(candidate) {
   }));
 }
 
-export function buildPublicationPlan({ manifest, supabaseUrl, classId, professorId, adminId, publish = false, privateMedia = false }) {
+export function buildPublicationPlan({ manifest, supabaseUrl, classId, professorId, adminId, publish = false, privateMedia = true, moveOpenAssignments = true }) {
   if (!manifest?.packageId || !supabaseUrl) fail("Manifest and Supabase URL are required.");
   const cases = manifest.cases.map((entry) => ({
     case: buildCaseRow(entry.case, manifest.packageId, adminId, supabaseUrl, privateMedia),
@@ -511,6 +528,7 @@ export function buildPublicationPlan({ manifest, supabaseUrl, classId, professor
     mediaIds: manifest.media.map((item) => item.id),
     articleCount: manifest.articles.length,
     privateMedia,
+    moveOpenAssignments,
     mediaBucket: privateMedia ? PRIVATE_MEDIA_BUCKET : PUBLIC_BUCKET,
     cases,
     assignments,
@@ -544,7 +562,7 @@ export function buildPrivateManifestPayload(manifest) {
 }
 
 function parseArgs(argv) {
-  const result = { apply: false, publish: false, private_media: false, help: false };
+  const result = { apply: false, publish: false, private_media: true, keep_open_assignments: false, help: false };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--help" || argument === "-h") {
@@ -555,6 +573,8 @@ function parseArgs(argv) {
       result.publish = true;
     } else if (argument === "--private-media") {
       result.private_media = true;
+    } else if (argument === "--keep-open-assignments") {
+      result.keep_open_assignments = true;
     } else if (VALUE_FLAGS.has(argument)) {
       const value = argv[index + 1];
       if (!value || value.startsWith("--")) fail(`${argument} requires a value.`);
@@ -585,7 +605,8 @@ function printHelp() {
     `  --admin-id <uuid> --materials-dir <path>\n\n` +
     `Optional:\n` +
     `  --publish       activate cases and create idempotent open assignments\n` +
-    `  --private-media  upload media to the private bucket and persist storagePath\n` +
+    `  --private-media  compatibility flag; private media is now the default\n` +
+    `  --keep-open-assignments  keep existing assignments on their prior version\n` +
     `  --dry-run       validate and print the bounded plan (the default)\n` +
     `  --supabase-url  override SUPABASE_URL (normally use the environment)\n`);
 }
@@ -609,6 +630,7 @@ function summarize(manifest, plan, apply) {
     mode: apply ? "apply" : "dry-run",
     publish: Boolean(plan.assignments.length),
     privateMedia: Boolean(plan.privateMedia),
+    moveOpenAssignments: plan.moveOpenAssignments,
     mediaBucket: plan.mediaBucket,
     packageId: manifest.packageId,
     caseIds: plan.caseIds,
@@ -649,7 +671,7 @@ async function ensureActors(client, options) {
   if (!membership) fail("Target professor is not a member of the target class.");
 }
 
-async function ensureBuckets(client, { privateMedia = false } = {}) {
+async function ensureBuckets(client, { privateMedia = true } = {}) {
   const { data: buckets, error } = await client.storage.listBuckets();
   if (error) throw new Error("List Supabase Storage buckets failed.");
   const required = [
@@ -698,7 +720,10 @@ export async function uploadIfMissing(client, bucket, objectPath, bytes, content
   }
   if (error && !isMissingStorageObjectError(error)) throw new Error(`Check storage object ${bucket}/${objectPath} failed.`);
   if (!data && !error) throw new Error(`Read existing storage object ${bucket}/${objectPath} failed.`);
-  const { error: uploadError } = await bucketClient.upload(objectPath, bytes, { contentType, cacheControl: "31536000", upsert: false });
+  // A private signed response must not inherit the year-long public-media
+  // cache lifetime: CDN cache entries can outlive the signing token itself.
+  const cacheControl = bucket === PRIVATE_MEDIA_BUCKET ? "0" : "31536000";
+  const { error: uploadError } = await bucketClient.upload(objectPath, bytes, { contentType, cacheControl, upsert: false });
   if (uploadError && !isConflict(uploadError)) throw new Error(`Upload storage object ${bucket}/${objectPath} failed.`);
   if (uploadError) {
     const { data, error } = await bucketClient.download(objectPath);
@@ -723,6 +748,7 @@ function canonicalCase(row) {
     created_by: row.created_by,
     source_case_id: row.source_case_id ?? null,
     version: row.version ?? 1,
+    difficulty: row.difficulty ?? "intermediate",
     attachments: row.attachments ?? [],
   };
 }
@@ -842,15 +868,28 @@ async function ensureAssignmentsReady(client, plan, classId, professorId) {
   return byKey;
 }
 
-async function activateCases(client, plan) {
+export async function activateCases(client, plan) {
   const publishedAt = new Date().toISOString();
   for (const item of plan.cases) {
     const current = await readOne(client, "cases", item.case.id);
     if (!current) fail(`Case ${item.case.id} disappeared before activation.`);
     assertCaseMatches(current, item.case);
     if (current.status === "draft") {
-      const { error } = await client.from("cases").update({ status: "active", published_at: publishedAt }).eq("id", item.case.id).eq("status", "draft");
+      // The RPC owns lineage locking, superseding and assignment migration.
+      // Never fall back to a direct update when the migration is unavailable.
+      const { data, error } = await client.rpc("publish_case", {
+        p_case_id: item.case.id,
+        p_published_at: publishedAt,
+        p_move_open_assignments: plan.moveOpenAssignments,
+      });
       if (error) throw new Error(`Activate case ${item.case.id} failed.`);
+      if (!data) {
+        const reread = await readOne(client, "cases", item.case.id);
+        if (!reread) fail(`Case ${item.case.id} disappeared before activation.`);
+        if (reread.status === "active") fail(`Case ${item.case.id} is already published.`);
+        if (reread.status === "archived") fail(`Case ${item.case.id} is archived and cannot be published.`);
+        fail(`Case ${item.case.id} changed before activation.`);
+      }
     } else if (current.status !== "active") {
       fail(`Case ${item.case.id} is not publishable.`);
     }
@@ -861,7 +900,7 @@ async function activateCases(client, plan) {
   for (const row of data ?? []) if (row.status !== "active" || !row.published_at) fail(`Case ${row.id} did not activate.`);
 }
 
-async function createAssignments(client, plan, professorId) {
+export async function createAssignments(client, plan, professorId) {
   const now = new Date().toISOString();
   for (const template of plan.assignments) {
     const expected = { ...template, assigned_by: professorId, opens_at: now };
@@ -870,6 +909,15 @@ async function createAssignments(client, plan, professorId) {
     if (existing) {
       if (existing.class_id !== expected.class_id || existing.case_id !== expected.case_id || existing.assigned_by !== expected.assigned_by || existing.status !== "open") fail(`Existing assignment ${template.idempotency_key} differs; refusing overwrite.`);
       continue;
+    }
+    // Publishing a replacement normally moves the existing assignment row.
+    // Preserve its identity, schedule and sessions instead of creating another
+    // offering just because this package has a new idempotency key.
+    if (plan.moveOpenAssignments && plan.cases.find((item) => item.case.id === template.case_id)?.case.source_case_id) {
+      const moved = await client.from("class_case_assignments").select("id")
+        .eq("class_id", template.class_id).eq("case_id", template.case_id).eq("status", "open").limit(1);
+      if (moved.error) throw new Error("Check migrated assignments failed.");
+      if (moved.data?.length) continue;
     }
     const { error } = await client.from("class_case_assignments").insert(expected);
     if (error && !isConflict(error)) throw new Error(`Create assignment ${template.idempotency_key} failed.`);
@@ -889,6 +937,11 @@ async function applyPlan(manifest, plan, options) {
   if (!projectRef || projectRef !== options.confirm_project) fail("--confirm-project does not match SUPABASE_URL.");
   const client = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
   await ensureActors(client, { classId: options.class_id, professorId: options.professor_id, adminId: options.admin_id });
+  for (const item of plan.cases) {
+    if (!item.case.source_case_id) continue;
+    const source = await readOne(client, "cases", item.case.source_case_id);
+    if (!source || source.source_case_id) fail(`Case ${item.case.id} must reference an existing lineage root.`);
+  }
   await ensureBuckets(client, { privateMedia: plan.privateMedia });
 
   // `rootDir` and `absoluteFile` are local implementation details and must
@@ -933,6 +986,7 @@ export async function run(argv = process.argv.slice(2)) {
     adminId: options.admin_id || "00000000-0000-4000-8000-000000000000",
     publish: options.publish,
     privateMedia: options.private_media,
+    moveOpenAssignments: !options.keep_open_assignments,
   });
   process.stdout.write(`${JSON.stringify(summarize(manifest, plan, options.apply), null, 2)}\n`);
   if (!options.apply) return { manifest, plan, options };

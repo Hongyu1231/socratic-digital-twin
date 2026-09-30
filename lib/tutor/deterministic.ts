@@ -1,4 +1,4 @@
-import type { CasePhase, TutorEvaluateInput, TutorEvaluationResult, TutorStrategy } from "@/lib/domain";
+import { CRITERION_EVIDENCE_MAX_LENGTH, type CasePhase, type CriterionEvidence, type TutorEvaluateInput, type TutorEvaluationResult, type TutorStrategy } from "@/lib/domain";
 import { phaseCriteria, rubricText } from "@/lib/tutor/criteria";
 
 const normalise = (value: string) => value.toLowerCase().replace(/[^a-z0-9\s-]/g, " ");
@@ -17,6 +17,19 @@ function keywordMatches(phase: CasePhase, answer: string) {
   return rubricKeywordGroups(phase).filter((group) =>
     group.some((keyword) => text.includes(keyword)),
   ).length;
+}
+
+function criteriaForAnswer(phase: CasePhase, answer: string, classification: TutorEvaluationResult["classification"]): CriterionEvidence[] {
+  const quote = answer.trim().slice(0, CRITERION_EVIDENCE_MAX_LENGTH);
+  if (!quote) return [];
+
+  const criteria = phaseCriteria(phase);
+  // The deterministic adapter deliberately does not infer clinician-authored
+  // criteria from keywords: a negation or incidental mention is not reliable
+  // evidence. Preserve the historical all-string compatibility path only,
+  // while retaining the real answer quote in the structured representation.
+  if (!phase.rubric.every((item) => typeof item === "string") || classification !== "correct") return [];
+  return criteria.map(({ id }) => ({ id, evidence: quote }));
 }
 
 function strategyFor(classification: TutorEvaluationResult["classification"], attempt: number): TutorStrategy {
@@ -67,8 +80,7 @@ export class DeterministicTutor {
       classification,
       // Keyword matching is not reliable evidence for clinician-authored IDs.
       // Let the support ladder handle explicit-criterion cases when offline.
-      criteriaMet: phase.rubric.every((item) => typeof item === "string") && classification === "correct"
-        ? phaseCriteria(phase).map((item) => item.id) : [],
+      criteriaMet: criteriaForAnswer(phase, answer, classification),
       targetCriterionId: phaseCriteria(phase)[0]?.id ?? null,
       confidence: classification === "correct" || classification === "vague" ? 0.82 : 0.74,
       reasoningGap: gap,

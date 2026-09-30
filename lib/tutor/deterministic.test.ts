@@ -40,4 +40,19 @@ describe("deterministic tutor", () => {
     expect(vague).toMatchObject({ strategy: "clarify", nextQuestion: "Which specific case finding would make your answer clinically meaningful?" });
     expect(wrong).toMatchObject({ strategy: "challenge", nextQuestion: "Which finding in this case most directly conflicts with your current conclusion?" });
   });
+
+  it("does not infer explicit criteria from keyword mentions or negations", async () => {
+    const explicitPhase = {
+      ...phase,
+      rubric: [{ id: "unerupted-canine", text: "Identifies the unerupted canine." }],
+    };
+    const result = await tutor.evaluate({
+      phase: explicitPhase,
+      answer: "There is no unerupted canine; that finding is not present in this record.",
+      state,
+      attempt: 1,
+    });
+
+    expect(result.criteriaMet).toEqual([]);
+  });
 });

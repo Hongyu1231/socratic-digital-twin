@@ -30,7 +30,9 @@ describe("student cases API", () => {
   it("returns one identity-scoped catalogue copy with private no-store caching", async () => {
     const offerings = [{
       assignment: { id: "assignment-1" },
+      teachingClass: { name: "Demo class", term: "Term", members: [{ email: "PRIVATE_EMAIL" }] },
       case: { id: "case-1", title: "Teaching case" },
+      serverOnly: "PRIVATE_INTERNAL",
     }];
     mocks.listStudentOfferings.mockResolvedValueOnce(offerings);
 
@@ -39,9 +41,12 @@ describe("student cases API", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
-    expect(body).toEqual({ offerings: offerings.map((offering) => ({
-      ...offering, case: { ...offering.case, attachments: [], findings: [] },
-    })) });
+    expect(body).toEqual({ offerings: [{
+      assignment: { id: "assignment-1" },
+      teachingClass: { name: "Demo class", term: "Term" },
+      case: { id: "case-1", title: "Teaching case", attachments: [], findings: [] },
+    }] });
+    expect(JSON.stringify(body)).not.toContain("PRIVATE_");
     expect(body).not.toHaveProperty("cases");
     expect(body).not.toHaveProperty("storage");
     expect(mocks.listStudentOfferings).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111");

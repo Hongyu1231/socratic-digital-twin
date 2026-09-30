@@ -101,17 +101,20 @@ describe("phase criteria normalization", () => {
 });
 
 describe("phase progression", () => {
-  it("does not let a wrong answer earn criteria", () => {
+  it("keeps criterion evidence independent from the quality classification", () => {
     const result = progressPhase(
       phase(),
       undefined,
-      evaluation({ classification: "wrong", criteriaMet: ["observation", "evidence"] }),
+      evaluation({ classification: "wrong", criteriaMet: [
+        { id: "observation", evidence: "The answer identifies the visible finding." },
+        { id: "evidence", evidence: "The answer names the supporting record." },
+      ] }),
       1,
       false,
     );
 
-    expect(result.state.criteriaMet).toEqual([]);
-    expect(result.complete).toBe(false);
+    expect(result.state.criteriaMet).toEqual(["observation", "evidence"]);
+    expect(result.complete).toBe(true);
   });
 
   it("requires all criteria across the union of correct answers before advancing", () => {
@@ -134,6 +137,27 @@ describe("phase progression", () => {
     );
     expect(second.state.criteriaMet).toEqual(["observation", "evidence"]);
     expect(second.complete).toBe(true);
+  });
+
+  it("advances on accumulated criteria without a correct-classification gate", () => {
+    const first = progressPhase(
+      phase(),
+      undefined,
+      evaluation({ classification: "partial", criteriaMet: [{ id: "observation", evidence: "The record shows an unerupted canine." }] }),
+      1,
+      false,
+    );
+    expect(first.complete).toBe(false);
+
+    const second = progressPhase(
+      phase(),
+      first.state,
+      evaluation({ classification: "vague", criteriaMet: [{ id: "evidence", evidence: "The supporting record is the panoramic image." }] }),
+      2,
+      false,
+    );
+    expect(second.complete).toBe(true);
+    expect(second.state.criteriaMet).toEqual(["observation", "evidence"]);
   });
 
   it("resets only on genuine progress, so vague/partial oscillation eventually escalates", () => {

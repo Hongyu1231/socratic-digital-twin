@@ -261,6 +261,7 @@ Engineering rules:
 ## 6. Key business invariants
 
 - A case draft has 1–12 complete phases and may persist case-specific media in `patient_context.attachments`.
+- Repository saves surface phase-delete errors and publication rejects cases without phases. The case-row update and phase replacement are still separate statements; until an atomic save RPC exists, concurrent edit/publish has a residual partial-save window and is not claimed fully race-safe.
 - Published cases are immutable; editing requires a cloned draft version.
 - Professors assign only published cases to classes they teach.
 - Each student has at most one session per class assignment.

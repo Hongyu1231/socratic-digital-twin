@@ -16,6 +16,7 @@ import type {
   TutorMessage,
   TutorTurnReview,
 } from "@/lib/domain";
+import type { CaseAttachmentDiagnostic } from "@/lib/repository/case-attachments";
 
 /** Error raised when a student attempts to start a session on an archived case. */
 export class ArchivedCaseError extends Error {
@@ -24,6 +25,16 @@ export class ArchivedCaseError extends Error {
   constructor(message = "This case is archived and cannot be started.") {
     super(message);
     this.name = "ArchivedCaseError";
+  }
+}
+
+/** A superseded version cannot be started directly, but remains readable. */
+export class SupersededCaseError extends Error {
+  readonly code = "SUPERSEDED_CASE" as const;
+
+  constructor(message = "This case version has been superseded and cannot be started directly.") {
+    super(message);
+    this.name = "SupersededCaseError";
   }
 }
 
@@ -94,9 +105,11 @@ export interface TutorRepository {
   listClasses(userId?: string): Promise<TeachingClass[]>;
   saveClass(input: Omit<TeachingClass, "id" | "createdAt" | "members"> & { id?: string }): Promise<TeachingClass>;
   setClassMembers(classId: string, members: ClassMembership[]): Promise<TeachingClass>;
+  /** Admin-only view of persisted case validation problems; never use for student DTOs. */
+  listCaseVersionsWithDiagnostics(): Promise<{ cases: ClinicalCase[]; diagnostics: CaseAttachmentDiagnostic[] }>;
   listCaseVersions(): Promise<ClinicalCase[]>;
   saveCase(input: ClinicalCase, adminId: string): Promise<ClinicalCase>;
-  publishCase(caseId: string): Promise<ClinicalCase>;
+  publishCase(caseId: string, moveOpenAssignments?: boolean): Promise<ClinicalCase>;
   archiveCase(caseId: string): Promise<ClinicalCase>;
   cloneCase(caseId: string, adminId: string): Promise<ClinicalCase>;
   listAssignments(professorId?: string): Promise<CaseAssignment[]>;

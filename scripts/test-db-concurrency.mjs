@@ -25,45 +25,41 @@ function restUrl(pathname, search = {}) {
   return url;
 }
 
-async function request(pathname, options = {}, expectedStatuses = [200, 201, 204]) {
+async function responseBody(response) {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+async function requestResult(pathname, options = {}) {
   const response = await fetch(restUrl(pathname), {
     ...options,
     signal: options.signal ?? AbortSignal.timeout(FETCH_TIMEOUT_MS),
     headers: { ...headers, ...(options.headers ?? {}) },
   });
-  const text = await response.text();
-  let body = null;
-  if (text) {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = text;
-    }
+  return { status: response.status, body: await responseBody(response) };
+}
+
+async function request(pathname, options = {}, expectedStatuses = [200, 201, 204]) {
+  const result = await requestResult(pathname, options);
+  if (!expectedStatuses.includes(result.status)) {
+    const detail = typeof result.body === "string" ? result.body : JSON.stringify(result.body);
+    throw new Error(`${options.method ?? "GET"} ${pathname} returned ${result.status}: ${detail}`);
   }
-  if (!expectedStatuses.includes(response.status)) {
-    const detail = typeof body === "string" ? body : JSON.stringify(body);
-    throw new Error(`${options.method ?? "GET"} ${pathname} returned ${response.status}: ${detail}`);
-  }
-  return { status: response.status, body };
+  return result;
 }
 
 async function rpc(name, args, expectedStatuses = [200]) {
-  const response = await fetch(restUrl(`/rest/v1/rpc/${name}`), {
+  const result = await requestResult(`/rest/v1/rpc/${name}`, {
     method: "POST",
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    headers: { ...headers, Prefer: "return=representation" },
+    headers: { Prefer: "return=representation" },
     body: JSON.stringify(args),
   });
-  const text = await response.text();
-  let body = null;
-  if (text) {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = text;
-    }
-  }
-  return { status: response.status, body, expected: expectedStatuses.includes(response.status) };
+  return { ...result, expected: expectedStatuses.includes(result.status) };
 }
 
 async function cleanupRpc(name, args, expectedStatuses = [200]) {
@@ -84,15 +80,12 @@ async function insert(table, rows) {
 
 async function selectRows(table, filters) {
   const url = restUrl(`/rest/v1/${table}`, { select: "*", ...filters });
-  const response = await fetch(url, {
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    headers: { ...headers, Accept: "application/json" },
+  const result = await requestResult(url.pathname + url.search, {
+    headers: { Accept: "application/json" },
   });
-  const text = await response.text();
-  if (!response.ok) throw new Error(`GET ${table} returned ${response.status}: ${text}`);
-  const body = text ? JSON.parse(text) : [];
-  if (!Array.isArray(body)) throw new Error(`GET ${table} returned a non-array response.`);
-  return body;
+  if (result.status !== 200) throw new Error(`GET ${table} returned ${result.status}: ${JSON.stringify(result.body)}`);
+  if (!Array.isArray(result.body)) throw new Error(`GET ${table} returned a non-array response.`);
+  return result.body;
 }
 
 function requireCondition(condition, message) {
@@ -110,13 +103,19 @@ const professorId = "22222222-2222-4222-8222-222222222222";
 const caseId = randomUUID();
 const initialPhaseId = randomUUID();
 const savedPhaseId = randomUUID();
+const supersedingCaseId = randomUUID();
+const supersedingPhaseId = randomUUID();
 const classId = randomUUID();
 const assignmentId = randomUUID();
+const racedAssignmentId = randomUUID();
 const sessionId = randomUUID();
 const requestId = `ci-concurrent-turn-${randomUUID()}`;
 let caseCreated = false;
+let supersedingCaseCreated = false;
+let supersedingPublishSucceeded = false;
 let classCreated = false;
 let assignmentCreated = false;
+let racedAssignmentCreated = false;
 let sessionCreated = false;
 
 try {
@@ -176,6 +175,9 @@ try {
       metadata: {},
     }],
   };
+  // This is the backwards-compatible two-argument REST payload.  With no
+  // default on the three-argument function, PostgREST resolves this wrapper
+  // deterministically instead of reporting an overloaded-function conflict.
   const publishPayload = { p_case_id: caseId, p_published_at: new Date().toISOString() };
 
   const [saveResult, publishResult] = await Promise.all([
@@ -204,7 +206,37 @@ try {
   );
   const publishedPhases = await selectRows("case_phases", { case_id: `eq.${caseId}` });
   requireCondition(publishedPhases.length === 1, "Concurrent save/publish left an unexpected phase count.");
-  const publishedPhaseId = publishedPhases[0].id;
+
+  await insert("cases", {
+    id: supersedingCaseId,
+    slug: `ci-concurrency-${supersedingCaseId.slice(0, 8)}`,
+    title: "Concurrency Superseding Case",
+    specialty: "dentistry",
+    presenting_complaint: "Synthetic superseding fixture.",
+    status: "draft",
+    published_at: null,
+    patient_context: { source: "isolated-ci-concurrency", superseding: true },
+    tags: ["synthetic", "superseding"],
+    created_by: adminId,
+    source_case_id: caseId,
+    version: 2,
+    difficulty: "advanced",
+    attachments: [],
+    is_test_fixture: true,
+  });
+  supersedingCaseCreated = true;
+  await insert("case_phases", {
+    id: supersedingPhaseId,
+    case_id: supersedingCaseId,
+    phase_order: 1,
+    phase_key: "observe",
+    title: "Observe superseding version",
+    objectives: ["Record the supplied evidence"],
+    questions: ["What changes in this version?"],
+    teaching_notes: null,
+    expected_findings: {},
+    metadata: {},
+  });
 
   await insert("classes", {
     id: classId,
@@ -216,6 +248,9 @@ try {
   });
   classCreated = true;
 
+  // This assignment is present before publication and must be moved to the
+  // target.  The second insert races publication: it either commits first and
+  // is moved as well, or observes the superseded parent and is rejected.
   await insert("class_case_assignments", {
     id: assignmentId,
     class_id: classId,
@@ -228,32 +263,93 @@ try {
   });
   assignmentCreated = true;
 
+  const [supersedingPublishResult, racedAssignmentResult] = await Promise.all([
+    // This is the explicit three-argument REST payload and exercises the
+    // default-free overload together with assignment movement.
+    rpc("publish_case", {
+      p_case_id: supersedingCaseId,
+      p_published_at: new Date().toISOString(),
+      p_move_open_assignments: true,
+    }, [200]),
+    requestResult("/rest/v1/class_case_assignments", {
+      method: "POST",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({
+        id: racedAssignmentId,
+        class_id: classId,
+        case_id: caseId,
+        assigned_by: professorId,
+        status: "open",
+        opens_at: new Date().toISOString(),
+        due_at: null,
+        idempotency_key: `ci-concurrency-${racedAssignmentId}`,
+      }),
+    }),
+  ]);
+
+  requireCondition(supersedingPublishResult.status === 200, `Three-argument publish failed: ${JSON.stringify(supersedingPublishResult.body)}`);
+  requireCondition(firstRow(supersedingPublishResult.body)?.id === supersedingCaseId, "Three-argument publish returned the wrong case.");
+  requireCondition(
+    [201, 204, 400].includes(racedAssignmentResult.status),
+    `Concurrent assignment insert returned an unexpected status: ${JSON.stringify(racedAssignmentResult)}`,
+  );
+  if (racedAssignmentResult.status === 400) {
+    requireCondition(
+      racedAssignmentResult.body?.code === "55000"
+        && /active cases/i.test(racedAssignmentResult.body?.message ?? ""),
+      `Concurrent assignment rejection was not the publication guard: ${JSON.stringify(racedAssignmentResult.body)}`,
+    );
+  } else {
+    racedAssignmentCreated = true;
+  }
+  supersedingPublishSucceeded = true;
+
+  const caseRows = await selectRows("cases", { id: `in.(${caseId},${supersedingCaseId})` });
+  const oldCase = caseRows.find((row) => row.id === caseId);
+  const newCase = caseRows.find((row) => row.id === supersedingCaseId);
+  requireCondition(oldCase?.status === "superseded", "Concurrent publication did not supersede the old fixture case.");
+  requireCondition(newCase?.status === "active", "Concurrent publication did not activate the new fixture case.");
+
+  const movedAssignment = await selectRows("class_case_assignments", { id: `eq.${assignmentId}` });
+  requireCondition(movedAssignment.length === 1 && movedAssignment[0].case_id === supersedingCaseId, "The pre-existing open assignment was not moved atomically.");
+  const oldOpenAssignments = await selectRows("class_case_assignments", {
+    case_id: `eq.${caseId}`,
+    status: "eq.open",
+  });
+  requireCondition(oldOpenAssignments.length === 0, "An open assignment remained attached to the superseded case.");
+  const racedAssignment = await selectRows("class_case_assignments", { id: `eq.${racedAssignmentId}` });
+  if (racedAssignmentCreated) {
+    requireCondition(racedAssignment.length === 1 && racedAssignment[0].case_id === supersedingCaseId, "The racing assignment was not moved after winning the lock.");
+  } else {
+    requireCondition(racedAssignment.length === 0, "A rejected racing assignment left a row behind.");
+  }
+
   await insert("sessions", {
     id: sessionId,
-    case_id: caseId,
+    case_id: supersedingCaseId,
     student_id: studentId,
     professor_id: professorId,
     class_case_assignment_id: assignmentId,
     status: "active",
-    current_phase_id: publishedPhaseId,
+    current_phase_id: supersedingPhaseId,
     context: {},
   });
   sessionCreated = true;
   await insert("session_state", {
     session_id: sessionId,
-    current_phase_id: publishedPhaseId,
+    current_phase_id: supersedingPhaseId,
     state: { version: 1 },
     facts: [],
     unresolved_questions: [],
   });
 
-  const turnPayload = {
+  const requestIdPayload = {
     p_session_id: sessionId,
     p_student_sender_id: studentId,
     p_student_content: "The canine is unerupted.",
-    p_student_phase_id: publishedPhaseId,
+    p_student_phase_id: supersedingPhaseId,
     p_ai_content: "What evidence supports that observation?",
-    p_ai_phase_id: publishedPhaseId,
+    p_ai_phase_id: supersedingPhaseId,
     p_evaluation_type: "formative",
     p_evaluation_score: 70,
     p_evaluation_criteria: { classification: "partial", supportLevel: 1 },
@@ -264,15 +360,15 @@ try {
     p_session_context: {},
     p_facts: [],
     p_unresolved_questions: [],
-    p_current_phase_id: publishedPhaseId,
+    p_current_phase_id: supersedingPhaseId,
     p_session_status: "active",
     p_client_request_id: requestId,
     p_student_metadata: { source: "isolated-ci-concurrency" },
     p_ai_metadata: { moveType: "question" },
   };
   const turnResults = await Promise.all([
-    rpc("commit_tutor_turn", turnPayload, [200]),
-    rpc("commit_tutor_turn", turnPayload, [200]),
+    rpc("commit_tutor_turn", requestIdPayload, [200]),
+    rpc("commit_tutor_turn", requestIdPayload, [200]),
   ]);
   for (const result of turnResults) {
     requireCondition(result.status === 200, `Concurrent tutor turn failed: ${JSON.stringify(result.body)}`);
@@ -297,7 +393,7 @@ try {
   requireCondition(tutorMessages.length === 1, `Expected one idempotent tutor message, got ${tutorMessages.length}.`);
   requireCondition(evaluations.length === 1, `Expected one idempotent evaluation, got ${evaluations.length}.`);
 
-  console.log("Isolated concurrency checks passed: save/publish serialization and tutor-turn idempotency.");
+  console.log("Isolated concurrency checks passed: two-argument wrapper, three-argument publish/assignment locking, and tutor-turn idempotency.");
 } finally {
   if (sessionCreated) {
     await request(`/rest/v1/sessions?id=eq.${encodeURIComponent(sessionId)}`, {
@@ -305,14 +401,23 @@ try {
       headers: { Prefer: "return=minimal" },
     }, [200, 204]).catch((error) => console.error(`Session fixture cleanup failed: ${error.message}`));
   }
-  if (caseCreated) {
-    await cleanupRpc("archive_case", { p_case_id: caseId }, [200]).catch((error) => console.error(`Case fixture cleanup failed: ${error.message}`));
+  if (racedAssignmentCreated) {
+    await request(`/rest/v1/class_case_assignments?id=eq.${encodeURIComponent(racedAssignmentId)}`, {
+      method: "DELETE",
+      headers: { Prefer: "return=minimal" },
+    }, [200, 204]).catch((error) => console.error(`Racing assignment fixture cleanup failed: ${error.message}`));
   }
   if (assignmentCreated) {
     await request(`/rest/v1/class_case_assignments?id=eq.${encodeURIComponent(assignmentId)}`, {
       method: "DELETE",
       headers: { Prefer: "return=minimal" },
     }, [200, 204]).catch((error) => console.error(`Assignment fixture cleanup failed: ${error.message}`));
+  }
+  if (supersedingCaseCreated) {
+    await cleanupRpc("archive_case", { p_case_id: supersedingCaseId }, [200]).catch((error) => console.error(`Superseding case fixture cleanup failed: ${error.message}`));
+  }
+  if (caseCreated && !supersedingPublishSucceeded) {
+    await cleanupRpc("archive_case", { p_case_id: caseId }, [200]).catch((error) => console.error(`Case fixture cleanup failed: ${error.message}`));
   }
   if (classCreated) {
     await request(`/rest/v1/classes?id=eq.${encodeURIComponent(classId)}`, {

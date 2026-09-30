@@ -25,7 +25,7 @@ export type CaseMediaAttachment = CaseAttachment & {
   unlockOnRequest?: false;
 };
 
-export type StudentMediaAttachment = Pick<CaseAttachment, "id" | "kind" | "title" | "description" | "transcript" | "sourceLabel"> & {
+export type StudentMediaAttachment = Pick<CaseAttachment, "id" | "kind" | "title" | "description" | "transcript" | "sourceLabel" | "unlockPhase"> & {
   /** Private attachments receive a short-lived signed URL. */
   url?: string;
   posterUrl?: string;
@@ -302,6 +302,7 @@ export async function prepareStudentMedia(
       kind: attachment.kind,
       title: attachment.title,
       description: attachment.description,
+      unlockPhase: attachment.unlockPhase ?? 1,
       ...(attachment.transcript ? { transcript: attachment.transcript } : {}),
       ...(attachment.sourceLabel ? { sourceLabel: attachment.sourceLabel } : {}),
     };

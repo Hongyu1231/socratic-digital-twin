@@ -1,0 +1,4 @@
+export const CASE_TITLE_MAX_LENGTH: 160;
+export const CASE_DESCRIPTION_MAX_LENGTH: 2000;
+export const MEDIA_URL_MAX_LENGTH: 2048;
+

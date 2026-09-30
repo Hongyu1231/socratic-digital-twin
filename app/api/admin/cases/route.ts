@@ -60,7 +60,11 @@ function normalizeAttachments(value: unknown) {
 }
 
 export async function GET() {
-  try { await requireAdmin(); return Response.json({ cases: await getRepository().listCaseVersions() }); }
+  try {
+    await requireAdmin();
+    const result = await getRepository().listCaseVersionsWithDiagnostics();
+    return Response.json({ cases: result.cases, diagnostics: result.diagnostics });
+  }
   catch (error) { return errorResponse(error); }
 }
 

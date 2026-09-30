@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapCase, mapEvaluation, mapPhase } from "@/lib/repository/supabase";
+import { mapCase, mapCaseWithDiagnostics, mapEvaluation, mapPhase } from "@/lib/repository/supabase";
 
 describe("Supabase case mapping", () => {
   it("does not turn expected_findings JSON keys into student-facing rubric criteria", () => {
@@ -36,6 +36,26 @@ describe("Supabase case mapping", () => {
     }, []);
 
     expect(clinicalCase.teachingMaterialPackageId).toBe(packageId);
+  });
+
+  it("maps persisted difficulty and never invents attachment IDs", () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const result = mapCaseWithDiagnostics({
+      id: crypto.randomUUID(),
+      title: "Case with stable media",
+      presenting_complaint: "A bounded teaching case.",
+      difficulty: "advanced",
+      status: "active",
+      attachments: [
+        { id, kind: "image", title: "OPG", description: "A record.", url: "/media/opg.webp" },
+        { kind: "image", title: "Legacy", description: "Missing ID.", url: "/media/legacy.webp" },
+      ],
+    }, []);
+
+    expect(result.case.difficulty).toBe("advanced");
+    expect(result.case.attachments).toEqual([expect.objectContaining({ id })]);
+    expect(result.case.attachments?.some((item) => item.id === undefined)).toBe(false);
+    expect(result.diagnostics).toEqual([expect.objectContaining({ attachmentId: null, reasons: [expect.stringContaining("stable ID")] })]);
   });
 
   it("rejects an unsafe hosted package pointer instead of silently dropping grounding", () => {

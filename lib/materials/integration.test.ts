@@ -222,9 +222,9 @@ describe("private teaching-materials integration", () => {
     expect(publicPhase).not.toHaveProperty("tutorMoves");
     expect(publicPhase).not.toHaveProperty("examinerNotes");
     expect(publicPhase).not.toHaveProperty("answerKey");
-    expect(publicPhase.rubric).toEqual([]);
-    expect(publicPhase.starterQuestion).toBe("");
-    expect(publicPhase.exampleQuestions).toEqual([]);
+    expect(publicPhase).not.toHaveProperty("rubric");
+    expect(publicPhase).not.toHaveProperty("starterQuestion");
+    expect(publicPhase).not.toHaveProperty("exampleQuestions");
     expect(JSON.stringify(view)).not.toContain("FACULTY_ONLY_SYNTHETIC_NOTE");
     expect(JSON.stringify(view)).not.toContain("PRIVATE_SOURCE_TEXT");
     expect(JSON.stringify(view)).not.toContain("PRIVATE_TUTOR_GUIDANCE");
@@ -245,7 +245,7 @@ describe("private teaching-materials integration", () => {
       },
     };
     const view = studentView(bundle);
-    expect(view.session.state.phaseEvidence).toBeUndefined();
+    expect(view.session).not.toHaveProperty("state");
     expect(JSON.stringify(view)).not.toContain("PRIVATE_PHASE_");
     expect(JSON.stringify(view)).not.toContain("phaseEvidence");
     expect(bundle.session.state.phaseEvidence["1"].weaknesses).toEqual(["PRIVATE_PHASE_GAP"]);

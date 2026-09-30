@@ -5,6 +5,24 @@ export type SessionStatus = "active" | "completed" | "abandoned";
 export type ReviewStatus = "pending" | "in_review" | "completed";
 export type SummaryGenerationStatus = "pending" | "ready" | "failed";
 
+/**
+ * Evidence attached to a criterion awarded by the tutor model.
+ *
+ * The quote is retained for professor review. It is deliberately not
+ * verified against the answer: paraphrase is valid evidence and rejecting it
+ * would turn a model annotation problem into a blocked learner turn.
+ */
+export interface CriterionEvidence {
+  id: string;
+  evidence: string;
+}
+
+/** Stored evaluations may contain the pre-v2 string-only representation. */
+export type CriteriaMet = CriterionEvidence[] | string[];
+
+/** Provider output and persisted evidence use the same bounded quote limit. */
+export const CRITERION_EVIDENCE_MAX_LENGTH = 240;
+
 export interface DemoUser {
   id: string;
   name: string;
@@ -157,7 +175,7 @@ export interface ClinicalCase {
   title: string;
   description: string;
   difficulty: "foundation" | "intermediate" | "advanced";
-  status: "available" | "draft" | "archived";
+  status: "available" | "draft" | "archived" | "superseded";
   learningObjectives: string[];
   phases: CasePhase[];
   sourceCaseId?: string | null;
@@ -200,7 +218,7 @@ export interface Evaluation {
   model?: string;
   promptVersion?: string;
   targetCriterionId?: string;
-  criteriaMet?: string[];
+  criteriaMet?: CriteriaMet;
   supportLevel?: 0 | 1 | 2;
   completedWithSupport?: boolean;
   isReflection?: boolean;
@@ -377,7 +395,7 @@ export interface TutorEvaluationResult {
   nextQuestion: string;
   acknowledgement?: string;
   targetCriterionId?: string | null;
-  criteriaMet?: string[];
+  criteriaMet?: CriteriaMet;
   memoryPatch: MemoryPatch;
   source: "deterministic" | "claude" | "openai";
   fallbackFrom?: "claude" | "openai";

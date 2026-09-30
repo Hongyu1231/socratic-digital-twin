@@ -34,8 +34,15 @@ describe("v2 end-to-end tutor state", () => {
         starterQuestion: "Which finding or uncertainty had the greatest influence on your reasoning?",
         exampleQuestions: ["Which record supports that observation?"], phaseCeiling, tutorMoves,
       })),
-      attachments: [{ id: crypto.randomUUID(), kind: "image", title: "Later image", description: "LOCKED_DESCRIPTION", url: "/later.svg", unlockPhase: 2 }],
-      findings: [{ id: "later-finding", title: "Later examination", text: "LOCKED_FINDING", unlockPhase: 2 }],
+      // Keep phase-unlock fixtures valid for one-phase reflection tests too;
+      // a phase-2 item cannot exist in a one-phase case under the integrity
+      // contract.
+      attachments: phaseCount > 1
+        ? [{ id: crypto.randomUUID(), kind: "image", title: "Later image", description: "LOCKED_DESCRIPTION", url: "/later.svg", unlockPhase: 2 }]
+        : [],
+      findings: phaseCount > 1
+        ? [{ id: "later-finding", title: "Later examination", text: "LOCKED_FINDING", unlockPhase: 2 }]
+        : [],
     };
     const saved = await repository.saveCase(clinicalCase, "99999999-9999-4999-8999-999999999999");
     await repository.publishCase(saved.id);
@@ -94,6 +101,7 @@ describe("v2 end-to-end tutor state", () => {
     const complete = await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "I am still unsure what I would change.", "final-reflection-001");
     expect(complete.session.status).toBe("completed");
     expect(complete.session.score).toBe(100);
+    expect(complete.session.messages.at(-1)?.content).toBe("You have completed all 1 phase. Your learning summary is ready.");
     expect(complete.session.evaluations.at(-1)?.isReflection).toBe(true);
     expect(evaluate).toHaveBeenCalledTimes(1);
     const replay = await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "I am still unsure what I would change.", "final-reflection-001");

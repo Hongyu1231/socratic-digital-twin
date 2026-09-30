@@ -33,7 +33,8 @@ describe("human tutor prompt contract", () => {
     expect(TUTOR_INSTRUCTIONS).toContain("reuse an exact recent misconceptionKey");
     expect(TUTOR_INSTRUCTIONS).toContain("Use acknowledgement to acknowledge one specific idea");
     expect(TUTOR_INSTRUCTIONS).toContain("Do not repeat it inside nextQuestion");
-    expect(TUTOR_INSTRUCTIONS).toContain("criteriaMet as IDs");
+    expect(TUTOR_INSTRUCTIONS).toContain("criteriaMet as objects");
+    expect(TUTOR_INSTRUCTIONS).toContain("short evidence quote");
     expect(TUTOR_INSTRUCTIONS).toContain("targetCriterionId");
   });
 

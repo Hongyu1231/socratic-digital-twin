@@ -102,6 +102,14 @@ describe("groupByCase", () => {
     expect(groups[0].primary.case.status).toBe("archived");
   });
 
+  it("keeps a deliberately unmoved superseded assignment startable", () => {
+    const groups = groupByCase([
+      offering({ caseId: "case-superseded", caseStatus: "superseded" }),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].primary.case.status).toBe("superseded");
+  });
+
   it("lists only extras that carry a session", () => {
     const groups = groupByCase([
       offering({ caseId: "case-canine", availability: "open", sessionId: "s1", sessionStatus: "active" }),

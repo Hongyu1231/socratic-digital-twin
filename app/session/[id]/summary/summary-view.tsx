@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { Compass, LoaderCircle, RotateCw, ShieldCheck, Target } from "lucide-react";
-import type { SessionBundle } from "@/lib/domain";
+import type { StudentSessionBundle as SessionBundle } from "@/lib/student-contract";
 import { describeRequestFailure, readJsonBody, requestSignal } from "@/lib/client-request";
+import { phaseCompletionLabel } from "@/lib/phase-outcomes";
 
 const SUMMARY_TIMEOUT_MS = 30_000;
 
@@ -66,6 +67,11 @@ export function SessionSummaryView({ sessionId }: { sessionId: string }) {
       ) : bundle.summaryGenerationStatus === "failed" ? (
         <p className="summary-generation-note" role="status">AI refinement was unavailable, so this page is using the reliable local summary.</p>
       ) : null}
+      <section className="phase-outcomes" aria-label="Phase completion">
+        <h2>Phase completion</h2>
+        <ul>{bundle.case.phases.map((phase) => <li key={phase.id}><strong>{phase.title}</strong><span>{phaseCompletionLabel(phase, bundle.session.currentPhase, summary)}</span></li>)}</ul>
+        <p>Supported completion is recorded separately from independent evidence. Reflection is not graded.</p>
+      </section>
       <div className="summary-grid">
         <InsightCard icon={<ShieldCheck />} title="Strengths" items={summary.strengths} emptyMessage="The tutor did not single out a specific strength this time. That is a comment on one short session, not on you — work through the next steps and they are what the next summary will draw on." />
         <InsightCard icon={<Target />} title="Reasoning gaps" items={summary.weaknesses} emptyMessage="No specific gaps were recorded in this session. Keep making each step of your reasoning explicit so the tutor has something to test." />

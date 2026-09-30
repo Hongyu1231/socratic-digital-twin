@@ -1,5 +1,5 @@
 import type { CasePhase, Classification, PhaseTutorProgress, TutorEvaluationResult } from "@/lib/domain";
-import { phaseCriteria } from "@/lib/tutor/criteria";
+import { criterionIds, phaseCriteria } from "@/lib/tutor/criteria";
 
 const rank: Record<Classification, number> = { wrong: 0, vague: 1, partial: 2, correct: 3 };
 
@@ -12,9 +12,11 @@ export function progressPhase(phase: CasePhase, previous: PhaseTutorProgress | u
     supportLevel: 0, awaitingApplication: false, completedWithSupport: false, completed: false,
   };
   const met = new Set(before.criteriaMet.filter((id) => ids.has(id)));
-  // A contradictory answer cannot simultaneously satisfy new criteria.
-  if (result.classification !== "wrong") for (const id of result.criteriaMet ?? []) if (ids.has(id)) met.add(id);
-  const improved = result.classification !== "wrong" && (met.size > before.criteriaMet.length
+  // Criteria evidence is an independent annotation from the per-answer
+  // quality label. It can accumulate for any classification; classification
+  // still drives the best-label/no-progress counter and correction policy.
+  for (const id of criterionIds(result.criteriaMet)) if (ids.has(id)) met.add(id);
+  const improved = (met.size > before.criteriaMet.length
     || rank[result.classification] > rank[before.bestClassification]);
   const state: PhaseTutorProgress = {
     ...before, criteriaMet: [...met],
@@ -26,7 +28,7 @@ export function progressPhase(phase: CasePhase, previous: PhaseTutorProgress | u
     // unresolved application response can move on without erasing its gaps.
     return { state: { ...state, awaitingApplication: false, completed: true, completedWithSupport: true }, complete: true, escalated: false };
   }
-  if (criteria.length > 0 && met.size === criteria.length && result.classification === "correct" && !blocked) {
+  if (criteria.length > 0 && met.size === criteria.length && !blocked) {
     return { state: { ...state, completed: true }, complete: true, escalated: false };
   }
   const oldLevel = state.supportLevel;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assignmentInputSchema, caseAttachmentInputSchema, summaryOutputSchema } from "@/lib/schemas";
+import { assignmentInputSchema, caseAttachmentInputSchema, caseInputSchema, summaryOutputSchema } from "@/lib/schemas";
 
 describe("assignment input schema", () => {
   const validAssignment = {
@@ -66,5 +66,34 @@ describe("case attachment input schema", () => {
   it("requires a complete citation for externally hosted literature media", () => {
     expect(caseAttachmentInputSchema.safeParse({ ...opg, sourceLabel: undefined }).success).toBe(false);
     expect(caseAttachmentInputSchema.safeParse({ ...opg, sourceUrl: undefined }).success).toBe(false);
+  });
+
+  it("allows descriptive media text beyond the legacy 500-character bound up to 2000", () => {
+    expect(caseAttachmentInputSchema.safeParse({ ...opg, description: "d".repeat(501) }).success).toBe(true);
+    expect(caseAttachmentInputSchema.safeParse({ ...opg, description: "d".repeat(2_000) }).success).toBe(true);
+    expect(caseAttachmentInputSchema.safeParse({ ...opg, description: "d".repeat(2_001) }).success).toBe(false);
+  });
+
+  it("uses the same 2000-character description contract for cases", () => {
+    const baseCase = {
+      title: "Schema test case",
+      difficulty: "intermediate" as const,
+      learningObjectives: ["Use the supplied evidence."],
+      attachments: [],
+      findings: [],
+      phases: [{
+        order: 1,
+        title: "Observe",
+        goal: "Describe a finding.",
+        rubric: ["Name the finding."],
+        starterQuestion: "What do you observe?",
+        exampleQuestions: ["Which record supports that observation?"],
+        tutorGuidance: [],
+        tutorMoves: [],
+      }],
+    };
+    expect(caseInputSchema.safeParse({ ...baseCase, description: "d".repeat(501) }).success).toBe(true);
+    expect(caseInputSchema.safeParse({ ...baseCase, description: "d".repeat(2_000) }).success).toBe(true);
+    expect(caseInputSchema.safeParse({ ...baseCase, description: "d".repeat(2_001) }).success).toBe(false);
   });
 });

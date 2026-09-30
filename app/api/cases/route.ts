@@ -1,5 +1,5 @@
 import { getRepository } from "@/lib/repository";
-import { errorResponse, studentCaseView } from "@/lib/http";
+import { errorResponse, studentOfferingView } from "@/lib/http";
 import { requireStudent } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -15,7 +15,7 @@ export async function GET() {
     // current client consumed it. The catalogue is identity-scoped and must
     // never be stored by a browser or intermediary cache.
     return Response.json(
-      { offerings: offerings.map((offering) => ({ ...offering, case: studentCaseView(offering.case) })) },
+      { offerings: offerings.map(studentOfferingView) },
       { headers: { "Cache-Control": "private, no-store, max-age=0" } },
     );
   } catch (error) {

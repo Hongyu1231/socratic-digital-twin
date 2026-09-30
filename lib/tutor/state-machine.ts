@@ -206,7 +206,7 @@ async function performStudentAnswer(
   // optional LLM enhancement after this deterministic summary is committed.
   const summary = sessionComplete ? buildSessionSummary(allEvaluations, nextState, true) : null;
   const proposedQuestion = sessionComplete
-    ? `You have completed all ${orderedPhases.length} phases. Your learning summary is ready.`
+    ? `You have completed all ${orderedPhases.length} ${orderedPhases.length === 1 ? "phase" : "phases"}. Your learning summary is ready.`
     : askReflection
       ? (scriptedMove?.strategy === "reflect" ? scriptedMove.question : "Looking back, which finding or uncertainty had the greatest influence on your decision?")
       : phaseComplete

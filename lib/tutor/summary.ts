@@ -30,7 +30,7 @@ export function buildSessionSummary(
           ? "A sound foundation with gaps to revisit"
           : "Slow down and anchor each decision to evidence",
     narrative: (completedAllPhases
-      ? "You worked through identification, assessment, risk, management and reflection. The score reflects the quality of the reasoning expressed, not simply the final conclusion."
+      ? "You completed the assigned teaching phases and reflection. The score reflects the quality of the reasoning expressed, not simply the final conclusion."
       : "You ended the session before all assigned phases were completed. This summary reflects the reasoning evidence available so far and should be treated as formative feedback.")
       + (supportedPhases.length ? ` ${supportedPhases.length === 1 ? "Phase" : "Phases"} ${supportedPhases.join(", ")} ${supportedPhases.length === 1 ? "was" : "were"} completed with tutor support, not demonstrated independent mastery.` : ""),
     strengths: strengths.length ? strengths : ["Stayed engaged with iterative questioning"],

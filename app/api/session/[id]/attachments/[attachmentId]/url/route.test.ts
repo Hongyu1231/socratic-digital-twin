@@ -1,18 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  requireStudent: vi.fn(),
+  getIdentity: vi.fn(),
   getSession: vi.fn(),
+  listClasses: vi.fn(),
   resolveStudentMediaAttachment: vi.fn(),
 }));
 
-vi.mock("@/lib/auth", () => ({
-  AuthError: class AuthError extends Error {},
-  requireStudent: mocks.requireStudent,
+vi.mock("@/lib/auth", async () => ({
+  ...await vi.importActual<typeof import("@/lib/auth")>("@/lib/auth"),
+  getIdentity: mocks.getIdentity,
 }));
 
 vi.mock("@/lib/repository", () => ({
-  getRepository: () => ({ getSession: mocks.getSession }),
+  getRepository: () => ({ getSession: mocks.getSession, listClasses: mocks.listClasses }),
 }));
 
 vi.mock("@/lib/case-media", async () => {
@@ -28,7 +29,8 @@ const ATTACHMENT_ID = "33333333-3333-4333-8333-333333333333";
 
 function sessionBundle(studentId = "66666666-6666-4666-8666-666666666666") {
   return {
-    session: { id: SESSION_ID, studentId, currentPhase: 1 },
+    session: { id: SESSION_ID, studentId, caseId: CASE_ID, currentPhase: 1 },
+    assignment: { classId: "test-class" },
     case: {
       id: CASE_ID,
       attachments: [{ id: ATTACHMENT_ID, kind: "image", title: "OPG", description: "Teaching image", storagePath: "package/opg.webp" }],
@@ -41,10 +43,11 @@ function request() {
 }
 
 beforeEach(() => {
-  mocks.requireStudent.mockReset();
+  mocks.getIdentity.mockReset();
   mocks.getSession.mockReset();
+  mocks.listClasses.mockReset().mockResolvedValue([]);
   mocks.resolveStudentMediaAttachment.mockReset();
-  mocks.requireStudent.mockResolvedValue({ id: "66666666-6666-4666-8666-666666666666", role: "student" });
+  mocks.getIdentity.mockResolvedValue({ id: "66666666-6666-4666-8666-666666666666", role: "student" });
   mocks.getSession.mockResolvedValue(sessionBundle());
   mocks.resolveStudentMediaAttachment.mockResolvedValue({
     attachmentId: ATTACHMENT_ID,
@@ -79,6 +82,50 @@ describe("private case media URL route", () => {
     expect(mocks.resolveStudentMediaAttachment).not.toHaveBeenCalled();
   });
 
+  it("requires an authenticated identity before loading any session", async () => {
+    mocks.getIdentity.mockResolvedValue(null);
+    const response = await GET(request(), { params: Promise.resolve({ id: SESSION_ID, attachmentId: ATTACHMENT_ID }) });
+    expect(response.status).toBe(401);
+    expect(mocks.getSession).not.toHaveBeenCalled();
+  });
+
+  it("signs for a professor only after confirming class membership", async () => {
+    mocks.getIdentity.mockResolvedValue({ id: "professor", role: "professor" });
+    mocks.listClasses.mockResolvedValue([{ id: "test-class", members: [{ userId: "professor", role: "professor" }] }]);
+    const response = await GET(request(), { params: Promise.resolve({ id: SESSION_ID, attachmentId: ATTACHMENT_ID }) });
+    expect(response.status).toBe(200);
+    expect(mocks.listClasses).toHaveBeenCalledWith("professor");
+    expect(mocks.resolveStudentMediaAttachment).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { classes: [] },
+    { classes: [{ id: "other-class", members: [{ userId: "professor", role: "professor" }] }] },
+    { classes: [{ id: "test-class", members: [{ userId: "professor", role: "student" }] }] },
+  ])("refuses professors without teaching access to this class (%j)", async ({ classes }) => {
+    mocks.getIdentity.mockResolvedValue({ id: "professor", role: "professor" });
+    mocks.listClasses.mockResolvedValue(classes);
+    const response = await GET(request(), { params: Promise.resolve({ id: SESSION_ID, attachmentId: ATTACHMENT_ID }) });
+    expect(response.status).toBe(403);
+    expect(mocks.resolveStudentMediaAttachment).not.toHaveBeenCalled();
+  });
+
+  it("allows an administrator without loading other students' sessions", async () => {
+    mocks.getIdentity.mockResolvedValue({ id: "admin", role: "admin" });
+    const response = await GET(request(), { params: Promise.resolve({ id: SESSION_ID, attachmentId: ATTACHMENT_ID }) });
+    expect(response.status).toBe(200);
+    expect(mocks.listClasses).not.toHaveBeenCalled();
+  });
+
+  it("rejects a mismatched session case version before signing", async () => {
+    const bundle = sessionBundle();
+    bundle.session.caseId = "different-case";
+    mocks.getSession.mockResolvedValue(bundle);
+    const response = await GET(request(), { params: Promise.resolve({ id: SESSION_ID, attachmentId: ATTACHMENT_ID }) });
+    expect(response.status).toBe(404);
+    expect(mocks.resolveStudentMediaAttachment).not.toHaveBeenCalled();
+  });
+
   it("returns 404 for an unknown or malformed attachment id", async () => {
     const response = await GET(request(), { params: Promise.resolve({ id: SESSION_ID, attachmentId: "../../private" }) });
 
@@ -94,6 +141,10 @@ describe("private case media URL route", () => {
     const response = await GET(request(), { params: Promise.resolve({ id: SESSION_ID, attachmentId: ATTACHMENT_ID }) });
     expect(response.status).toBe(404);
     expect(mocks.resolveStudentMediaAttachment).toHaveBeenCalledTimes(1);
+    const body = await response.json();
+    const missing = await GET(request(), { params: Promise.resolve({ id: SESSION_ID, attachmentId: "99999999-9999-4999-8999-999999999999" }) });
+    expect(await missing.json()).toEqual(body);
+    expect(missing.headers.get("cache-control")).toBe(response.headers.get("cache-control"));
   });
 
   it("returns a legacy URL with no expiry when the helper resolves one", async () => {

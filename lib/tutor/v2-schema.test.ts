@@ -215,6 +215,11 @@ describe("tutor engine v2 schemas", () => {
     expect(tutorProviderOutputSchema.safeParse(providerOutput()).success).toBe(true);
     expect(tutorProviderOutputSchema.safeParse({ ...providerOutput(), acknowledgement: "Observed." }).success).toBe(true);
     expect(tutorProviderOutputSchema.safeParse({ ...providerOutput(), targetCriterionId: "observation" }).success).toBe(true);
+    expect(tutorProviderOutputSchema.safeParse({
+      ...providerOutput(),
+      criteriaMet: [{ id: "observation", evidence: "The crown is between the adjacent roots." }],
+    }).success).toBe(true);
+    expect(tutorProviderOutputSchema.safeParse({ ...providerOutput(), criteriaMet: ["observation"] }).success).toBe(false);
     expect(tutorProviderOutputSchema.safeParse({ ...providerOutput(), acknowledgement: undefined }).success).toBe(false);
     expect(tutorProviderOutputSchema.safeParse({ ...providerOutput(), criteriaMet: undefined }).success).toBe(false);
   });
@@ -235,7 +240,7 @@ describe("tutor engine v2 schemas", () => {
       confidence: 0.96,
       misconceptionKey: "unsupported-absolute-claim",
       targetCriterionId: "unknown",
-      criteriaMet: ["unknown", "observation"],
+      criteriaMet: [{ id: "unknown", evidence: "Discard this unknown tag." }, { id: "observation", evidence: "The answer names an observation." }],
       acknowledgement: "That claim is unsupported.",
     }), phase());
 
@@ -243,7 +248,7 @@ describe("tutor engine v2 schemas", () => {
     expect(result.confidence).toBe(0.96);
     expect(result.misconceptionKey).toBe("unsupported-absolute-claim");
     expect(result.targetCriterionId).toBeNull();
-    expect(result.criteriaMet).toEqual([]);
+    expect(result.criteriaMet).toEqual([{ id: "observation", evidence: "The answer names an observation." }]);
     expect(result.acknowledgement).toBe("That claim is unsupported.");
 
     const invalidAcknowledgement = normalizeCriterionTags(evaluationResult({
@@ -256,6 +261,21 @@ describe("tutor engine v2 schemas", () => {
     expect(invalidAcknowledgement.criteriaMet).toEqual(["observation"]);
     expect(invalidAcknowledgement.targetCriterionId).toBe("observation");
     expect(invalidAcknowledgement.acknowledgement).toBeUndefined();
+  });
+
+  it("keeps supported evidence, drops unknown IDs, and does not verify quote overlap", () => {
+    const result = normalizeCriterionTags(evaluationResult({
+      classification: "partial",
+      criteriaMet: [
+        { id: "observation", evidence: "A paraphrase that is not a literal answer substring." },
+        { id: "unknown", evidence: "Should be ignored." },
+      ],
+    }), phase());
+
+    expect(result.criteriaMet).toEqual([{
+      id: "observation",
+      evidence: "A paraphrase that is not a literal answer substring.",
+    }]);
   });
 
   it("keeps the application schema permissive for legacy provider fields", () => {

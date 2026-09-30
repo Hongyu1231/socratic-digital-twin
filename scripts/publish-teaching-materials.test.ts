@@ -6,8 +6,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  activateCases,
   buildPrivateManifestPayload,
   buildPublicationPlan,
+  createAssignments,
   isMissingStorageObjectError,
   uploadIfMissing,
   validateManifest,
@@ -103,6 +105,60 @@ afterEach(() => {
 });
 
 describe("teaching-material publication boundary", () => {
+  it("does not apply long public caching to private signed media", async () => {
+    const upload = vi.fn().mockResolvedValue({ error: null });
+    const client = { storage: { from: () => ({ download: async () => ({ data: null, error: { name: "NotFound" } }), upload }) } };
+    const bytes = Buffer.from("synthetic bytes");
+    await uploadIfMissing(client, "teaching-case-media-private", "synthetic/image.webp", bytes, "image/webp");
+    expect(upload).toHaveBeenCalledWith("synthetic/image.webp", bytes, { contentType: "image/webp", cacheControl: "0", upsert: false });
+  });
+  it("preserves explicit replacement lineage and defaults assignment migration on", () => {
+    const fixture = makeFixture();
+    fixture.manifest.cases[0].case.sourceCaseId = uuid("previous-root");
+    fixture.manifest.cases[0].case.version = 2;
+    const manifest = validateManifest(fixture.manifest, fixture.root);
+    const options = { manifest, supabaseUrl: "https://example.supabase.co", classId: uuid("class"), professorId: uuid("prof"), adminId: uuid("admin"), publish: true };
+    const plan = buildPublicationPlan(options);
+    expect(plan.cases[0].case).toMatchObject({ source_case_id: uuid("previous-root"), version: 2 });
+    expect(plan.moveOpenAssignments).toBe(true);
+    expect(buildPublicationPlan({ ...options, moveOpenAssignments: false }).moveOpenAssignments).toBe(false);
+    fixture.manifest.cases[0].case.sourceCaseId = fixture.caseId;
+    expect(() => validateManifest(fixture.manifest, fixture.root)).toThrow(/version lineage/);
+    delete fixture.manifest.cases[0].case.sourceCaseId;
+    expect(() => validateManifest(fixture.manifest, fixture.root)).toThrow(/version lineage/);
+  });
+
+  it("publishes only through the atomic version RPC with no direct-update fallback", async () => {
+    const fixture = makeFixture();
+    const manifest = validateManifest(fixture.manifest, fixture.root);
+    const plan = buildPublicationPlan({ manifest, supabaseUrl: "https://example.supabase.co", classId: uuid("class"), professorId: uuid("prof"), adminId: uuid("admin"), moveOpenAssignments: false });
+    const row = plan.cases[0].case;
+    const current = { ...row, status: "draft" };
+    const read = { maybeSingle: vi.fn().mockResolvedValue({ data: current, error: null }) };
+    const client = {
+      from: vi.fn(() => ({ select: () => ({ eq: () => read, in: () => Promise.resolve({ data: [{ id: row.id, status: "active", published_at: "2026-01-01T00:00:00Z" }], error: null }) }) })),
+      rpc: vi.fn().mockResolvedValue({ data: { id: row.id }, error: null }),
+    };
+    await activateCases(client, plan);
+    expect(client.rpc).toHaveBeenCalledWith("publish_case", { p_case_id: row.id, p_published_at: expect.any(String), p_move_open_assignments: false });
+    client.rpc.mockResolvedValueOnce({ data: null, error: { code: "PGRST202" } });
+    await expect(activateCases(client, plan)).rejects.toThrow(/Activate case/);
+  });
+
+  it("does not create duplicate offerings after the publish RPC moved an assignment", async () => {
+    const fixture = makeFixture();
+    fixture.manifest.cases[0].case.sourceCaseId = uuid("root");
+    fixture.manifest.cases[0].case.version = 2;
+    const plan = buildPublicationPlan({ manifest: validateManifest(fixture.manifest, fixture.root), supabaseUrl: "https://example.supabase.co", classId: uuid("class"), adminId: uuid("admin"), professorId: uuid("prof"), publish: true });
+    const query = { eq: vi.fn(), maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }), limit: vi.fn().mockResolvedValue({ data: [{ id: uuid("moved-assignment") }], error: null }) };
+    query.eq.mockReturnValue(query);
+    const insert = vi.fn();
+    const client = { from: vi.fn(() => ({ select: () => query, insert })) };
+    await createAssignments(client, plan, uuid("prof"));
+    expect(query.limit).toHaveBeenCalledWith(1);
+    expect(insert).not.toHaveBeenCalled();
+  });
+
   it("validates registered WebP media and builds a bounded draft plan", () => {
     const fixture = makeFixture();
     const manifest = validateManifest(fixture.manifest, fixture.root);
@@ -118,9 +174,13 @@ describe("teaching-material publication boundary", () => {
     expect(plan.caseIds).toEqual([fixture.caseId]);
     expect(plan.assignments).toHaveLength(0);
     expect(plan.cases[0].case.status).toBe("draft");
+    expect(plan.cases[0].case.difficulty).toBe("intermediate");
     expect(plan.cases[0].case.patient_context).toEqual({ teachingMaterialPackageId: fixture.manifest.packageId });
-    expect(plan.cases[0].case.attachments[0].url).toContain("/storage/v1/object/public/teaching-case-media/");
-    expect(plan.cases[0].case.attachments[0].sourceUrl).toBe(plan.cases[0].case.attachments[0].url);
+    expect(plan.privateMedia).toBe(true);
+    expect(plan.mediaBucket).toBe("teaching-case-media-private");
+    expect(plan.cases[0].case.attachments[0].storagePath).toBe(`${fixture.manifest.packageId}/${fixture.mediaId}.webp`);
+    expect(plan.cases[0].case.attachments[0]).not.toHaveProperty("url");
+    expect(plan.cases[0].case.attachments[0]).not.toHaveProperty("sourceUrl");
     expect(JSON.stringify(plan)).not.toContain("This note must remain private");
     expect(JSON.stringify(plan)).not.toContain("synthetic.docx");
     expect(JSON.stringify(plan)).not.toContain("Synthetic reference text.");
@@ -134,6 +194,33 @@ describe("teaching-material publication boundary", () => {
       caseIds: [fixture.caseId],
     });
     expect(JSON.stringify(privateManifest)).toContain("Synthetic reference text.");
+  });
+
+  it("uses the shared case description and media URL limits", () => {
+    const fixture = makeFixture();
+    fixture.manifest.cases[0].case.description = "d".repeat(2_000);
+    fixture.manifest.cases[0].case.attachments[0].description = "a".repeat(2_000);
+    fixture.manifest.cases[0].case.attachments[0].url = `/${"u".repeat(2_047)}`;
+    const manifest = validateManifest(fixture.manifest, fixture.root);
+    expect(manifest.cases[0].case.description).toHaveLength(2_000);
+    expect(manifest.cases[0].case.attachments[0].description).toHaveLength(2_000);
+    expect(manifest.cases[0].case.attachments[0].url).toHaveLength(2_048);
+
+    const tooLong = structuredClone(fixture.manifest);
+    tooLong.cases[0].case.description = "d".repeat(2_001);
+    expect(() => validateManifest(tooLong, fixture.root)).toThrow(/case description/i);
+
+    const attachmentTooLong = structuredClone(fixture.manifest);
+    attachmentTooLong.cases[0].case.attachments[0].description = "a".repeat(2_001);
+    expect(() => validateManifest(attachmentTooLong, fixture.root)).toThrow(/attachment description/i);
+
+    const attachmentTitleTooLong = structuredClone(fixture.manifest);
+    attachmentTitleTooLong.cases[0].case.attachments[0].title = "t".repeat(161);
+    expect(() => validateManifest(attachmentTitleTooLong, fixture.root)).toThrow(/attachment title/i);
+
+    const attachmentUrlTooLong = structuredClone(fixture.manifest);
+    attachmentUrlTooLong.cases[0].case.attachments[0].url = `/${"u".repeat(2_048)}`;
+    expect(() => validateManifest(attachmentUrlTooLong, fixture.root)).toThrow(/attachment URL/i);
   });
 
   it("creates stable assignment keys only for explicit publication", () => {

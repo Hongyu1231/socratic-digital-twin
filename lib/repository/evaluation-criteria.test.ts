@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Evaluation } from "@/lib/domain";
-import { buildEvaluationCriteria, readMisconceptionKey } from "@/lib/repository/evaluation-criteria";
+import { buildEvaluationCriteria, readCriteriaMet, readMisconceptionKey } from "@/lib/repository/evaluation-criteria";
 
 describe("Supabase evaluation criteria", () => {
   it("round-trips a stable misconception key for the next tutor turn", () => {
@@ -51,6 +51,27 @@ describe("Supabase evaluation criteria", () => {
       isReflection: false,
       retrieval: { query: "canine impaction", passages: [{ sourceId: "paper-1", page: 2, locator: "p3", score: 0.91 }] },
     });
+  });
+
+  it("round-trips structured criterion evidence and retains historical strings", () => {
+    const structured = [{ id: "finding", evidence: "The student named the unerupted canine." }];
+    const criteria = buildEvaluationCriteria({
+      id: crypto.randomUUID(),
+      messageId: crypto.randomUUID(),
+      classification: "partial",
+      confidence: 0.8,
+      reasoningGap: "Needs a consequence.",
+      strategy: "probe",
+      phaseComplete: false,
+      feedback: "Explain why.",
+      criteriaMet: structured,
+      createdAt: new Date().toISOString(),
+    });
+
+    expect(criteria.criteriaMet).toEqual(structured);
+    expect(readCriteriaMet(criteria)).toEqual(structured);
+    expect(readCriteriaMet({ criteriaMet: ["finding"] })).toEqual(["finding"]);
+    expect(readCriteriaMet({ criteriaMet: [{ id: "finding", evidence: "" }, { nope: true }] })).toBeUndefined();
   });
 
   it("normalizes legacy or malformed criteria to no misconception key", () => {

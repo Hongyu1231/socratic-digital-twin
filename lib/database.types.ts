@@ -1420,6 +1420,38 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      publish_case: {
+        Args: {
+          p_case_id: string
+          p_published_at?: string
+          p_move_open_assignments?: boolean
+        }
+        Returns: {
+          attachments: Json
+          created_at: string
+          created_by: string
+          diagnosis: string | null
+          id: string
+          is_test_fixture: boolean
+          patient_context: Json
+          presenting_complaint: string | null
+          published_at: string | null
+          slug: string
+          source_case_id: string | null
+          specialty: string
+          status: Database["public"]["Enums"]["case_status"]
+          tags: string[]
+          title: string
+          updated_at: string
+          version: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "cases"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       claim_session_summary_jobs: {
         Args: { p_limit?: number; p_worker_id: string }
         Returns: {
@@ -1515,7 +1547,7 @@ export type Database = {
       }
     }
     Enums: {
-      case_status: "draft" | "active" | "archived"
+      case_status: "draft" | "active" | "archived" | "superseded"
       evaluation_type:
         | "formative"
         | "summative"
@@ -1655,7 +1687,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      case_status: ["draft", "active", "archived"],
+      case_status: ["draft", "active", "archived", "superseded"],
       evaluation_type: [
         "formative",
         "summative",

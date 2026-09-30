@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, BookOpen, Brain, Check, Clock3, LoaderCircle, RotateCw } from "lucide-react";
-import type { StudentCaseOffering } from "@/lib/domain";
+import type { StudentOffering as StudentCaseOffering } from "@/lib/student-contract";
 import { describeRequestFailure, readJsonBody, requestSignal } from "@/lib/client-request";
 import { groupByCase, sessionLabel } from "@/lib/case-catalogue";
 
