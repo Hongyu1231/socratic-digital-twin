@@ -25,5 +25,12 @@ A private review package contains three version-2 draft cases and 18 structured 
 - Synthetic importer/revision tests passed (7 + 5 + 2 at source-audit completion). Pending publication was rejected before any network request.
 - Browser: local memory-only server at `127.0.0.1:3214`, no production database credentials. A successful assignment response was deliberately dropped after the server saved it. The form displayed an actionable retry message, retained its values, and retry produced one new assignment, not two. Network interception was then removed.
 - Browser, stable production build: the admin overview counted 27 sessions, nine complete, and seven unclaimed. Activity loaded 25 then 27 unique sessions; full-scope counts did not shrink with pagination or review filters. The claimed filter selected one record; reassigning it from one professor to another succeeded and persisted after refiltering. No browser console errors were captured in this stable-build flow.
+- Professor browser: the first page contained 25 sessions; loading more added the two remaining records. Filtering to colleague-claimed sessions returned the reassigned record, and opening it explicitly prohibited editing. No browser console errors were captured.
 
-Database and final deployment evidence will be recorded after isolated CI and production read-only verification. No production E2E fixture seeding or learning-data deletion is authorized by these checks.
+## Release preflight
+
+Runtime commit `d2d1f5dcdc0c2bf2d48ba2b545457572839f26b6` passed [CI run 36738495228](https://github.com/Hongyu1231/socratic-digital-twin/actions/runs/36738495228): application verification, all migrations, 139 pgTAP assertions across eight files, private-media regression and isolated multi-connection checks. The concurrency script in this exact commit includes two simultaneous session-start RPC calls and checks one session, state and opening message.
+
+Migration `20260930145643_session_start_idempotency.sql` was then applied to the verified tutor project. The dry run and apply contained no seed, role reset or other pending migration. Read-only production verification returned 13 cases, 18 sessions and 15 assignments, unchanged from preflight; the new page RPC and rollup both counted 18 sessions. Anonymous session-RPC execution and authenticated staff-RPC execution were denied. The security advisor reported no warning/error issues before application rollout.
+
+No production E2E fixtures were seeded and no learning data was deleted. The clinical draft remains private and pending faculty approval; this deployment does not publish it.
