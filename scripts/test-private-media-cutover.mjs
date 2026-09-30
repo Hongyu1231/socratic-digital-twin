@@ -116,8 +116,13 @@ function fixtureSetupSql(fixture) {
     : "jsonb_build_object('sentinel', 'no-reference-context')";
   const privateBucketSetup = fixture.mode === "no-refs"
     ? `
-delete from storage.objects where bucket_id = ${sqlString(PRIVATE_BUCKET)};
-delete from storage.buckets where id = ${sqlString(PRIVATE_BUCKET)};
+do $$
+begin
+  if exists (select 1 from storage.buckets where id = ${sqlString(PRIVATE_BUCKET)}) then
+    raise exception 'No-reference fixture expects a fresh isolated database without a private bucket';
+  end if;
+end;
+$$;
 `
     : `
 insert into storage.buckets (id, name, public)
