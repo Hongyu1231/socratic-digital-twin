@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(15);
+select plan(16);
 
 select has_column('public', 'messages', 'client_request_id', 'student messages store a client request key');
 select ok(
@@ -60,8 +60,8 @@ values (
   'idempotency-case',
   'Idempotency Case',
   'dentistry',
-  'active',
-  timezone('utc', now()),
+  'draft',
+  null,
   '12121212-1212-4121-8121-121212121201'
 );
 
@@ -74,6 +74,11 @@ values (
   'Observe',
   array['Observe the record'],
   array['What do you notice?']
+);
+
+select lives_ok(
+  $$select public.publish_case('12121212-1212-4121-8121-121212121203'::uuid, timezone('utc', now()))$$,
+  'the idempotency fixture is published only after its draft phase exists'
 );
 
 insert into public.classes (id, name, code, term, created_by)

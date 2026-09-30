@@ -2,6 +2,14 @@
 -- create auth.users records; public.users.auth_user_id can be linked when a
 -- local/remote Auth account is provisioned.
 
+begin;
+
+-- The immutability triggers deliberately reject ordinary published-row
+-- writes.  This is a local/reset-only compatibility escape hatch: the trigger
+-- additionally checks current_user, so an untrusted role cannot bypass it by
+-- merely setting the custom GUC.
+set local app.allow_published_case_writes = 'true';
+
 insert into public.users (
   id,
   email,
@@ -72,7 +80,8 @@ insert into public.cases (
   created_by,
   source_case_id,
   version,
-  published_at
+  published_at,
+  difficulty
 )
 values (
   '33333333-3333-4333-8333-333333333333'::uuid,
@@ -87,7 +96,8 @@ values (
   '99999999-9999-4999-8999-999999999999'::uuid,
   null,
   1,
-  '2026-08-09T00:00:00Z'::timestamptz
+  '2026-08-09T00:00:00Z'::timestamptz,
+  'intermediate'
 )
 on conflict (id) do update
   set slug = excluded.slug,
@@ -102,6 +112,7 @@ on conflict (id) do update
       source_case_id = excluded.source_case_id,
       version = excluded.version,
       published_at = excluded.published_at,
+      difficulty = excluded.difficulty,
       updated_at = timezone('utc', now());
 
 insert into public.classes (id, name, code, term, status, created_by)
@@ -310,3 +321,5 @@ begin
   end if;
 end
 $$;
+
+commit;

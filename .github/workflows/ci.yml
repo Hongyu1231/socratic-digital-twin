@@ -91,15 +91,33 @@ jobs:
         uses: supabase/setup-cli@v2
         with:
           version: 2.114.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
       - name: Confirm Supabase CLI version
         run: |
           test "$(supabase --version)" = "2.114.0"
-      - name: Start the isolated local database
-        run: supabase db start
-      - name: Apply all migrations to the local database
-        run: supabase db reset --local --no-seed
+      - name: Start the isolated local Supabase API stack
+        # Keep only Postgres, Kong, and PostgREST: the concurrency checks use
+        # the local REST/RPC gateway, while optional services add cold-start
+        # cost and are not needed by migrations or pgTAP.
+        run: supabase start --exclude gotrue,realtime,storage-api,imgproxy,mailpit,studio,edge-runtime,logflare,vector,supavisor,postgres-meta
+      - name: Apply all migrations and the compatibility seed to the local database
+        run: supabase db reset --local
       - name: Run database pgTAP tests
         run: supabase test db --local supabase/tests/database
+      - name: Test concurrency target guard
+        run: node --test scripts/test-db-concurrency-target.node.mjs
+      - name: Run isolated multi-connection database checks
+        env:
+          SUPABASE_DATA_ENVIRONMENT: test
+        shell: bash
+        run: |
+          set -euo pipefail
+          eval "$(supabase status -o env)"
+          export SUPABASE_URL="$API_URL"
+          export SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY"
+          node scripts/test-db-concurrency.mjs
       - name: Stop the isolated local database
         if: always()
         run: supabase stop --no-backup

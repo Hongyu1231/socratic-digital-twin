@@ -42,6 +42,10 @@ values
   ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2', 'student2@test.invalid', 'Test Student Two', 'student'),
   ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb3', 'student3@test.invalid', 'Test Student Three', 'student');
 
+-- These fixtures model already-published cases.  Keep the bypass scoped to
+-- this reset-only test transaction; ordinary callers must publish a draft
+-- through the guarded transition after phases exist.
+set local app.allow_published_case_writes = 'true';
 insert into public.cases (
   id, slug, title, specialty, status, published_at, created_by, attachments
 )
@@ -66,6 +70,7 @@ values
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
     '[]'::jsonb
   );
+set local app.allow_published_case_writes = 'false';
 
 insert into public.classes (id, name, code, term, created_by)
 values (
