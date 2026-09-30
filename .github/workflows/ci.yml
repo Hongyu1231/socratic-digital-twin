@@ -98,10 +98,11 @@ jobs:
         run: |
           test "$(supabase --version)" = "2.114.0"
       - name: Start the isolated local Supabase API stack
-        # Keep only Postgres, Kong, and PostgREST: the concurrency checks use
-        # the local REST/RPC gateway, while optional services add cold-start
-        # cost and are not needed by migrations or pgTAP.
-        run: supabase start --exclude gotrue,realtime,storage-api,imgproxy,mailpit,studio,edge-runtime,logflare,vector,supavisor,postgres-meta
+        # Keep Postgres, Kong, PostgREST, and GoTrue: the concurrency checks
+        # use the local REST/RPC gateway and need the local service-role JWT
+        # emitted by `supabase status`; the remaining optional services add
+        # cold-start cost and are not needed by migrations or pgTAP.
+        run: supabase start --exclude realtime,storage-api,imgproxy,mailpit,studio,edge-runtime,logflare,vector,supavisor,postgres-meta
       - name: Apply all migrations and the compatibility seed to the local database
         run: supabase db reset --local
       - name: Run database pgTAP tests
