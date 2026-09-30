@@ -76,10 +76,12 @@ values (
   array['What do you notice?']
 );
 
+set local role service_role;
 select lives_ok(
   $$select public.publish_case('12121212-1212-4121-8121-121212121203'::uuid, timezone('utc', now()))$$,
   'the idempotency fixture is published only after its draft phase exists'
 );
+reset role;
 
 insert into public.classes (id, name, code, term, created_by)
 values (

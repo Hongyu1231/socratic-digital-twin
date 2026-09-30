@@ -117,10 +117,12 @@ select is(
   'existing attachment IDs remain stable across draft edits'
 );
 
+set local role service_role;
 select lives_ok(
   $$select public.publish_case('88888888-8888-4888-8888-888888888803'::uuid, '2026-09-30T00:00:00Z'::timestamptz)$$,
   'draft can be published through the conditional publish operation'
 );
+reset role;
 select is(
   (select status::text from public.cases where id = '88888888-8888-4888-8888-888888888803'::uuid),
   'active',
@@ -175,12 +177,14 @@ values (
   'foundation'
 );
 
+set local role service_role;
 select throws_ok(
   $$select public.publish_case('88888888-8888-4888-8888-888888888808'::uuid, timezone('utc', now()))$$,
-  'P0001',
+  '23514',
   'Case cannot be published without phases',
   'a case without phases cannot be published'
 );
+reset role;
 select throws_ok(
   $$update public.cases
        set status = 'active', published_at = timezone('utc', now())
@@ -256,6 +260,7 @@ select throws_ok(
   'Published case content is immutable; create a new draft version',
   'archived case cannot be reopened'
 );
+set local role service_role;
 select throws_ok(
   $$select public.publish_case('88888888-8888-4888-8888-888888888803'::uuid, timezone('utc', now()))$$,
   'P0001',
@@ -269,6 +274,7 @@ select throws_ok(
   'Case does not exist',
   'unknown case publish returns not found'
 );
+reset role;
 
 -- Seed compatibility is intentionally scoped to a privileged transaction.
 set local app.allow_published_case_writes = 'true';

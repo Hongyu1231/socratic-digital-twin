@@ -129,6 +129,21 @@ select ok(
   'idempotent assignment upsert updates the existing row'
 );
 
+-- Create the second archived-case assignment while the case is active.  The
+-- publication contract rejects new assignments to non-active cases; the
+-- session assertion below only needs the historical row after archiving.
+insert into public.class_case_assignments (
+  id, class_id, case_id, assigned_by, status, opens_at
+)
+values (
+  'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee3',
+  'dddddddd-dddd-4ddd-8ddd-ddddddddddd1',
+  'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
+  'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+  'open',
+  timezone('utc', now()) - interval '1 minute'
+);
+
 insert into public.sessions (
   id, case_id, student_id, class_case_assignment_id, context
 )
@@ -333,18 +348,6 @@ select is(
   (select count(*) from public.sessions where case_id = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc1'),
   1::bigint,
   'archiving preserves historical sessions'
-);
-
-insert into public.class_case_assignments (
-  id, class_id, case_id, assigned_by, status, opens_at
-)
-values (
-  'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee3',
-  'dddddddd-dddd-4ddd-8ddd-ddddddddddd1',
-  'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
-  'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
-  'open',
-  timezone('utc', now()) - interval '1 minute'
 );
 
 select throws_ok(

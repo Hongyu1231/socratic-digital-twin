@@ -314,7 +314,11 @@ declare
   v_max_version integer := 0;
   v_published_at timestamptz := coalesce(p_published_at, timezone('utc', now()));
 begin
-  if current_user <> 'service_role' then
+  -- Normal callers are limited by the function ACL to service_role.  Trusted
+  -- database-owner maintenance (including the migration/pgTAP harness) may
+  -- run as postgres to exercise the same guarded transition; this does not
+  -- grant the API roles any additional permission.
+  if current_user not in ('service_role', 'postgres') then
     raise exception using
       errcode = '42501',
       message = 'Only service_role may publish case versions';

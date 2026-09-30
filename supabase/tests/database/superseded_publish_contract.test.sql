@@ -8,7 +8,8 @@ select plan(19);
 insert into public.users (id, email, display_name, role)
 values
   ('55555555-5555-4555-8555-555555555501', 'superseded-admin@test.invalid', 'Superseded Admin', 'admin'),
-  ('55555555-5555-4555-8555-555555555502', 'superseded-student@test.invalid', 'Superseded Student', 'student');
+  ('55555555-5555-4555-8555-555555555502', 'superseded-student@test.invalid', 'Superseded Student', 'student'),
+  ('55555555-5555-4555-8555-555555555516', 'superseded-student-two@test.invalid', 'Superseded Student Two', 'student');
 
 insert into public.classes (id, name, code, term, status, created_by)
 values (
@@ -184,7 +185,7 @@ insert into public.sessions (
 values (
   '55555555-5555-4555-8555-555555555511',
   '55555555-5555-4555-8555-555555555504',
-  '55555555-5555-4555-8555-555555555502',
+  '55555555-5555-4555-8555-555555555516',
   '55555555-5555-4555-8555-555555555508',
   '55555555-5555-4555-8555-555555555505'
 );
