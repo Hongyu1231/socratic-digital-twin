@@ -206,9 +206,9 @@ try {
   requireCondition(publishResult.status === 200, `Concurrent publish failed: ${JSON.stringify(publishResult.body)}`);
   requireCondition(firstRow(publishResult.body)?.id === caseId, "Concurrent publish did not return the fixture case.");
   const saveSucceeded = saveResult.status === 200;
-  const saveRejectedAsPublished = saveResult.status === 400
+  const saveRejectedAsPublished = [400, 500].includes(saveResult.status)
     && saveResult.body?.code === "55000"
-    && /status active/i.test(saveResult.body?.message ?? "");
+    && saveResult.body?.message === "Case cannot be saved from status active";
   requireCondition(saveSucceeded || saveRejectedAsPublished, `Concurrent draft save returned an unexpected result: ${JSON.stringify(saveResult)}`);
   if (saveSucceeded) {
     requireCondition(firstRow(saveResult.body)?.id === caseId, "Concurrent draft save did not return the fixture case.");

@@ -34,3 +34,9 @@ Runtime commit `d2d1f5dcdc0c2bf2d48ba2b545457572839f26b6` passed [CI run 3673849
 Migration `20260930145643_session_start_idempotency.sql` was then applied to the verified tutor project. The dry run and apply contained no seed, role reset or other pending migration. Read-only production verification returned 13 cases, 18 sessions and 15 assignments, unchanged from preflight; the new page RPC and rollup both counted 18 sessions. Anonymous session-RPC execution and authenticated staff-RPC execution were denied. The security advisor reported no warning/error issues before application rollout.
 
 No production E2E fixtures were seeded and no learning data was deleted. The clinical draft remains private and pending faculty approval; this deployment does not publish it.
+
+## Production smoke
+
+Production deployment `6763713042` succeeded for `2ccb9cd` on the production alias. The Chrome smoke confirmed five distinct student offerings, successful professor endpoints and the new `{ sessions, nextCursor, stats, assignmentProgress }` contract (18 rows, no transcripts/learner state/evaluations). Professor ready-to-claim filtering returned two records. Admin overview/activity showed 18 sessions and five completed; filtering to available reviews returned two rows while preserving the 18-session total. No browser console errors were observed. Role switching was used for navigation, but no learning, case, assignment or review records were changed in production.
+
+A later CI repeat exposed an overly narrow test expectation: the correctly rejected concurrent draft-save can return HTTP 500 for SQLSTATE `55000`, not only HTTP 400. The harness now accepts either transport status only with that exact SQLSTATE and the exact active-case rejection message. This does not weaken the database guard or change application runtime behavior.
