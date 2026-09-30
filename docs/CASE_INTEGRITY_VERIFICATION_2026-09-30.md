@@ -13,7 +13,7 @@ Date: 2026-09-30. Scope: Issue #4 and Bruce's engineering work in PR #2 (spec he
 - Signed-media authorization binds the exact session/case/attachment and phase. Ownership/class checks, identical missing/locked errors, no-store responses, bounded signing, refresh/retry and stale-response cancellation are tested.
 - Student progress/support/findings UI; professor reflection remains ungraded while tutor-quality review remains available.
 - Admin round-trip preserves criteria, reveal text, scripted targets, limits, findings and private media. Superseded versions expose cloning only.
-- New material publication defaults to the private bucket, with cache lifetime zero. Existing-media migration is a separate staged rollout.
+- New material publication defaults to the private bucket, with cache lifetime zero. The existing-media cutover completed on 2026-09-30; the original bucket objects were retained but anonymous access was removed.
 
 ## Automated evidence
 
@@ -47,7 +47,17 @@ A local production build at `127.0.0.1:3213` used memory storage, deterministic 
 
 Screenshots in the original checkout's untracked `output/`: `todos-final-build-summary.jpg`, `todos-final-build-versions.jpg`, `todos-final-build-new-version.jpg`, `todos-professor-review.jpg` and `todos-admin-v2-editor.jpg`.
 
-Production browser acceptance remains pending: the automation browser blocked opening the site, and the user was asked to open it manually and pass the existing password gate. Local browser acceptance is not presented as production-browser acceptance.
+### Production browser smoke (limited read-only)
+
+The original checkout's `output/PRODUCTION_BROWSER_ACCEPTANCE_2026-09-30.md` records a limited online smoke after the existing password gate was passed in Chrome. It is evidence of observed read-only behaviour, not clinical sign-off or a claim that every live flow passed:
+
+- Student home returned five distinct offerings with no repeated case IDs, archived cases, or E2E fixture cards; an existing Case 1 session loaded and its composer stayed in view.
+- Case 1 OPG opened through a private signed Storage URL, returned 200, and zoom worked. The observed student/session payload did not expose raw storage keys, rubric, scripted moves, reveal text, system prompt, or model trace.
+- Existing student summary, Professor queue/review and Admin case/editor views loaded. The review remained read-only; no review, draft, case, assignment, session, or media record was created or deleted.
+- Returning to the case list paused and immediately resumed the existing Case 1 session (both requests returned 200); only pause/resume metadata may have changed, with no answer, score, or summary submitted or rewritten.
+- Case 2 and Case 3 had Begin buttons rather than existing sessions. No new sessions were created, so neither case is claimed as a full live conversation pass. Production answer submission, new summary generation, draft publication and locked-phase media were not repeated in this smoke.
+
+This online read-only check supplements the isolated/local evidence above. The site remains a password-gated demo, and local browser acceptance is not presented as production-browser acceptance.
 
 ## Live read-only and Storage checks
 

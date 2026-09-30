@@ -269,7 +269,7 @@ describe("InMemoryTutorRepository class workflows", () => {
     });
   });
 
-  it("upserts repeated assignment writes that use the same idempotency key", async () => {
+  it("returns the same assignment for an exact retry and rejects a changed payload", async () => {
     const input = {
       classId: DEMO_CLASS_ID,
       caseId: IMPACTED_CANINE_CASE_ID,
@@ -279,10 +279,13 @@ describe("InMemoryTutorRepository class workflows", () => {
       idempotencyKey: "e2e:assignment:canine:student-1",
     };
     const first = await repository.saveAssignment(input, DEMO_PROFESSOR_ID);
-    const second = await repository.saveAssignment({ ...input, dueAt: "2026-12-31T00:00:00.000Z" }, DEMO_PROFESSOR_ID);
+    const second = await repository.saveAssignment(input, DEMO_PROFESSOR_ID);
 
     expect(second.id).toBe(first.id);
     expect((await repository.listAssignments()).filter((item) => item.idempotencyKey === input.idempotencyKey)).toHaveLength(1);
-    expect(second.dueAt).toBe("2026-12-31T00:00:00.000Z");
+    expect(second.dueAt).toBeNull();
+    await expect(repository.saveAssignment({ ...input, dueAt: "2026-12-31T00:00:00.000Z" }, DEMO_PROFESSOR_ID))
+      .rejects.toThrow(/request key was already used/i);
+    expect((await repository.listAssignments()).find((item) => item.id === first.id)?.dueAt).toBeNull();
   });
 });

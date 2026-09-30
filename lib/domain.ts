@@ -130,6 +130,53 @@ export interface AdminOverview {
   openAssignmentCount: number;
   sessionCount: number;
   pendingReviewCount: number;
+  completionRate: number;
+  unclaimedReviewCount: number;
+}
+
+export type StaffReviewFilter = "all" | "available" | "mine" | "claimed" | "completed";
+
+export interface StaffSessionCursor {
+  createdAt: string;
+  id: string;
+}
+
+export interface StaffSessionQuery {
+  limit?: number;
+  /** Opaque cursor returned by StaffSessionPage.nextCursor. */
+  cursor?: string | null;
+  classId?: string;
+  reviewFilter?: StaffReviewFilter;
+}
+
+export interface StaffSessionSummary {
+  session: Pick<LearningSession, "id" | "caseId" | "studentId" | "assignmentId" | "status" | "reviewStatus" | "score" | "createdAt" | "completedAt" | "reviewerId">;
+  case: Pick<ClinicalCase, "id" | "title"> & { version?: number };
+  student: Pick<DemoUser, "id" | "name">;
+  assignment: Pick<CaseAssignment, "id" | "classId"> | null;
+  teachingClass: Pick<TeachingClass, "id" | "name"> | null;
+  reviewClaim: NonNullable<SessionBundle["reviewClaim"]>;
+}
+
+export interface StaffSessionStats {
+  total: number;
+  completed: number;
+  reviewed: number;
+  available: number;
+  mine: number;
+  claimed: number;
+}
+
+export interface StaffAssignmentProgress {
+  sessionCount: number;
+  completedCount: number;
+}
+
+export interface StaffSessionPage {
+  sessions: StaffSessionSummary[];
+  nextCursor: string | null;
+  stats: StaffSessionStats;
+  assignmentProgress: Record<string, StaffAssignmentProgress>;
 }
 
 export interface ReviewClaim {

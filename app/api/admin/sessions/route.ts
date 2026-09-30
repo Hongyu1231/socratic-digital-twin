@@ -1,10 +1,18 @@
 import { requireAdmin } from "@/lib/auth";
 import { errorResponse } from "@/lib/http";
 import { getRepository } from "@/lib/repository";
+import { staffQueryInput } from "@/lib/staff-query-input";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export async function GET() {
-  try { await requireAdmin(); return Response.json({ sessions: await getRepository().listSessions() }); }
+export async function GET(request: Request) {
+  try {
+    await requireAdmin();
+    const parsed = staffQueryInput(request);
+    if (!parsed.success) return Response.json({ error: "Invalid session page query." }, { status: 400 });
+    return Response.json(await getRepository().listStaffSessions(parsed.data), {
+      headers: { "Cache-Control": "private, no-store" },
+    });
+  }
   catch (error) { return errorResponse(error); }
 }

@@ -52,6 +52,12 @@ export interface MaterialPack {
   cases: MaterialCaseEntry[];
   articles: MaterialArticle[];
   media: MaterialMedia[];
+  clinicalReview?: {
+    status: "pending" | "approved";
+    reviewer: string | null;
+    approvedAt: string | null;
+    contentSha256: string;
+  };
   /** Internal server-only root. It is not part of the manifest or any API response. */
   readonly rootDir: string;
 }
@@ -105,6 +111,12 @@ const rawManifestSchema = z.object({
   cases: z.array(z.unknown()).max(500),
   articles: z.array(articleSchema).max(500),
   media: z.array(mediaSchema).max(5_000),
+  clinicalReview: z.object({
+    status: z.enum(["pending", "approved"]),
+    reviewer: z.string().trim().min(1).max(200).nullable(),
+    approvedAt: z.string().datetime({ offset: true }).nullable(),
+    contentSha256: z.string().regex(SHA256),
+  }).strict().optional(),
 }).strict();
 
 interface RawManifestCase {
@@ -250,6 +262,7 @@ export function parseMaterialManifest(raw: unknown, rootDir = ""): MaterialPack 
     cases,
     articles,
     media,
+    ...(envelope.data.clinicalReview ? { clinicalReview: envelope.data.clinicalReview } : {}),
     rootDir,
   };
   Object.defineProperty(pack, "rootDir", { value: rootDir, enumerable: false, writable: false, configurable: false });

@@ -14,6 +14,52 @@ spec.loader.exec_module(module)
 
 
 class ImportTests(unittest.TestCase):
+    def test_scaffold_is_structured_and_requires_clinician_review(self):
+        case_id = module.identity('synthetic-case')
+        first = module.phases(case_id)
+        second = module.phases(case_id)
+
+        self.assertEqual(first, second)
+        self.assertEqual(len(first), 6)
+        self.assertEqual(
+            [criterion['id'] for criterion in first[0]['rubric']],
+            ['p1-record-observation', 'p1-history-exam-context'],
+        )
+        self.assertTrue(all(isinstance(item, dict) for phase in first for item in phase['rubric']))
+        self.assertIn('history or examination detail', first[0]['rubric'][1]['revealText'])
+        self.assertNotIn('crowding', first[0]['rubric'][1]['revealText'])
+        self.assertNotIn('palatally positioned', first[0]['goal'])
+
+        review = module.build_draft_review('a' * 64, [{
+            'caseId': case_id,
+            'sourceDocument': 'synthetic.docx',
+            'phaseCount': len(first),
+            'criterionIds': [item['id'] for phase in first for item in phase['rubric']],
+        }])
+        self.assertEqual(review['status'], 'DRAFT_REQUIRES_CLINICIAN_APPROVAL')
+        self.assertEqual(review['reviewer'], 'Jessica Hoe')
+        self.assertEqual(review['approval'], {
+            'status': 'pending',
+            'reviewer': 'Jessica Hoe',
+            'approvedAt': None,
+        })
+        self.assertTrue(any('source case' in item for item in review['checklist']))
+
+    def test_manifest_review_fingerprint_changes_with_source_content(self):
+        cases = [{'case': {'id': 'case-1'}, 'expertNotes': 'source', 'sourceDocument': 'case.docx'}]
+        articles = [{'id': 'article-1', 'pages': [{'page': 1, 'text': 'source'}]}]
+        media = [{'id': 'media-1', 'sha256': 'a' * 64}]
+
+        review = module.build_clinical_review(cases)
+        changed_cases = [{'case': {'id': 'case-1'}, 'expertNotes': 'changed', 'sourceDocument': 'case.docx'}]
+        changed = module.build_clinical_review(changed_cases)
+
+        self.assertEqual(review['status'], 'pending')
+        self.assertIsNone(review['reviewer'])
+        self.assertIsNone(review['approvedAt'])
+        self.assertRegex(review['contentSha256'], r'^[0-9a-f]{64}$')
+        self.assertNotEqual(review['contentSha256'], changed['contentSha256'])
+
     def document(self, paragraphs):
         doc = Document()
         for text in paragraphs:

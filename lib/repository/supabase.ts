@@ -14,6 +14,8 @@ import type {
   SessionBundle,
   SessionReview,
   SessionSummary,
+  StaffSessionPage,
+  StaffSessionQuery,
   StudentCaseOffering,
   TeachingClass,
   TutorMessage,
@@ -21,7 +23,7 @@ import type {
   RubricCriterion,
 } from "@/lib/domain";
 import { CLASSIFICATION_SCORES } from "@/lib/domain";
-import { ArchivedCaseError, IdempotencyConflictError, SupersededCaseError, type CommitTurnInput, type SaveReviewInput, type TutorRepository } from "@/lib/repository/types";
+import { ArchivedCaseError, AssignmentIdempotencyConflictError, IdempotencyConflictError, SupersededCaseError, type CommitTurnInput, type SaveReviewInput, type TutorRepository } from "@/lib/repository/types";
 import { buildCaseVersionSlug, getCaseLineageId, getNextCaseVersion, getVersionedCaseTitle } from "@/lib/repository/case-version";
 import { buildEvaluationCriteria, readCriteriaMet, readMisconceptionKey } from "@/lib/repository/evaluation-criteria";
 import {
@@ -34,6 +36,12 @@ import { assertCaseStatusTransition } from "@/lib/repository/case-status";
 import { getTutorMode } from "@/lib/tutor";
 import { reconcileLearnerStateEvidence } from "@/lib/tutor/learner-model";
 import { rubricCriterionSchema } from "@/lib/schemas";
+import {
+  decodeStaffSessionCursor,
+  encodeStaffSessionCursor,
+  normalizeStaffSessionLimit,
+  staffReviewState,
+} from "@/lib/repository/staff-session";
 
 type Row = Record<string, any>;
 const HOSTED_PACKAGE_ID = /^[a-f0-9]{64}$/i;
@@ -160,6 +168,52 @@ function mapUser(row: Row): DemoUser {
 
 function mapAssignment(row: Row): CaseAssignment {
   return { id: row.id, classId: row.class_id, caseId: row.case_id, assignedBy: row.assigned_by, status: row.status, opensAt: row.opens_at, dueAt: row.due_at, createdAt: row.created_at, idempotencyKey: row.idempotency_key ?? null, className: row.classes?.name, caseTitle: row.cases?.title };
+}
+
+function normalizeAssignmentTime(value: string | null | undefined) {
+  if (!value) return null;
+  const timestamp = new Date(value).getTime();
+  return Number.isNaN(timestamp) ? value : new Date(timestamp).toISOString();
+}
+
+function sameAssignmentRequest(
+  current: Row,
+  input: Omit<CaseAssignment, "id" | "createdAt" | "assignedBy"> & { id?: string },
+) {
+  return current.class_id === input.classId
+    && current.case_id === input.caseId
+    && current.status === input.status
+    && normalizeAssignmentTime(current.opens_at) === normalizeAssignmentTime(input.opensAt)
+    && normalizeAssignmentTime(current.due_at) === normalizeAssignmentTime(input.dueAt);
+}
+
+function assignmentConflict(error: { code?: string; message?: string } | null) {
+  return Boolean(error && (error.code === "23505" || /idempotency_key|class_case_assignments_idempotency/i.test(error.message ?? "")));
+}
+
+function staffSessionReviewStatus(row: Row): "pending" | "in_review" | "completed" {
+  const context = row.context && typeof row.context === "object" && !Array.isArray(row.context) ? row.context as Row : {};
+  if (context.reviewStatus === "completed") return "completed";
+  if (context.reviewStatus === "in_review") return "in_review";
+  const review = Array.isArray(row.session_reviews) ? row.session_reviews[0] : row.session_reviews;
+  return review?.status === "approved" ? "completed" : "pending";
+}
+
+function staffSessionFromRow(row: Row): Pick<LearningSession, "id" | "caseId" | "studentId" | "assignmentId" | "status" | "reviewStatus" | "score" | "createdAt" | "completedAt" | "reviewerId"> {
+  const context = row.context && typeof row.context === "object" && !Array.isArray(row.context) ? row.context as Row : {};
+  const rawScore = context.score;
+  return {
+    id: row.id,
+    caseId: row.case_id,
+    studentId: row.student_id,
+    assignmentId: row.class_case_assignment_id ?? null,
+    status: row.status,
+    reviewStatus: staffSessionReviewStatus(row),
+    score: typeof rawScore === "number" ? rawScore : rawScore === null || rawScore === undefined ? null : Number(rawScore),
+    createdAt: row.created_at ?? row.started_at,
+    completedAt: row.ended_at ?? null,
+    reviewerId: row.professor_id ?? null,
+  };
 }
 
 function mapClass(row: Row, memberRows: Row[]): TeachingClass {
@@ -391,6 +445,27 @@ export class SupabaseTutorRepository implements TutorRepository {
       usedTutorMoves: [],
       version: 1, updatedAt: now,
     };
+    if (assignmentId) {
+      const { data: sessionId, error: rpcError } = await this.client.rpc("create_session_for_assignment", {
+        p_student_id: studentId,
+        p_assignment_id: assignmentId,
+        p_case_id: caseId,
+        p_first_phase_id: firstPhase.id,
+        p_initial_state: state,
+        p_opening_content: firstPhase.starterQuestion,
+      });
+      if (rpcError) {
+        if (/archived case/i.test(rpcError.message)) throw new ArchivedCaseError();
+        if (/superseded case/i.test(rpcError.message)) throw new SupersededCaseError();
+        throw new Error(`Create session: ${rpcError.message}`);
+      }
+      if (typeof sessionId !== "string" || !sessionId) throw new Error("Create session: the database did not return a session ID.");
+      const resumed = await this.getSession(sessionId);
+      if (!resumed || resumed.session.assignmentId !== assignmentId || resumed.session.messages.length === 0 || !resumed.session.state) {
+        throw new Error("Create session: the database returned an incomplete session.");
+      }
+      return resumed;
+    }
     const { data: sessionData, error: sessionError } = await this.client
       .from("sessions")
       .insert({ case_id: caseId, student_id: studentId, class_case_assignment_id: assignmentId, current_phase_id: firstPhase.id, context: { reviewStatus: "pending" } })
@@ -903,12 +978,30 @@ export class SupabaseTutorRepository implements TutorRepository {
       current = data;
       if (input.id && !current) throw new Error("Assignment not found.");
     }
+    let keyRow: Row | null = null;
+    if (input.id && idempotencyKey) {
+      const { data, error } = await this.client
+        .from("class_case_assignments")
+        .select("*")
+        .eq("idempotency_key", idempotencyKey)
+        .maybeSingle();
+      if (error) throw new Error(`Get case assignment idempotency key: ${error.message}`);
+      keyRow = data;
+      if (keyRow && keyRow.id !== input.id) throw new AssignmentIdempotencyConflictError();
+    }
     const professorClasses = (await this.listClasses(professorId)).filter((item) =>
       item.members.some((member) => member.userId === professorId && member.role === "professor"),
     );
     if (!professorClasses.some((item) => item.id === input.classId)) throw new Error("Professor is outside this class.");
     if (current && !professorClasses.some((item) => item.id === current!.class_id)) {
       throw new Error("Professor is outside this class.");
+    }
+    if (!input.id && current) {
+      if (!sameAssignmentRequest(current, input)) throw new AssignmentIdempotencyConflictError();
+      return (await this.listAssignments(professorId)).find((item) => item.id === current!.id)!;
+    }
+    if (input.id && keyRow && current && !sameAssignmentRequest(current, input)) {
+      throw new AssignmentIdempotencyConflictError();
     }
     const clinicalCase = await this.getCase(input.caseId);
     if (!clinicalCase) throw new Error("Case not found.");
@@ -925,7 +1018,7 @@ export class SupabaseTutorRepository implements TutorRepository {
     const payload = {
       class_id: input.classId,
       case_id: input.caseId,
-      assigned_by: professorId,
+      assigned_by: current?.assigned_by ?? professorId,
       status: input.status,
       opens_at: input.opensAt,
       due_at: input.dueAt,
@@ -934,11 +1027,23 @@ export class SupabaseTutorRepository implements TutorRepository {
     const operation = input.id
       ? this.client.from("class_case_assignments").update(payload).eq("id", input.id).select("id").single()
       : idempotencyKey
-      ? this.client.from("class_case_assignments").upsert(payload, { onConflict: "idempotency_key" }).select("id").single()
+      ? this.client.from("class_case_assignments").insert(payload).select("id").single()
       : this.client.from("class_case_assignments").insert(payload).select("id").single();
     const { data, error } = await operation;
     if (error && /assignments may target only active cases/i.test(error.message)) {
       throw new Error("Case assignment conflict: only active cases can be assigned.");
+    }
+    if (error && idempotencyKey && assignmentConflict(error)) {
+      const { data: conflictRow, error: conflictReadError } = await this.client
+        .from("class_case_assignments")
+        .select("*")
+        .eq("idempotency_key", idempotencyKey)
+        .maybeSingle();
+      if (conflictReadError) throw new Error(`Read assignment idempotency conflict: ${conflictReadError.message}`);
+      if (conflictRow && sameAssignmentRequest(conflictRow, input)) {
+        return (await this.listAssignments(professorId)).find((item) => item.id === conflictRow.id)!;
+      }
+      throw new AssignmentIdempotencyConflictError();
     }
     const id = must(data, error, "Save assignment").id;
     return (await this.listAssignments(professorId)).find((item) => item.id === id)!;
@@ -1033,6 +1138,97 @@ export class SupabaseTutorRepository implements TutorRepository {
     return offerings;
   }
 
+  async listStaffSessions(query: StaffSessionQuery = {}, professorId?: string): Promise<StaffSessionPage> {
+    return this.listStaffSessionsViaRpc(query, professorId);
+  }
+
+  private async listStaffSessionsViaRpc(query: StaffSessionQuery = {}, professorId?: string): Promise<StaffSessionPage> {
+    const limit = normalizeStaffSessionLimit(query.limit);
+    const cursor = decodeStaffSessionCursor(query.cursor);
+    const reviewFilter = query.reviewFilter ?? "all";
+    const [pageResult, rollupResult] = await Promise.all([
+      this.client.rpc("list_staff_session_summaries", {
+        p_professor_id: professorId ?? null,
+        p_class_id: query.classId ?? null,
+        p_review_filter: reviewFilter,
+        p_cursor_created_at: cursor?.createdAt ?? null,
+        p_cursor_id: cursor?.id ?? null,
+        p_limit: limit,
+      }),
+      this.client.rpc("get_staff_session_rollup", {
+        p_professor_id: professorId ?? null,
+        p_class_id: query.classId ?? null,
+      }),
+    ]);
+    if (pageResult.error) throw new Error(`List staff sessions: ${pageResult.error.message}`);
+    if (rollupResult.error) throw new Error(`Roll up staff sessions: ${rollupResult.error.message}`);
+    const pageRows = (pageResult.data ?? []) as Row[];
+    const rawRollup = Array.isArray(rollupResult.data) ? rollupResult.data[0] : rollupResult.data;
+    const rollup = (rawRollup ?? {}) as Row;
+    const stats = {
+      total: Number(rollup.total ?? 0),
+      completed: Number(rollup.completed ?? 0),
+      reviewed: Number(rollup.reviewed ?? 0),
+      available: Number(rollup.available ?? 0),
+      mine: Number(rollup.mine ?? 0),
+      claimed: Number(rollup.claimed ?? 0),
+    };
+    const assignmentProgress = (rollup.assignment_progress && typeof rollup.assignment_progress === "object")
+      ? Object.fromEntries(Object.entries(rollup.assignment_progress as Record<string, Row>).map(([id, value]) => [id, {
+        sessionCount: Number(value.sessionCount ?? value.session_count ?? 0),
+        completedCount: Number(value.completedCount ?? value.completed_count ?? 0),
+      }]))
+      : {};
+    const hasMore = pageRows.length > limit;
+    const visibleRows = pageRows.slice(0, limit);
+    const summaries = visibleRows.map((row) => {
+      const session = staffSessionFromRow({
+        id: row.session_id,
+        case_id: row.case_id,
+        student_id: row.student_id,
+        class_case_assignment_id: row.assignment_id,
+        status: row.session_status,
+        professor_id: row.reviewer_id,
+        context: { reviewStatus: row.review_status, score: row.score },
+        created_at: row.created_at,
+        ended_at: row.completed_at,
+      });
+      const state = staffReviewState(session, professorId);
+      const claimState: NonNullable<SessionBundle["reviewClaim"]>["state"] = state === "claimed" ? "other" : state === "mine" ? "mine" : state === "completed" ? "completed" : "unclaimed";
+      return {
+        session: {
+          id: session.id,
+          caseId: session.caseId,
+          studentId: session.studentId,
+          assignmentId: session.assignmentId ?? null,
+          status: session.status,
+          reviewStatus: session.reviewStatus,
+          score: session.score,
+          createdAt: session.createdAt,
+          completedAt: session.completedAt,
+          reviewerId: session.reviewerId ?? null,
+        },
+        case: { id: row.case_id, title: row.case_title, ...(row.case_version === undefined || row.case_version === null ? {} : { version: Number(row.case_version) }) },
+        student: { id: row.student_id, name: row.student_name },
+        assignment: { id: row.assignment_id, classId: row.assignment_class_id },
+        teachingClass: { id: row.assignment_class_id, name: row.class_name },
+        reviewClaim: {
+          reviewerId: session.reviewerId ?? null,
+          reviewerName: row.reviewer_name ?? null,
+          state: claimState,
+          canEdit: session.reviewStatus !== "completed" && (!session.reviewerId || session.reviewerId === professorId),
+        },
+      };
+    });
+    const last = visibleRows.at(-1);
+    return {
+      sessions: summaries,
+      nextCursor: hasMore && last ? encodeStaffSessionCursor({ createdAt: last.created_at, id: last.session_id }) : null,
+      stats,
+      assignmentProgress,
+    };
+  }
+
   async listSessionsForProfessor(professorId: string): Promise<SessionBundle[]> {
     const assignmentIds = new Set((await this.listAssignments(professorId)).map((item) => item.id));
     const sessions = (await this.listSessions()).filter((item) => item.session.assignmentId && assignmentIds.has(item.session.assignmentId));
@@ -1041,8 +1237,35 @@ export class SupabaseTutorRepository implements TutorRepository {
   }
 
   async getAdminOverview(): Promise<AdminOverview> {
-    const [users, classes, assignments, sessions] = await Promise.all([this.listUsers(), this.listClasses(), this.listAssignments(), this.listSessions()]);
-    return { userCount: users.length, classCount: classes.length, openAssignmentCount: assignments.filter((item) => item.status === "open").length, sessionCount: sessions.length, pendingReviewCount: sessions.filter((item) => item.session.status === "completed" && item.session.reviewStatus !== "completed").length };
+    return this.getStaffOverviewCounts();
+  }
+
+  private async getStaffOverviewCounts(): Promise<AdminOverview> {
+    const count = async (table: string, filter?: (query: any) => any) => {
+      let query: any = this.client.from(table).select("id", { count: "exact", head: true });
+      if (filter) query = filter(query);
+      const { count: total, error } = await query;
+      if (error) throw new Error(`Count ${table}: ${error.message}`);
+      return total ?? 0;
+    };
+    const [userCount, classCount, openAssignmentCount, sessionCount, completedCount, pendingReviewCount, unclaimedReviewCount] = await Promise.all([
+      count("users"),
+      count("classes"),
+      count("class_case_assignments", (query) => query.eq("status", "open")),
+      count("sessions"),
+      count("sessions", (query) => query.eq("status", "completed")),
+      count("sessions", (query) => query.eq("status", "completed").or("context->>reviewStatus.is.null,context->>reviewStatus.neq.completed")),
+      count("sessions", (query) => query.eq("status", "completed").is("professor_id", null).or("context->>reviewStatus.is.null,context->>reviewStatus.neq.completed")),
+    ]);
+    return {
+      userCount,
+      classCount,
+      openAssignmentCount,
+      sessionCount,
+      pendingReviewCount,
+      completionRate: sessionCount ? Math.round((completedCount / sessionCount) * 100) : 0,
+      unclaimedReviewCount,
+    };
   }
 
   async reassignReview(sessionId: string, professorId: string | null) {

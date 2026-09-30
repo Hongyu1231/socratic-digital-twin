@@ -17,6 +17,8 @@ vi.mock("@/lib/repository", () => ({
   getRepository: mocks.getRepository,
 }));
 
+vi.mock("@/lib/case-media", () => ({ prepareStudentMedia: vi.fn(async () => []) }));
+
 import { POST } from "@/app/api/professor/review/route";
 
 const sessionId = "11111111-1111-4111-8111-111111111111";
@@ -73,6 +75,7 @@ describe("professor review API", () => {
     }));
 
     expect(response.status).toBe(200);
+    expect(repository.listSessionsForProfessor).not.toHaveBeenCalled();
     expect(repository.saveReview).toHaveBeenCalledWith(expect.objectContaining({
       reviews: [{ evaluationId: gradedEvaluationId, label: "partial", comments: "Needs a clearer link." }],
       tutorReviews: [expect.objectContaining({ evaluationId: reflectionEvaluationId })],

@@ -251,6 +251,14 @@ describe("support and repeated-question safeguards", () => {
     expect(question).toContain("?");
   });
 
+  it("falls back to legacy string rubric text for a review point", () => {
+    const legacyPhase = phase({ rubric: ["Name the visible observation", "Link it to the supplied record"] });
+    const question = supportQuestion(legacyPhase, progress({ supportLevel: 2, criteriaMet: ["r1"] }));
+
+    expect(question).toContain("Link it to the supplied record.");
+    expect(question).toContain("How would you apply this point");
+  });
+
   it("uses an unused example or a deterministic fallback for an exact duplicate", () => {
     const current = "Which finding matters most?";
     const next = avoidRepeatedQuestion(current, [current], phase({ exampleQuestions: ["Which record supports that observation?"] }), 4);

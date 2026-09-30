@@ -27,6 +27,9 @@ async function save(request: Request) {
   }
   const parsed = assignmentInputSchema.safeParse({ status: "open", ...candidate, id: assignmentId });
   if (!parsed.success) return Response.json({ error: parsed.error.issues[0]?.message ?? "Invalid assignment." }, { status: 400 });
+  if (!assignmentId && !parsed.data.idempotencyKey) {
+    return Response.json({ error: "A stable idempotencyKey is required when creating an assignment. Reuse it when retrying the same request." }, { status: 400 });
+  }
   return Response.json({ assignment: await getRepository().saveAssignment(parsed.data, professor.id) });
 }
 

@@ -63,7 +63,7 @@ export const assignmentInputSchema = z.object({
   opensAt: z.string().datetime({ offset: true }),
   dueAt: z.string().datetime({ offset: true }).nullable().default(null),
   idempotencyKey: z.string().trim().min(1).max(160).nullable().optional(),
-}).refine((value) => !value.dueAt || value.dueAt > value.opensAt, {
+}).refine((value) => !value.dueAt || Date.parse(value.dueAt) > Date.parse(value.opensAt), {
   message: "Due date must be after the opening date.",
 });
 

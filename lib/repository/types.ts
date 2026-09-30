@@ -11,6 +11,8 @@ import type {
   SessionBundle,
   SessionReview,
   SessionSummary,
+  StaffSessionPage,
+  StaffSessionQuery,
   StudentCaseOffering,
   TeachingClass,
   TutorMessage,
@@ -45,6 +47,16 @@ export class IdempotencyConflictError extends Error {
   constructor(message = "This client request ID was already used with different content.") {
     super(message);
     this.name = "IdempotencyConflictError";
+  }
+}
+
+/** Raised when an assignment idempotency key is reused with a different payload. */
+export class AssignmentIdempotencyConflictError extends Error {
+  readonly code = "ASSIGNMENT_IDEMPOTENCY_CONFLICT" as const;
+
+  constructor(message = "This assignment request key was already used with different details.") {
+    super(message);
+    this.name = "AssignmentIdempotencyConflictError";
   }
 }
 
@@ -114,6 +126,7 @@ export interface TutorRepository {
   cloneCase(caseId: string, adminId: string): Promise<ClinicalCase>;
   listAssignments(professorId?: string): Promise<CaseAssignment[]>;
   saveAssignment(input: Omit<CaseAssignment, "id" | "createdAt" | "assignedBy"> & { id?: string }, professorId: string): Promise<CaseAssignment>;
+  listStaffSessions(query: StaffSessionQuery, professorId?: string): Promise<StaffSessionPage>;
   listStudentOfferings(studentId: string): Promise<StudentCaseOffering[]>;
   listSessionsForProfessor(professorId: string): Promise<SessionBundle[]>;
   getAdminOverview(): Promise<AdminOverview>;

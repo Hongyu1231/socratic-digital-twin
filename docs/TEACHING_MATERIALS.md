@@ -1,5 +1,22 @@
 # Local teaching materials
 
+## Clinical content review boundary
+
+New importer-generated teaching phases are **drafts**, not faculty-approved scripts.
+Their manifest contains `clinicalReview` with a pending status and a SHA-256 digest
+of the exact case entries (recursively sorted keys, compact UTF-8 JSON). A review
+sidecar is a checklist, not permission to publish. Local in-memory evaluation and
+staging without `--publish` remain available. The publisher rejects `--publish`
+while review is pending, when the content hash is stale, or when an approved
+record lacks the reviewing faculty member and approval timestamp. Record approval
+only after the faculty reviewer actually confirms the corresponding content.
+Do not remove the marker to bypass review. Existing legacy packs remain readable;
+their absence of review metadata is not evidence of clinical approval.
+
+Imported case descriptions, expert interviews, and literature are source evidence,
+not interchangeable patient records. Do not attach a newer case's image to an old
+script-only case without an explicit source-to-case match.
+
 The importer prepares DOCX case descriptions, case images and PDF literature for
 local tutor testing. This is retrieval at question time, not model fine-tuning.
 The original archives and their extracted content stay in an ignored local
@@ -78,11 +95,15 @@ or diagnostic image change is applied. Embedded file metadata is stripped; this
 does **not** remove patient details burned into the pixels. Image titles describe
 the supplied modality and do not invent findings. The text tutor uses expert
 notes and learner observations; it must not claim to have inspected image pixels.
-When a pack is explicitly published, the same registered WebP objects are served
-from the public teaching-media bucket and the reference manifest is kept in a
-private teaching-reference bucket. The public case stores only a package pointer
-and the allowlisted media metadata; expert notes and article passages stay in the
-private reference object and are read by the server runtime.
+When a pack is explicitly published through the current publisher, the registered
+WebP objects are uploaded to the private `teaching-case-media-private` bucket and
+the reference manifest is kept in the private `teaching-material-references`
+bucket. The case stores only a package pointer, allowlisted media metadata and a
+server-owned storage path; authorized session reads receive short-lived signed
+URLs. A signed URL is a bearer capability until expiry and cannot revoke an
+already downloaded or cached copy. The legacy `teaching-case-media` bucket is not
+an anonymous access path after the private-media cutover. Expert notes and article
+passages stay in the private reference object and are read by the server runtime.
 
 ## Verification
 
@@ -147,8 +168,12 @@ The existing public POC exposes seeded demo roles. The importer remains local-on
 and `TUTOR_MATERIALS_DIR` must stay unset on Vercel. Do not copy the archives,
 PDFs, original DOCX files, or the manifest into `public/`, migrations, seed data,
 or Git. The publication command uploads only the validated WebP attachments to
-`teaching-case-media` and stores the full reference manifest (including expert
-notes and article passages) in the private `teaching-material-references` bucket.
+the private `teaching-case-media-private` bucket by default and stores the full
+reference manifest (including expert notes and article passages) in the private
+`teaching-material-references` bucket. `--private-media` is retained as a
+compatibility flag; do not publish patient material through the legacy public
+media mode. Real patient or IRB media still requires real authentication,
+resource-level access control and an approved handling workflow.
 
 The command is dry-run by default. It validates every manifest attachment, file
 hash, WebP signature, package id and path boundary, then prints counts and stable

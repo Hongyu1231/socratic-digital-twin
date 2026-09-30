@@ -2,9 +2,16 @@ import { NextResponse } from "next/server";
 import { AuthError } from "@/lib/auth";
 import type { ClinicalCase, SessionBundle, SessionSummary, StudentCaseOffering } from "@/lib/domain";
 import type { StudentCase, StudentOffering, StudentSessionBundle } from "@/lib/student-contract";
-import { ArchivedCaseError, SupersededCaseError } from "@/lib/repository/types";
+import { ArchivedCaseError, AssignmentIdempotencyConflictError, SupersededCaseError } from "@/lib/repository/types";
+import { StaffSessionCursorError } from "@/lib/repository/staff-session";
 
 export function errorResponse(error: unknown) {
+  if (error instanceof AssignmentIdempotencyConflictError) {
+    return NextResponse.json({ error: error.message, code: error.code }, { status: 409 });
+  }
+  if (error instanceof StaffSessionCursorError) {
+    return NextResponse.json({ error: error.message, code: error.code }, { status: 400 });
+  }
   if (error instanceof AuthError) {
     return NextResponse.json({ error: error.message }, { status: error.status });
   }

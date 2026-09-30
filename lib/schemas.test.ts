@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 import { assignmentInputSchema, caseAttachmentInputSchema, caseInputSchema, summaryOutputSchema } from "@/lib/schemas";
 
 describe("assignment input schema", () => {
+  it("compares deadlines as instants rather than lexicographic time zones", () => {
+    const base = { classId: "11111111-1111-4111-8111-111111111111", caseId: "22222222-2222-4222-8222-222222222222", opensAt: "2026-09-30T10:00:00+08:00" };
+    expect(assignmentInputSchema.safeParse({ ...base, dueAt: "2026-09-30T04:00:00Z" }).success).toBe(true);
+    expect(assignmentInputSchema.safeParse({ ...base, dueAt: "2026-09-30T11:00:00+10:00" }).success).toBe(false);
+    expect(assignmentInputSchema.safeParse({ ...base, dueAt: "2026-09-30T02:00:00Z" }).success).toBe(false);
+  });
   const validAssignment = {
     classId: "55555555-5555-4555-8555-555555555555",
     caseId: "33333333-3333-4333-8333-333333333333",

@@ -10,12 +10,19 @@ import json
 import logging
 from pathlib import Path, PurePosixPath
 import re
+import sys
 import uuid
 import zipfile
 
 from docx import Document
 import pdfplumber
 from PIL import Image
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from draft_clinical_content import build_clinical_review, build_draft_phases, build_draft_review
 
 logging.getLogger('pdfminer').setLevel(logging.ERROR)
 NAMESPACE = uuid.UUID('4c8740eb-bbc0-4198-8bc7-c35b5ba42e0c')
@@ -62,45 +69,8 @@ def docx_sections(data):
     return description, background
 
 
-# This is an application-authored teaching scaffold, not instructions imported
-# from the source documents. Case-specific diagnostic facts stay in expertNotes.
-PHASES = [
-    ('Observe the records', 'Describe visible findings before forming a diagnosis.',
-     ['Identify a specific observable finding and its tooth or region.', 'Distinguish observations from assumptions and relate them to the presenting concern.'],
-     'After opening the OPG and clinical photographs, which finding would you investigate first?',
-     ['Which feature in the record supports that observation?', 'How does that finding relate to the presenting concern?']),
-    ('Localise the canine', 'Reason about position using the supplied imaging and its limitations.',
-     ['Support localisation using identified records and acknowledge two-dimensional overlap.', 'Explain what additional imaging would change management before requesting it.'],
-     'What can the available images establish about the canine position?',
-     ['Which image best supports your proposed location?', 'What uncertainty remains with the available projection?']),
-    ('Assess risk', 'Prioritise adjacent structures and patient-specific risk.',
-     ['Evaluate possible adjacent incisor root resorption and distinguish risk from confirmed findings.', 'Connect the available case evidence to the priority and uncertainty of the risk assessment.'],
-     'Which adjacent structure deserves the closest assessment, and why?',
-     ['Which supplied finding supports the risk you identified?', 'What evidence would distinguish a possible risk from established damage?']),
-    ('Build the problem list', 'Integrate dental, skeletal and soft-tissue evidence into a justified problem list.',
-     ['Integrate occlusion, space and skeletal observations with supporting records.', 'Prioritise the problems while identifying uncertainty and unresolved discrepancies.'],
-     'How would you organise a problem list from the records you have reviewed?',
-     ['Which observation has the largest effect on your problem list?', 'How do the dental and skeletal observations relate?']),
-    ('Compare management options', 'Compare options using patient factors and appropriately qualified literature evidence.',
-     ['Compare management alternatives using age, space, canine position and adjacent root risk.', 'Explain limitations of case reports and individualise any literature-based choice.'],
-     'Which management options would you compare for this case?',
-     ['Which patient-specific factor most changes your preferred option?', 'What limitation in the evidence could change your choice?']),
-    ('Reflect and review', 'Defend a provisional plan and identify the decision most sensitive to uncertainty.',
-     ['Justify a provisional plan using the most relevant case evidence.', 'Identify a key uncertainty and explain how new evidence would change the plan.'],
-     'Which finding or uncertainty had the greatest influence on your provisional plan?',
-     ['What evidence would make you reconsider your plan?', 'What would you change in your reasoning after reviewing this case?']),
-]
-
-
 def phases(case_id):
-    return [dict(id=identity(case_id + ':phase:' + str(i)), caseId=case_id, order=i,
-                 title=title, goal=goal, rubric=rubric, starterQuestion=question,
-                 exampleQuestions=examples, tutorGuidance=[
-                     'Use the separately supplied expert background to evaluate a student claim; never volunteer the hidden diagnosis.',
-                     'Images are available to the learner. You receive descriptions and expert notes, not pixels; never claim you personally inspected a radiograph.',
-                     'Do not infer absent clinical details or transfer the findings of a literature patient to this case.',
-                 ], tutorMoves=[])
-            for i, (title, goal, rubric, question, examples) in enumerate(PHASES, 1)]
+    return build_draft_phases(case_id, identity)
 
 
 def build(cases_zip, articles_zip, output):
@@ -153,7 +123,10 @@ def build(cases_zip, articles_zip, output):
         if not attachments or not any('(OPG)' in a['title'] for a in attachments):
             raise ValueError('Every case must include its own OPG')
         clinical_case = dict(id=case_id, title=f'{label} - Canine assessment', description=description,
-            difficulty='advanced', status='available', learningObjectives=[
+            # The local pack loader intentionally exposes imported cases as
+            # available for private testing, but the source manifest remains a
+            # draft and is accompanied by an explicit clinician-review sidecar.
+            difficulty='advanced', status='draft', learningObjectives=[
                 'Describe and localise findings using the supplied records.',
                 'Assess adjacent root risk and justify a provisional plan.',
                 'Evaluate published evidence with its limitations.',
@@ -174,17 +147,34 @@ def build(cases_zip, articles_zip, output):
             raise ValueError(f'PDF needs OCR before import: {filename}')
         articles.append(dict(id=identity(digest(data)), title=re.sub(r'^\d+\.\s*', '', PurePosixPath(filename).stem),
             filename=filename, sha256=digest(data), pages=pages))
-    manifest = dict(formatVersion=1, packageId=package_id, cases=cases, articles=articles, media=media)
+    clinical_review = build_clinical_review(cases)
+    manifest = dict(formatVersion=1, packageId=package_id, cases=cases, articles=articles, media=media,
+                    clinicalReview=clinical_review)
+    draft_review = build_draft_review(package_id, [
+        {
+            'caseId': item['case']['id'],
+            'sourceDocument': item['sourceDocument'],
+            'phaseCount': len(item['case']['phases']),
+            'criterionIds': [
+                criterion['id']
+                for phase in item['case']['phases']
+                for criterion in phase['rubric']
+            ],
+        }
+        for item in cases
+    ])
+    draft_review['contentSha256'] = clinical_review['contentSha256']
     (output / 'media').mkdir(parents=True, exist_ok=True)
     for filename, data in images.items():
         (output / filename).write_bytes(data)
     temporary = output / 'manifest.tmp'
     temporary.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
     temporary.replace(output / 'manifest.json')
+    (output / 'draft-review.json').write_text(json.dumps(draft_review, ensure_ascii=False, indent=2), encoding='utf-8')
     report = dict(cases=len(cases), images=len(media), articles=len(articles), pages=sum(len(a['pages']) for a in articles),
                   sourceImageBytes=source_bytes, losslessImageBytes=converted_bytes,
                   textCharacters=sum(len(p['text']) for a in articles for p in a['pages']),
-                  packageId=package_id, output=str(output))
+                  packageId=package_id, output=str(output), draftReviewStatus=draft_review['status'])
     (output / 'import-report.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
     print(json.dumps(report, indent=2))
 

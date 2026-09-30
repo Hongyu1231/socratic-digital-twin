@@ -102,6 +102,13 @@ class ExpertInterviewImportTests(unittest.TestCase):
             root = Path(directory) / "pack"
             root.mkdir()
             manifest = self.make_pack(root)
+            manifest["clinicalReview"] = {
+                "status": "approved",
+                "reviewer": "Previously approved reviewer",
+                "approvedAt": "2026-09-01T00:00:00Z",
+                "contentSha256": "f" * 64,
+            }
+            (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
             doc = Path(directory) / "panel.docx"
             doc.write_bytes(self.make_document(paragraphs))
             output = Path(directory) / "revision"
@@ -109,6 +116,13 @@ class ExpertInterviewImportTests(unittest.TestCase):
             result = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
             self.assertFalse(report["noop"])
             self.assertEqual(result["packageId"], MODULE.revision_package_id("a" * 64, MODULE.sha256(doc.read_bytes())))
+            self.assertEqual(result["clinicalReview"]["status"], "pending")
+            self.assertIsNone(result["clinicalReview"]["reviewer"])
+            self.assertIsNone(result["clinicalReview"]["approvedAt"])
+            self.assertEqual(
+                result["clinicalReview"]["contentSha256"],
+                MODULE.build_clinical_review(result["cases"])["contentSha256"],
+            )
             self.assertEqual(len(result["cases"]), len(manifest["cases"]))
             article = next(item for item in result["articles"] if item.get("sourceType") == "expert_interview")
             self.assertRegex(article["id"], MODULE.UUID_RE)

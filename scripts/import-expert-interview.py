@@ -28,6 +28,7 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 import stat
+import sys
 import tempfile
 import unicodedata
 import uuid
@@ -35,6 +36,13 @@ import zipfile
 from typing import Any, Iterable
 
 from docx import Document
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from draft_clinical_content import build_clinical_review
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -661,6 +669,12 @@ def build(document: Path, pack_dir: Path, output: Path) -> dict[str, Any]:
     else:
         target_manifest["packageId"] = expected_package_id
         target_manifest["articles"].append(article)
+
+    # Adding or re-importing expert material creates a new reviewable content
+    # revision.  Keep the approval marker in the raw manifest and invalidate
+    # any previous approval because the source-backed case payload may have
+    # changed since that approval was recorded.
+    target_manifest["clinicalReview"] = build_clinical_review(target_manifest["cases"])
 
     output_path = _absolute(output)
     _reject_public_or_repo_root(output_path, "Output directory")

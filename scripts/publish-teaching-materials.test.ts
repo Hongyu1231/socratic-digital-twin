@@ -10,6 +10,7 @@ import {
   buildPrivateManifestPayload,
   buildPublicationPlan,
   createAssignments,
+  clinicalContentHash,
   isMissingStorageObjectError,
   uploadIfMissing,
   validateManifest,
@@ -105,6 +106,69 @@ afterEach(() => {
 });
 
 describe("teaching-material publication boundary", () => {
+  it("stages marked clinical drafts but blocks publication without faculty approval", () => {
+    const fixture = makeFixture();
+    fixture.manifest.clinicalReview = { status: "pending", reviewer: null, approvedAt: null, contentSha256: clinicalContentHash(fixture.manifest.cases) };
+    const manifest = validateManifest(fixture.manifest, fixture.root);
+    const options = { manifest, supabaseUrl: "https://example.supabase.co", classId: uuid("class"), professorId: uuid("prof"), adminId: uuid("admin") };
+    expect(buildPublicationPlan(options).assignments).toHaveLength(0);
+    expect(() => buildPublicationPlan({ ...options, publish: true })).toThrow(/faculty approval/);
+    expect(buildPrivateManifestPayload(manifest).clinicalReview.status).toBe("pending");
+  });
+
+  it("rejects stale or unattributed approval and preserves a valid approval through normalization", () => {
+    const fixture = makeFixture();
+    fixture.manifest.clinicalReview = { status: "approved", reviewer: "Test faculty", approvedAt: "2026-09-30T10:00:00Z", contentSha256: clinicalContentHash(fixture.manifest.cases) };
+    const manifest = validateManifest(fixture.manifest, fixture.root);
+    expect(buildPublicationPlan({ manifest, supabaseUrl: "https://example.supabase.co", classId: uuid("class"), professorId: uuid("prof"), adminId: uuid("admin"), publish: true }).assignments).toHaveLength(1);
+    expect(() => validateManifest(buildPrivateManifestPayload(manifest), fixture.root)).not.toThrow();
+    fixture.manifest.clinicalReview.reviewer = "";
+    expect(() => validateManifest(fixture.manifest, fixture.root)).toThrow(/reviewer/);
+    fixture.manifest.clinicalReview.reviewer = "Test faculty";
+    fixture.manifest.cases[0].case.phases[0].goal = "Changed after approval";
+    expect(() => validateManifest(fixture.manifest, fixture.root)).toThrow(/stale/);
+  });
+  it("requires strict clinical-review metadata for pending packs and normalizes accepted values", () => {
+    const fixture = makeFixture();
+    const hash = clinicalContentHash(fixture.manifest.cases);
+    const invalidReviews = [
+      { status: "pending", approvedAt: null, contentSha256: hash },
+      { status: "pending", reviewer: null, contentSha256: hash },
+      { status: "pending", reviewer: "   ", approvedAt: null, contentSha256: hash },
+      { status: "pending", reviewer: null, approvedAt: "2026-09-30T10:00:00", contentSha256: hash },
+      { status: "pending", reviewer: null, approvedAt: null, contentSha256: hash, unexpected: true },
+    ];
+    for (const clinicalReview of invalidReviews) {
+      fixture.manifest.clinicalReview = clinicalReview;
+      expect(() => validateManifest(fixture.manifest, fixture.root)).toThrow(/Clinical review metadata is invalid/);
+    }
+
+    fixture.manifest.clinicalReview = {
+      status: "pending",
+      reviewer: "  Faculty reviewer  ",
+      approvedAt: null,
+      contentSha256: hash.toUpperCase(),
+    };
+    const manifest = validateManifest(fixture.manifest, fixture.root);
+    expect(manifest.clinicalReview).toEqual({
+      status: "pending",
+      reviewer: "Faculty reviewer",
+      approvedAt: null,
+      contentSha256: hash,
+    });
+  });
+
+  it("requires an offset-bearing timestamp before an approved pack can publish", () => {
+    const fixture = makeFixture();
+    fixture.manifest.clinicalReview = {
+      status: "approved",
+      reviewer: "Test faculty",
+      approvedAt: "2026-09-30T10:00:00",
+      contentSha256: clinicalContentHash(fixture.manifest.cases),
+    };
+    expect(() => validateManifest(fixture.manifest, fixture.root)).toThrow(/Clinical review metadata is invalid/);
+  });
+
   it("does not apply long public caching to private signed media", async () => {
     const upload = vi.fn().mockResolvedValue({ error: null });
     const client = { storage: { from: () => ({ download: async () => ({ data: null, error: { name: "NotFound" } }), upload }) } };

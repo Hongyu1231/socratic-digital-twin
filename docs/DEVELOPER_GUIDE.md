@@ -178,6 +178,10 @@ Tutor provider output is untrusted. Keep the shared Zod output schema small and 
 
 The versioned Tutor input must remain grounded in the authoritative case narrative, attachment descriptions/transcripts, phase rubric/guidance, recent dialogue, and bounded learner memory. Do not give a live provider less clinical context than the deterministic/scripted path, and do not expose those hidden teaching details to the student as an answer. Map a correct conclusion with flawed or absent reasoning to `partial`, and evaluate an explicit within-answer self-correction by the learner's final position.
 
+The v2 progression contract is criteria-based: structured criterion evidence accumulates across turns, and a phase can complete when all current-phase criteria are evidenced without a blocking scripted move; an individual `correct` label is not the only route to advancement. When no-progress limits or the phase ceiling escalate to hypothetical then reveal/application support, the resulting completion is marked `completedWithSupport` and must not be described as independent mastery. The final reflection is a separate, recorded turn and is excluded from the reasoning score.
+
+Keep the Tutor question-only by default. The sole deliberate correction exception is the application-owned prefix after the configured one or two consecutive high-confidence `wrong` turns in the same phase. It must never fire for `partial`, `vague`, low-confidence `wrong`, or reflection turns. This rule belongs in the state machine/correction policy, not in prompt text alone.
+
 Do not:
 
 - request or store hidden chain-of-thought;
@@ -186,6 +190,8 @@ Do not:
 - remove deterministic fallback without replacing its acceptance coverage.
 
 Changes to Tutor behavior should receive a new prompt version and be evaluated through the frozen-dataset workflow described in `docs/HUMANIZATION_PLAN.md`.
+
+Case media is served from the fixed private `teaching-case-media-private` bucket through server-generated short-lived signed URLs after session, class/role, attachment, and phase checks. A signed URL is a bearer capability until expiry; changing bucket privacy cannot revoke a link already copied or cached. Never place a service key or raw storage key in a student/session response; an authorized Admin editor may handle the storage path needed to manage a draft. Real patient/IRB media requires institutional authentication and an approved privacy/handling workflow before upload; the seeded identity switcher and site password are not substitutes.
 
 ### Database changes
 

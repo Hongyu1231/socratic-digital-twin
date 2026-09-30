@@ -58,6 +58,16 @@ afterEach(() => {
 });
 
 describe("local teaching material pack", () => {
+  it("keeps pending clinical review metadata server-side while permitting isolated local evaluation", () => {
+    const review = { status: "pending", reviewer: null, approvedAt: null, contentSha256: "a".repeat(64) };
+    const root = createPackRoot({ clinicalReview: review });
+    process.env.TUTOR_MATERIALS_DIR = root;
+    process.env.FORCE_MEMORY_REPOSITORY = "true";
+    delete process.env.VERCEL;
+    const pack = getMaterialPack();
+    expect(pack?.clinicalReview).toEqual(review);
+    expect(pack?.cases[0].case).not.toHaveProperty("clinicalReview");
+  });
   it("returns null when the local pack is not configured", () => {
     delete process.env.TUTOR_MATERIALS_DIR;
     process.env.FORCE_MEMORY_REPOSITORY = "true";

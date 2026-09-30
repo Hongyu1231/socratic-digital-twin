@@ -6,7 +6,7 @@
 
 这是一个教学概念验证（POC），用于演示“Admin 组织教学 → Professor 布置病例 → Student 完成苏格拉底式推理 → Professor 复核 → Admin 观察全局状态”的闭环。
 
-它不是临床诊断系统，不包含真实患者数据，也没有正式注册、OAuth 或 Supabase Auth。身份来自预置用户，并通过服务端签名的 HttpOnly Cookie 保存。
+它不是临床诊断系统，不包含真实患者数据，也没有正式注册、OAuth 或 Supabase Auth。身份来自预置用户，并通过服务端签名的 HttpOnly Cookie 保存。真实患者或 IRB 影像在上传前必须接入机构认证、资源级访问控制和获批准的数据处理流程；Demo 身份切换器与站点密码不能替代正式认证。
 
 ## 2. 技术栈与要求
 
@@ -120,10 +120,12 @@ flowchart LR
 4. 先按分类应用匹配的脚本化 tutor move，再生成一条学生消息、评价、学习记忆补丁和一个追问；这些隐藏教学内容不能直接作为答案透露给学生。
 5. 仅合并白名单字段：错误、强项、弱项、掌握度和下一策略。
 6. 使用 `expectedVersion` 做乐观并发控制并原子持久化本轮。
-7. 只有满足当前目标的 `correct` 推理才能推进；作答次数不会代替胜任度。
-8. 最终阶段先完成反思性追问再生成总结；学生也可以提前结束并生成 `completedAllPhases=false` 的总结。
+7. 结构化阶段根据跨轮累积的 criteria evidence 推进，不以单次 `correct` 分类作为唯一条件；作答次数不会代替胜任度。通过 tutor support 的推进不等同于 mastery。
+8. 最终阶段先完成单独的反思性追问再生成总结；反思会记录但不计入 reasoning score。学生也可以提前结束并生成 `completedAllPhases=false` 的总结。
 
-结论正确但推理错误或缺失时映射为 `partial`，不能推进。学生在同一次回答中明确自我纠正时，以其最终立场进行评价，不把已放弃的前半句当作最终错误。
+结构化 rubric 的 criterion evidence 会跨回答累积；当前阶段全部 criteria 被证据支持且没有 blocking scripted move 时即可推进。进展停滞时，支持阶梯会从 hypothetical 升级到 reveal/application；这种完成标为 `completedWithSupport`，不等同于独立 mastery。旧的纯字符串 rubric 保留兼容规则。结论正确但推理错误或缺失时映射为 `partial`，不能据此直接肯定。学生在同一次回答中明确自我纠正时，以其最终立场进行评价，不把已放弃的前半句当作最终错误。
+
+Tutor 默认仍然只提问题。唯一的主动纠错例外是应用层在同一阶段配置的 1 或 2 次连续高置信度 `wrong`（至少 0.85）之后加上的明确判词；`partial`、`vague`、低置信度 `wrong` 和 reflection 不触发。该规则必须由 state machine/correction policy 执行，不能只依赖 prompt。
 
 AI 评分映射为 `correct=100`、`partial=70`、`vague=40`、`wrong=0`，最后取平均并四舍五入。教授最终评分独立保存，不覆盖 AI 原始评价。
 
@@ -153,7 +155,7 @@ npx supabase@latest db push --include-seed
 
 不要对含有需要保留数据的远程项目执行 reset 或重复导入破坏性 seed。
 
-所有公开表启用 RLS，且撤销 `anon`/`authenticated` 的直接表权限。浏览器不直接连接数据库；所有查询通过服务端 service-role repository。`commit_tutor_turn` 数据库函数用于原子写入一次教学回合。
+所有公开表启用 RLS，且撤销 `anon`/`authenticated` 的直接表权限。浏览器不直接连接数据库；所有查询通过服务端 service-role repository。`commit_tutor_turn` 数据库函数用于原子写入一次教学回合。病例媒体使用固定私有 bucket `teaching-case-media-private`，由服务端在会话、角色/班级、附件和阶段检查通过后生成短期 signed URL；该 URL 在过期前是 bearer capability，不能撤回已下载或缓存的副本。
 
 ## 10. 病例、任务与复核规则
 
@@ -210,7 +212,7 @@ npm run build           # Next.js 生产构建
 测试重点：
 
 - 四种评价与分数计算
-- 三次尝试保护、阶段推进和提前结束
+- criteria 累积、hypothetical/reveal/application 支持阶梯、阶段推进和提前结束
 - 记忆补丁白名单
 - 身份签名和篡改保护
 - 班级隔离、任务可用窗口、会话恢复

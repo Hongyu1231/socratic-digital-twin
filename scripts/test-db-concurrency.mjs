@@ -96,6 +96,14 @@ function firstRow(body) {
   return Array.isArray(body) ? body[0] : body;
 }
 
+function scalarUuid(body) {
+  if (typeof body === "string") return body;
+  const row = firstRow(body);
+  if (!row || typeof row !== "object") return null;
+  const values = Object.values(row);
+  return values.length === 1 && typeof values[0] === "string" ? values[0] : null;
+}
+
 function requireTimestampOrder(row, label) {
   requireCondition(
     Date.parse(row.created_at) <= Date.parse(row.updated_at),
@@ -115,6 +123,7 @@ const supersedingPhaseId = randomUUID();
 const classId = randomUUID();
 const assignmentId = randomUUID();
 const racedAssignmentId = randomUUID();
+const sessionStartAssignmentId = randomUUID();
 const sessionId = randomUUID();
 const requestId = `ci-concurrent-turn-${randomUUID()}`;
 let caseCreated = false;
@@ -123,6 +132,8 @@ let supersedingPublishSucceeded = false;
 let classCreated = false;
 let assignmentCreated = false;
 let racedAssignmentCreated = false;
+let sessionStartAssignmentCreated = false;
+let sessionStartSessionId = null;
 let sessionCreated = false;
 
 try {
@@ -254,6 +265,10 @@ try {
     created_by: adminId,
   });
   classCreated = true;
+  await insert("class_memberships", [
+    { class_id: classId, user_id: professorId, role: "professor", is_lead: true },
+    { class_id: classId, user_id: studentId, role: "student", is_lead: false },
+  ]);
 
   // This assignment is present before publication and must be moved to the
   // target.  The second insert races publication: it either commits first and
@@ -350,6 +365,64 @@ try {
     requireCondition(racedAssignment.length === 0, "A rejected racing assignment left a row behind.");
   }
 
+  // Exercise the atomic session initializer with two genuinely concurrent
+  // REST/RPC requests for the same assignment and student. The function must
+  // serialize on the assignment/student unique key and return the fully
+  // initialized winner to both callers, rather than exposing a partial row.
+  await insert("class_case_assignments", {
+    id: sessionStartAssignmentId,
+    class_id: classId,
+    case_id: supersedingCaseId,
+    assigned_by: professorId,
+    status: "open",
+    opens_at: new Date(Date.now() - 60_000).toISOString(),
+    due_at: null,
+    idempotency_key: `ci-concurrency-session-start-${sessionStartAssignmentId}`,
+  });
+  sessionStartAssignmentCreated = true;
+  const sessionStartPayload = {
+    p_student_id: studentId,
+    p_assignment_id: sessionStartAssignmentId,
+    p_case_id: supersedingCaseId,
+    p_first_phase_id: supersedingPhaseId,
+    p_initial_state: {
+      sessionId: "",
+      version: 1,
+      strengths: [],
+      previousErrors: [],
+    },
+    p_opening_content: "What do you notice in this record?",
+  };
+  const [firstSessionStart, secondSessionStart] = await Promise.all([
+    rpc("create_session_for_assignment", sessionStartPayload, [200]),
+    rpc("create_session_for_assignment", sessionStartPayload, [200]),
+  ]);
+  for (const result of [firstSessionStart, secondSessionStart]) {
+    requireCondition(result.status === 200, `Concurrent session start failed: ${JSON.stringify(result.body)}`);
+  }
+  const firstSessionId = scalarUuid(firstSessionStart.body);
+  const secondSessionId = scalarUuid(secondSessionStart.body);
+  requireCondition(firstSessionId && secondSessionId, `Concurrent session start did not return UUIDs: ${JSON.stringify([firstSessionStart.body, secondSessionStart.body])}`);
+  requireCondition(firstSessionId === secondSessionId, "Concurrent session starts returned different session IDs.");
+  sessionStartSessionId = firstSessionId;
+
+  const initializedSessions = await selectRows("sessions", {
+    class_case_assignment_id: `eq.${sessionStartAssignmentId}`,
+    student_id: `eq.${studentId}`,
+  });
+  const initializedStates = await selectRows("session_state", { session_id: `eq.${sessionStartSessionId}` });
+  const initializedOpeningMessages = await selectRows("messages", {
+    session_id: `eq.${sessionStartSessionId}`,
+    role: "eq.tutor",
+    sequence_no: "eq.1",
+  });
+  requireCondition(initializedSessions.length === 1, `Concurrent session starts created ${initializedSessions.length} session rows.`);
+  requireCondition(initializedStates.length === 1, `Concurrent session starts created ${initializedStates.length} session_state rows.`);
+  requireCondition(initializedOpeningMessages.length === 1, `Concurrent session starts created ${initializedOpeningMessages.length} opening messages.`);
+  requireCondition(initializedSessions[0].case_id === supersedingCaseId && initializedSessions[0].status === "active", "Concurrent session start returned an invalid session projection.");
+  requireCondition(initializedStates[0].state?.sessionId === sessionStartSessionId, "Concurrent session state does not reference the returned session ID.");
+  requireCondition(initializedOpeningMessages[0].content === sessionStartPayload.p_opening_content, "Concurrent session start returned an unexpected opening message.");
+
   await insert("sessions", {
     id: sessionId,
     case_id: supersedingCaseId,
@@ -426,6 +499,18 @@ try {
       method: "DELETE",
       headers: { Prefer: "return=minimal" },
     }, [200, 204]).catch((error) => console.error(`Session fixture cleanup failed: ${error.message}`));
+  }
+  if (sessionStartAssignmentCreated) {
+    // Delete by assignment/student as a fallback when a failed assertion did
+    // not retain the returned UUID. The assignment is random and test-only.
+    await request(`/rest/v1/sessions?class_case_assignment_id=eq.${encodeURIComponent(sessionStartAssignmentId)}&student_id=eq.${encodeURIComponent(studentId)}`, {
+      method: "DELETE",
+      headers: { Prefer: "return=minimal" },
+    }, [200, 204]).catch((error) => console.error(`Session-start fixture cleanup failed: ${error.message}`));
+    await request(`/rest/v1/class_case_assignments?id=eq.${encodeURIComponent(sessionStartAssignmentId)}`, {
+      method: "DELETE",
+      headers: { Prefer: "return=minimal" },
+    }, [200, 204]).catch((error) => console.error(`Session-start assignment fixture cleanup failed: ${error.message}`));
   }
   if (racedAssignmentCreated) {
     await request(`/rest/v1/class_case_assignments?id=eq.${encodeURIComponent(racedAssignmentId)}`, {

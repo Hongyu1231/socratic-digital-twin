@@ -30,6 +30,7 @@ import process from "node:process";
 import { URL, fileURLToPath } from "node:url";
 
 import { createClient } from "@supabase/supabase-js";
+import { z } from "zod";
 import {
   CASE_DESCRIPTION_MAX_LENGTH,
   CASE_TITLE_MAX_LENGTH,
@@ -45,7 +46,7 @@ export const PUBLIC_MEDIA_PATH = (packageId, mediaId) => `${packageId}/${mediaId
 export const MAX_MANIFEST_BYTES = 16 * 1024 * 1024;
 export const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
 
-const SHA256_RE = /^[a-f0-9]{64}$/;
+const SHA256_RE = /^[a-f0-9]{64}$/i;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PACKAGE_RE = /^[a-f0-9]{64}$/;
 const MEDIA_FILE_RE = /^media\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.webp$/i;
@@ -90,6 +91,34 @@ function stableStringify(value) {
 
 function sha256(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
+}
+
+/** Bind manual faculty approval to the exact source case content, not a filename. */
+export function clinicalContentHash(cases) {
+  return sha256(stableStringify(cases));
+}
+
+const clinicalReviewSchema = z.object({
+  status: z.enum(["pending", "approved"]),
+  reviewer: z.string().trim().min(1).max(200).nullable(),
+  approvedAt: z.string().datetime({ offset: true }).nullable(),
+  contentSha256: z.string().regex(SHA256_RE),
+}).strict();
+
+function validateClinicalReview(review, cases) {
+  if (review === undefined) return undefined; // Existing imported packs remain readable.
+  const parsed = clinicalReviewSchema.safeParse(review);
+  if (!parsed.success) {
+    fail("Clinical review metadata is invalid; check status, reviewer, approvedAt and contentSha256.");
+  }
+  const normalized = { ...parsed.data, contentSha256: parsed.data.contentSha256.toLowerCase() };
+  if (normalized.contentSha256 !== clinicalContentHash(cases)) {
+    fail("Clinical review is missing a valid content hash or is stale; review the current cases again.");
+  }
+  if (normalized.status === "approved" && (normalized.reviewer === null || normalized.approvedAt === null)) {
+    fail("Clinical approval requires the faculty reviewer's name and approval timestamp.");
+  }
+  return normalized;
 }
 
 function isWebp(bytes) {
@@ -344,6 +373,7 @@ export function validateManifest(raw, materialsDir) {
   }
   const packageId = raw.packageId;
   const casesRaw = requireArray(raw.cases, "manifest cases", 500);
+  const clinicalReview = validateClinicalReview(raw.clinicalReview, casesRaw);
   const articles = requireArray(raw.articles, "manifest articles", 500);
   const media = requireArray(raw.media, "manifest media", 5_000);
   if (casesRaw.length === 0) fail("Manifest has no cases.");
@@ -405,7 +435,8 @@ export function validateManifest(raw, materialsDir) {
     }
   }
   if (attachmentIds.size !== mediaIds.size) fail("Manifest contains unregistered media or attachments.");
-  return { formatVersion: 1, packageId, cases, articles: validatedArticles, media: [...mediaById.values()], rootDir };
+  return { formatVersion: 1, packageId, cases, articles: validatedArticles, media: [...mediaById.values()], rootDir,
+    ...(clinicalReview ? { clinicalReview } : {}) };
 }
 
 function getProjectRef(supabaseUrl) {
@@ -507,6 +538,9 @@ function buildPhaseRows(candidate) {
 
 export function buildPublicationPlan({ manifest, supabaseUrl, classId, professorId, adminId, publish = false, privateMedia = true, moveOpenAssignments = true }) {
   if (!manifest?.packageId || !supabaseUrl) fail("Manifest and Supabase URL are required.");
+  if (publish && manifest.clinicalReview && manifest.clinicalReview.status !== "approved") {
+    fail("These teaching drafts require explicit faculty approval before --publish. Stage them without --publish for review.");
+  }
   const cases = manifest.cases.map((entry) => ({
     case: buildCaseRow(entry.case, manifest.packageId, adminId, supabaseUrl, privateMedia),
     phases: buildPhaseRows(entry.case),
@@ -558,6 +592,8 @@ export function buildPrivateManifestPayload(manifest) {
       delete copy.absoluteFile;
       return copy;
     }),
+    ...(manifest.clinicalReview ? { clinicalReview: { ...manifest.clinicalReview,
+      contentSha256: clinicalContentHash(manifest.cases) } } : {}),
   };
 }
 

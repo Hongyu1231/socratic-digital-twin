@@ -48,17 +48,14 @@ describe("professor assignments API", () => {
     });
   }
 
-  it("creates, closes, and reopens an assignment persisted without a key", async () => {
-    const createResponse = await POST(request("POST", {
+  it("closes and reopens a legacy assignment persisted without a key", async () => {
+    const assignment = await repository.saveAssignment({
       classId: DEMO_CLASS_ID,
       caseId: IMPACTED_CANINE_CASE_ID,
       opensAt: "2026-08-09T00:00:00.000+00:00",
       dueAt: null,
-    }));
-    const created = await jsonResponse(createResponse);
-    const assignment = created.assignment;
-
-    expect(createResponse.status).toBe(200);
+      status: "open",
+    }, DEMO_PROFESSOR_ID);
     expect(assignment).toMatchObject({
       classId: DEMO_CLASS_ID,
       caseId: IMPACTED_CANINE_CASE_ID,
@@ -128,5 +125,37 @@ describe("professor assignments API", () => {
     expect(await repository.listAssignments(DEMO_PROFESSOR_ID)).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ idempotencyKey: "" })]),
     );
+  });
+
+  it.each([undefined, null, ""])("rejects a new assignment without a stable key (%s)", async (idempotencyKey) => {
+    const save = vi.spyOn(repository, "saveAssignment");
+    const response = await POST(request("POST", {
+      classId: DEMO_CLASS_ID, caseId: IMPACTED_CANINE_CASE_ID,
+      opensAt: "2026-08-09T00:00:00Z", dueAt: null, idempotencyKey,
+    }));
+    expect(response.status).toBe(400);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("returns one assignment on retry but permits a deliberate new assignment", async () => {
+    const payload = {
+      classId: DEMO_CLASS_ID, caseId: IMPACTED_CANINE_CASE_ID,
+      opensAt: "2026-08-09T00:00:00Z", dueAt: null, idempotencyKey: "assignment:api-retry",
+    };
+    const first = await jsonResponse(await POST(request("POST", payload)));
+    const retried = await jsonResponse(await POST(request("POST", payload)));
+    const next = await jsonResponse(await POST(request("POST", { ...payload, idempotencyKey: "assignment:api-new-intent" })));
+    expect(retried.assignment.id).toBe(first.assignment.id);
+    expect(next.assignment.id).not.toBe(first.assignment.id);
+  });
+
+  it("rejects reusing a creation key with changed details", async () => {
+    const payload = {
+      classId: DEMO_CLASS_ID, caseId: IMPACTED_CANINE_CASE_ID,
+      opensAt: "2026-08-09T00:00:00Z", dueAt: null, idempotencyKey: "assignment:api-conflict",
+    };
+    await POST(request("POST", payload));
+    const changed = await POST(request("POST", { ...payload, dueAt: "2026-10-01T00:00:00Z" }));
+    expect(changed.status).toBe(409);
   });
 });

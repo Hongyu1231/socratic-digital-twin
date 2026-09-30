@@ -10,12 +10,14 @@ import type {
   SessionBundle,
   SessionReview,
   SessionSummary,
+  StaffSessionPage,
+  StaffSessionQuery,
   StudentCaseOffering,
   TeachingClass,
   TutorTurnReview,
 } from "@/lib/domain";
 import { demoAssignment, demoAssignments, demoCases, demoClass, demoUsers, getDemoUser } from "@/lib/seed";
-import { ArchivedCaseError, IdempotencyConflictError, SupersededCaseError, type CommitTurnInput, type SaveReviewInput, type TutorRepository } from "@/lib/repository/types";
+import { ArchivedCaseError, AssignmentIdempotencyConflictError, IdempotencyConflictError, SupersededCaseError, type CommitTurnInput, type SaveReviewInput, type TutorRepository } from "@/lib/repository/types";
 import { getCaseLineageId, getNextCaseVersion, getVersionedCaseTitle } from "@/lib/repository/case-version";
 import {
   inspectStoredAttachments,
@@ -26,6 +28,17 @@ import { assertCaseStatusTransition } from "@/lib/repository/case-status";
 import { reconcileLearnerStateEvidence } from "@/lib/tutor/learner-model";
 import { getMaterialPack } from "@/lib/materials/pack";
 import { getConfiguredTutorProvider } from "@/lib/tutor/provider-config";
+import {
+  accumulateStaffSessionStats,
+  addAssignmentProgress,
+  decodeStaffSessionCursor,
+  emptyStaffSessionStats,
+  encodeStaffSessionCursor,
+  isAfterStaffCursor,
+  matchesStaffReviewFilter,
+  normalizeStaffSessionLimit,
+  staffReviewState,
+} from "@/lib/repository/staff-session";
 
 interface MemoryStore {
   sessions: Map<string, LearningSession>;
@@ -77,6 +90,23 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
+function normalizeAssignmentTime(value: string | null | undefined) {
+  if (!value) return null;
+  const timestamp = new Date(value).getTime();
+  return Number.isNaN(timestamp) ? value : new Date(timestamp).toISOString();
+}
+
+function sameAssignmentRequest(
+  current: CaseAssignment,
+  input: Omit<CaseAssignment, "id" | "createdAt" | "assignedBy"> & { id?: string },
+) {
+  return current.classId === input.classId
+    && current.caseId === input.caseId
+    && current.status === input.status
+    && normalizeAssignmentTime(current.opensAt) === normalizeAssignmentTime(input.opensAt)
+    && normalizeAssignmentTime(current.dueAt) === normalizeAssignmentTime(input.dueAt);
+}
+
 export class InMemoryTutorRepository implements TutorRepository {
   readonly mode = "memory" as const;
   private readonly store: MemoryStore;
@@ -124,6 +154,14 @@ export class InMemoryTutorRepository implements TutorRepository {
     if (clinicalCase.status === "archived") throw new ArchivedCaseError();
     if (clinicalCase.status === "superseded" && !assignmentId) throw new SupersededCaseError();
     if (clinicalCase.status !== "available" && !(clinicalCase.status === "superseded" && assignmentId)) throw new Error("This case is not currently available.");
+
+    // The assignment lookup above occurs before the case read.  Re-check after
+    // that await so concurrent in-memory starts have the same resume semantics
+    // as the database uniqueness/RPC path.
+    if (assignmentId) {
+      const resumed = [...this.store.sessions.values()].find((item) => item.studentId === studentId && item.assignmentId === assignmentId);
+      if (resumed) return this.bundle(resumed);
+    }
 
     const now = new Date().toISOString();
     const sessionId = crypto.randomUUID();
@@ -504,6 +542,13 @@ export class InMemoryTutorRepository implements TutorRepository {
       const currentClass = this.store.classes.get(current.classId);
       if (!currentClass?.members.some((item) => item.userId === professorId && item.role === "professor")) throw new Error("Professor is outside this class.");
     }
+    if (!input.id && existingByKey) {
+      if (!sameAssignmentRequest(existingByKey, input)) throw new AssignmentIdempotencyConflictError();
+      return clone(existingByKey);
+    }
+    if (input.id && existingByKey && existingByKey.id !== input.id) {
+      throw new AssignmentIdempotencyConflictError();
+    }
     const clinicalCase = this.store.cases.get(input.caseId);
     if (!clinicalCase) throw new Error("Case not found.");
     const caseOrClassChanged = current ? current.caseId !== input.caseId || current.classId !== input.classId : true;
@@ -514,9 +559,49 @@ export class InMemoryTutorRepository implements TutorRepository {
     } else if (clinicalCase.status !== "available" && clinicalCase.status !== "superseded") {
       throw new Error("Case assignment conflict: only active cases can be assigned.");
     }
-    const next: CaseAssignment = { ...input, id: input.id || existingByKey?.id || crypto.randomUUID(), idempotencyKey, assignedBy: professorId, createdAt: current?.createdAt ?? new Date().toISOString(), className: teachingClass.name, caseTitle: clinicalCase.title };
+    const next: CaseAssignment = { ...input, id: input.id || existingByKey?.id || crypto.randomUUID(), idempotencyKey, assignedBy: current?.assignedBy ?? professorId, createdAt: current?.createdAt ?? new Date().toISOString(), className: teachingClass.name, caseTitle: clinicalCase.title };
     this.store.assignments.set(next.id, clone(next));
     return clone(next);
+  }
+
+  async listStaffSessions(query: StaffSessionQuery = {}, professorId?: string): Promise<StaffSessionPage> {
+    const limit = normalizeStaffSessionLimit(query.limit);
+    const cursor = decodeStaffSessionCursor(query.cursor);
+    const reviewFilter = query.reviewFilter ?? "all";
+    const allowedClassIds = professorId
+      ? new Set([...this.store.classes.values()]
+        .filter((teachingClass) => teachingClass.members.some((member) => member.userId === professorId && member.role === "professor"))
+        .map((teachingClass) => teachingClass.id))
+      : null;
+    const assignments = [...this.store.assignments.values()].filter((assignment) =>
+      (!allowedClassIds || allowedClassIds.has(assignment.classId)) && (!query.classId || assignment.classId === query.classId),
+    );
+    const assignmentById = new Map(assignments.map((assignment) => [assignment.id, assignment]));
+    const allSessions = [...this.store.sessions.values()]
+      .filter((session) => session.assignmentId && assignmentById.has(session.assignmentId));
+    const stats = emptyStaffSessionStats();
+    const assignmentProgress: Record<string, { sessionCount: number; completedCount: number }> = {};
+    for (const session of allSessions) {
+      accumulateStaffSessionStats(stats, session, professorId);
+      addAssignmentProgress(assignmentProgress, session.assignmentId, session.status);
+    }
+    const sorted = allSessions
+      .filter((session) => matchesStaffReviewFilter(staffReviewState(session, professorId), reviewFilter))
+      .filter((session) => isAfterStaffCursor(session.createdAt, session.id, cursor))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id));
+    const page = sorted.slice(0, limit + 1);
+    const hasMore = page.length > limit;
+    const visible = page.slice(0, limit);
+    return {
+      sessions: visible.map((session) => {
+        const assignment = session.assignmentId ? assignmentById.get(session.assignmentId) : undefined;
+        if (!assignment) throw new Error("Staff session references missing assignment data.");
+        return this.staffSessionSummary(session, assignment, professorId);
+      }),
+      nextCursor: hasMore ? encodeStaffSessionCursor({ createdAt: visible.at(-1)!.createdAt, id: visible.at(-1)!.id }) : null,
+      stats,
+      assignmentProgress,
+    };
   }
 
   async listStudentOfferings(studentId: string): Promise<StudentCaseOffering[]> {
@@ -547,7 +632,17 @@ export class InMemoryTutorRepository implements TutorRepository {
   }
 
   async getAdminOverview(): Promise<AdminOverview> {
-    return { userCount: this.store.users.size, classCount: this.store.classes.size, openAssignmentCount: [...this.store.assignments.values()].filter((item) => item.status === "open").length, sessionCount: this.store.sessions.size, pendingReviewCount: [...this.store.sessions.values()].filter((item) => item.status === "completed" && item.reviewStatus !== "completed").length };
+    const completed = [...this.store.sessions.values()].filter((item) => item.status === "completed").length;
+    const pendingReviewCount = [...this.store.sessions.values()].filter((item) => item.status === "completed" && item.reviewStatus !== "completed").length;
+    return {
+      userCount: this.store.users.size,
+      classCount: this.store.classes.size,
+      openAssignmentCount: [...this.store.assignments.values()].filter((item) => item.status === "open").length,
+      sessionCount: this.store.sessions.size,
+      pendingReviewCount,
+      completionRate: this.store.sessions.size ? Math.round((completed / this.store.sessions.size) * 100) : 0,
+      unclaimedReviewCount: [...this.store.sessions.values()].filter((item) => item.status === "completed" && item.reviewStatus !== "completed" && !item.reviewerId).length,
+    };
   }
 
   async reassignReview(sessionId: string, professorId: string | null) {
@@ -561,6 +656,40 @@ export class InMemoryTutorRepository implements TutorRepository {
   private classForAssignment(assignmentId?: string | null) {
     const assignment = assignmentId ? this.store.assignments.get(assignmentId) : undefined;
     return assignment ? this.store.classes.get(assignment.classId) : undefined;
+  }
+
+  private staffSessionSummary(session: LearningSession, assignment: CaseAssignment, professorId?: string) {
+    const clinicalCase = this.store.cases.get(session.caseId);
+    const student = this.store.users.get(session.studentId);
+    const teachingClass = this.store.classes.get(assignment.classId);
+    if (!clinicalCase || !student || !teachingClass) throw new Error("Staff session references missing related data.");
+    const state = staffReviewState(session, professorId);
+    const claimState: NonNullable<SessionBundle["reviewClaim"]>["state"] = state === "claimed" ? "other" : state === "mine" ? "mine" : state === "completed" ? "completed" : "unclaimed";
+    const reviewer = session.reviewerId ? this.store.users.get(session.reviewerId) : undefined;
+    return {
+      session: {
+        id: session.id,
+        caseId: session.caseId,
+        studentId: session.studentId,
+        assignmentId: session.assignmentId ?? null,
+        status: session.status,
+        reviewStatus: session.reviewStatus,
+        score: session.score,
+        createdAt: session.createdAt,
+        completedAt: session.completedAt,
+        reviewerId: session.reviewerId ?? null,
+      },
+      case: { id: clinicalCase.id, title: clinicalCase.title, ...(clinicalCase.version === undefined ? {} : { version: clinicalCase.version }) },
+      student: { id: student.id, name: student.name },
+      assignment: { id: assignment.id, classId: assignment.classId },
+      teachingClass: { id: teachingClass.id, name: teachingClass.name },
+      reviewClaim: {
+        reviewerId: session.reviewerId ?? null,
+        reviewerName: reviewer?.name ?? null,
+        state: claimState,
+        canEdit: session.reviewStatus !== "completed" && (!session.reviewerId || session.reviewerId === professorId),
+      },
+    };
   }
 
   private readableCase(current: ClinicalCase): ClinicalCase {

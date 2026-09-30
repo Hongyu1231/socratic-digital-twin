@@ -27,7 +27,9 @@ import {
   X,
 } from "lucide-react";
 import FeedbackLab from "./feedback-lab";
-import { cloneElement, FormEvent, isValidElement, ReactNode, type ReactElement, useCallback, useEffect, useId, useMemo, useState } from "react";
+import { cloneElement, FormEvent, isValidElement, ReactNode, type ReactElement, useCallback, useEffect, useId, useRef, useState } from "react";
+import type { StaffReviewFilter, StaffSessionPage, StaffSessionSummary } from "@/lib/domain";
+import { describeRequestFailure, readJsonBody, requestSignal } from "@/lib/client-request";
 import {
   CASE_DESCRIPTION_MAX_LENGTH,
   CASE_TITLE_MAX_LENGTH,
@@ -87,29 +89,6 @@ interface TeachingClass {
 
 type CaseVersion = Omit<CaseVersionDraft, "id" | "status"> & { id: string; status: CaseStatus };
 
-interface AdminSession {
-  id?: string;
-  session?: {
-    id: string;
-    status: string;
-    reviewStatus?: string;
-    review_status?: string;
-    score?: number | null;
-    professorId?: string | null;
-    professor_id?: string | null;
-    createdAt?: string;
-    created_at?: string;
-  };
-  student?: AdminUser;
-  case?: CaseVersion;
-  class?: TeachingClass;
-  className?: string;
-  assignment?: { class?: TeachingClass };
-  teachingClass?: TeachingClass | null;
-  reviewer?: AdminUser | null;
-  reviewClaim?: { reviewerId?: string | null; reviewerName?: string | null };
-}
-
 interface OverviewData {
   users?: number | Record<string, number>;
   userCount?: number;
@@ -123,6 +102,7 @@ interface OverviewData {
   pendingReviews?: number;
   pendingReviewCount?: number;
   completionRate?: number;
+  unclaimedReviewCount?: number;
 }
 
 interface DashboardData {
@@ -130,11 +110,20 @@ interface DashboardData {
   users: AdminUser[];
   classes: TeachingClass[];
   cases: CaseVersion[];
-  sessions: AdminSession[];
+  staffSessions: StaffSessionPage;
   diagnostics: CaseAttachmentDiagnostic[];
 }
 
-const EMPTY_DATA: DashboardData = { overview: {}, users: [], classes: [], cases: [], sessions: [], diagnostics: [] };
+function emptyStaffSessionPage(): StaffSessionPage {
+  return {
+    sessions: [],
+    nextCursor: null,
+    stats: { total: 0, completed: 0, reviewed: 0, available: 0, mine: 0, claimed: 0 },
+    assignmentProgress: {},
+  };
+}
+
+const EMPTY_DATA: DashboardData = { overview: {}, users: [], classes: [], cases: [], staffSessions: emptyStaffSessionPage(), diagnostics: [] };
 const TABS: Array<{ id: AdminTab; label: string; icon: typeof LayoutDashboard }> = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "users", label: "Users", icon: UserCog },
@@ -175,13 +164,40 @@ function readError(value: unknown, fallback: string) {
 }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: init?.body ? { "Content-Type": "application/json", ...init.headers } : init?.headers,
-  });
-  const body = (await response.json().catch(() => ({}))) as unknown;
-  if (!response.ok) throw new Error(readError(body, `Request failed (${response.status}).`));
-  return body as T;
+  try {
+    const response = await fetch(url, {
+      ...init,
+      signal: init?.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(30_000)]) : requestSignal(30_000),
+      headers: init?.body ? { "Content-Type": "application/json", ...init.headers } : init?.headers,
+    });
+    const body = await readJsonBody<unknown>(response, `Request failed (${response.status}).`);
+    if (!response.ok) throw new Error(readError(body, `Request failed (${response.status}).`));
+    return body as T;
+  } catch (reason) {
+    if (reason instanceof Error && reason.name === "AbortError") throw reason;
+    throw new Error(describeRequestFailure(reason, "The request could not be completed.", "The request took too long. Please try again."));
+  }
+}
+
+function staffSessionPage(value: unknown): StaffSessionPage {
+  if (!value || typeof value !== "object") return emptyStaffSessionPage();
+  const record = value as Partial<StaffSessionPage>;
+  const rawStats = record.stats && typeof record.stats === "object" ? record.stats : {};
+  const stats = rawStats as Partial<StaffSessionPage["stats"]>;
+  const rawProgress = record.assignmentProgress && typeof record.assignmentProgress === "object" ? record.assignmentProgress : {};
+  return {
+    sessions: Array.isArray(record.sessions) ? record.sessions as StaffSessionSummary[] : [],
+    nextCursor: typeof record.nextCursor === "string" && record.nextCursor ? record.nextCursor : null,
+    stats: {
+      total: typeof stats.total === "number" ? stats.total : 0,
+      completed: typeof stats.completed === "number" ? stats.completed : 0,
+      reviewed: typeof stats.reviewed === "number" ? stats.reviewed : 0,
+      available: typeof stats.available === "number" ? stats.available : 0,
+      mine: typeof stats.mine === "number" ? stats.mine : 0,
+      claimed: typeof stats.claimed === "number" ? stats.claimed : 0,
+    },
+    assignmentProgress: rawProgress as StaffSessionPage["assignmentProgress"],
+  };
 }
 
 function isActive(user: AdminUser) {
@@ -200,21 +216,12 @@ function memberLead(item: ClassMember) {
   return item.isLead ?? item.is_lead ?? false;
 }
 
-function sessionValue(item: AdminSession) {
-  return item.session ?? {
-    id: item.id ?? "",
-    status: "active",
-  };
+function sessionValue(item: StaffSessionSummary) {
+  return item.session;
 }
 
-function reviewStatus(item: AdminSession) {
-  const session = sessionValue(item);
-  return session.reviewStatus ?? session.review_status ?? "pending";
-}
-
-function reviewerId(item: AdminSession) {
-  const session = sessionValue(item);
-  return item.reviewClaim?.reviewerId ?? item.reviewer?.id ?? session.professorId ?? session.professor_id ?? "";
+function reviewerId(item: StaffSessionSummary) {
+  return item.reviewClaim.reviewerId ?? "";
 }
 
 function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
@@ -260,7 +267,7 @@ export default function AdminDashboard() {
       api<unknown>("/api/admin/users"),
       api<unknown>("/api/admin/classes"),
       api<unknown>("/api/admin/cases"),
-      api<unknown>("/api/admin/sessions"),
+      api<unknown>("/api/admin/sessions?limit=25&reviewFilter=all"),
     ]);
     const caseResponse = requests[3].status === "fulfilled" ? requests[3].value : undefined;
     setData({
@@ -270,7 +277,7 @@ export default function AdminDashboard() {
       users: requests[1].status === "fulfilled" ? unwrapList(requests[1].value, ["users"]) : [],
       classes: requests[2].status === "fulfilled" ? unwrapList(requests[2].value, ["classes"]) : [],
       cases: unwrapList(caseResponse, ["cases"]),
-      sessions: requests[4].status === "fulfilled" ? unwrapList(requests[4].value, ["sessions"]) : [],
+      staffSessions: requests[4].status === "fulfilled" ? staffSessionPage(requests[4].value) : emptyStaffSessionPage(),
       diagnostics: normalizeDiagnostics(caseResponse && typeof caseResponse === "object" ? (caseResponse as { diagnostics?: unknown }).diagnostics : undefined),
     });
     const failures = requests.filter((item): item is PromiseRejectedResult => item.status === "rejected");
@@ -357,12 +364,10 @@ function Overview({ data, setTab }: { data: DashboardData; setTab: (tab: AdminTa
     users: data.overview.userCount ?? (typeof data.overview.users === "number" ? data.overview.users : data.users.length),
     classes: data.overview.classCount ?? data.overview.classes ?? data.classes.length,
     assignments: data.overview.openAssignmentCount ?? data.overview.openAssignments ?? data.overview.activeAssignments ?? 0,
-    sessions: data.overview.sessionCount ?? data.overview.sessions ?? data.sessions.length,
-    reviews: data.overview.pendingReviewCount ?? data.overview.pendingReviews ?? data.sessions.filter((item) => reviewStatus(item) !== "completed").length,
+    sessions: data.overview.sessionCount ?? data.overview.sessions ?? 0,
+    reviews: data.overview.pendingReviewCount ?? data.overview.pendingReviews ?? 0,
   };
-  const completionRate = data.overview.completionRate ?? (counts.sessions > 0
-    ? Math.round((data.sessions.filter((item) => item.session?.status === "completed").length / counts.sessions) * 100)
-    : 0);
+  const completionRate = data.overview.completionRate ?? 0;
   const roleCounts = typeof data.overview.users === "object" ? data.overview.users : undefined;
   const cards = [
     { label: "Active users", value: counts.users, icon: UsersRound, note: roleCounts ? `${roleCounts.student ?? 0} students · ${roleCounts.professor ?? 0} faculty` : "Across all teaching roles" },
@@ -400,7 +405,7 @@ function Overview({ data, setTab }: { data: DashboardData; setTab: (tab: AdminTa
           <div className="mt-5 grid gap-3 text-xs">
             <div className="flex justify-between border-b border-[#ded8d0] pb-3"><span className="text-[#726c73]">Published cases</span><strong>{data.cases.filter((item) => item.status === "published" || item.status === "available").length}</strong></div>
             <div className="flex justify-between border-b border-[#ded8d0] pb-3"><span className="text-[#726c73]">Draft cases</span><strong>{data.cases.filter((item) => item.status === "draft").length}</strong></div>
-            <div className="flex justify-between"><span className="text-[#726c73]">Unclaimed reviews</span><strong>{data.sessions.filter((item) => reviewStatus(item) !== "completed" && !reviewerId(item)).length}</strong></div>
+            <div className="flex justify-between"><span className="text-[#726c73]">Unclaimed reviews</span><strong>{data.overview.unclaimedReviewCount ?? 0}</strong></div>
           </div>
         </article>
       </section>
@@ -731,43 +736,116 @@ function Cases({ data, busy, mutate, setError }: { data: DashboardData; busy: st
 function ActivityView({ data, busy, mutate }: { data: DashboardData; busy: string; mutate: (label: string, action: () => Promise<unknown>, success: string) => Promise<boolean> }) {
   const professors = data.users.filter((item) => item.role === "professor" && isActive(item));
   const [classFilter, setClassFilter] = useState("all");
+  const [reviewFilter, setReviewFilter] = useState<StaffReviewFilter>("all");
+  const [page, setPage] = useState<StaffSessionPage>(() => data.staffSessions);
   const [assignee, setAssignee] = useState<Record<string, string>>({});
-  const shown = useMemo(() => data.sessions.filter((item) => {
-    const classId = item.class?.id ?? item.teachingClass?.id ?? item.assignment?.class?.id;
-    return classFilter === "all" || classId === classFilter;
-  }), [classFilter, data.sessions]);
-  const completed = shown.filter((item) => sessionValue(item).status === "completed").length;
-  const reviewed = shown.filter((item) => reviewStatus(item) === "completed").length;
-  async function reassign(item: AdminSession) {
+  const [activityError, setActivityError] = useState("");
+  const [loadingPage, setLoadingPage] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const requestId = useRef(0);
+  const abortController = useRef<AbortController | null>(null);
+  const skipInitialRequest = useRef(true);
+
+  const loadPage = useCallback(async (mode: "reset" | "more", cursor?: string | null) => {
+    const currentRequest = ++requestId.current;
+    abortController.current?.abort();
+    const controller = new AbortController();
+    abortController.current = controller;
+    if (mode === "reset") {
+      setLoadingPage(true);
+      setPage(emptyStaffSessionPage());
+    } else {
+      setLoadingMore(true);
+    }
+
+    const params = new URLSearchParams({ limit: "25", reviewFilter });
+    if (classFilter !== "all") params.set("classId", classFilter);
+    if (mode === "more" && cursor) params.set("cursor", cursor);
+    try {
+      const nextPage = staffSessionPage(await api<unknown>(`/api/admin/sessions?${params.toString()}`, { signal: controller.signal }));
+      if (currentRequest !== requestId.current || controller.signal.aborted) return;
+      setPage((previous) => mode === "more"
+        ? { ...nextPage, sessions: [...new Map([...previous.sessions, ...nextPage.sessions].map((item) => [item.session.id, item])).values()] }
+        : nextPage);
+      setActivityError("");
+    } catch (reason) {
+      if (currentRequest !== requestId.current || (reason instanceof Error && reason.name === "AbortError")) return;
+      setActivityError(reason instanceof Error ? reason.message : "Activity could not be loaded.");
+    } finally {
+      if (currentRequest === requestId.current) {
+        setLoadingPage(false);
+        setLoadingMore(false);
+        if (abortController.current === controller) abortController.current = null;
+      }
+    }
+  }, [classFilter, reviewFilter]);
+
+  useEffect(() => {
+    if (skipInitialRequest.current && classFilter === "all" && reviewFilter === "all") {
+      skipInitialRequest.current = false;
+      return () => {
+        requestId.current += 1;
+        abortController.current?.abort();
+      };
+    }
+    void loadPage("reset");
+    return () => {
+      requestId.current += 1;
+      abortController.current?.abort();
+    };
+  }, [classFilter, loadPage, reviewFilter]);
+
+  async function reassign(item: StaffSessionSummary) {
     const session = sessionValue(item);
-    await mutate(`reassign-${session.id}`, () => api("/api/admin/reviews/reassign", { method: "POST", body: JSON.stringify({ sessionId: session.id, professorId: assignee[session.id] || null }) }), assignee[session.id] ? "Review reassigned." : "Review claim released.");
+    const ok = await mutate(
+      `reassign-${session.id}`,
+      () => api("/api/admin/reviews/reassign", { method: "POST", body: JSON.stringify({ sessionId: session.id, professorId: assignee[session.id] || null }) }),
+      assignee[session.id] ? "Review reassigned." : "Review claim released.",
+    );
+    if (ok) void loadPage("reset");
   }
+
+  const stats = page.stats;
   return (
     <div className="grid gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Field label="Class filter"><select className={`${inputClass} min-w-56`} value={classFilter} onChange={(event) => setClassFilter(event.target.value)}><option value="all">All classes</option>{data.classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
-        <div className="flex gap-5 text-right text-xs"><div><strong className="block font-serif text-2xl">{completed}/{shown.length}</strong><span className="text-[#726c73]">Sessions complete</span></div><div><strong className="block font-serif text-2xl">{reviewed}/{shown.length}</strong><span className="text-[#726c73]">Reviews complete</span></div></div>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-wrap gap-3">
+          <Field label="Class filter"><select className={`${inputClass} min-w-56`} value={classFilter} onChange={(event) => setClassFilter(event.target.value)}><option value="all">All classes</option>{data.classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+          <Field label="Review filter"><select className={`${inputClass} min-w-44`} value={reviewFilter} onChange={(event) => setReviewFilter(event.target.value as StaffReviewFilter)}>{(["all", "available", "claimed", "completed"] as const).map((value) => <option key={value} value={value}>{value === "all" ? "All reviews" : value.replaceAll("_", " ")}</option>)}</select></Field>
+        </div>
+        <div className="text-right text-xs text-[#726c73]">Loaded <strong className="text-[#21172b]">{page.sessions.length}</strong> matching sessions · <strong className="text-[#21172b]">{stats.total}</strong> total in this class scope</div>
       </div>
+      {activityError ? <div className="error-banner" role="alert">{activityError}<button type="button" className="secondary-button" disabled={loadingPage || loadingMore} onClick={() => void loadPage("reset")}>Try again</button></div> : null}
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6" aria-label="Activity totals">
+        {[{ label: "Sessions", value: stats.total }, { label: "Completed", value: stats.completed }, { label: "Reviewed", value: stats.reviewed }, { label: "Available", value: stats.available }, { label: "Claimed", value: stats.claimed }].map((item) => (
+          <article className={`${panelClass} p-4`} key={item.label}><span className="text-[10px] font-extrabold uppercase tracking-[.1em] text-[#726c73]">{item.label}</span><strong className="mt-2 block font-serif text-2xl font-normal">{item.value}</strong></article>
+        ))}
+      </section>
       <section className={`${panelClass} overflow-x-auto`}>
-        <div className="min-w-[980px]">
-          <div className="grid grid-cols-[1fr_1fr_1.2fr_.7fr_.8fr_1.5fr] gap-4 bg-[#ece7de] px-5 py-3 text-[9px] font-extrabold uppercase tracking-[.12em] text-[#726c73]"><span>Student</span><span>Class</span><span>Case</span><span>Score</span><span>Review</span><span>Ownership</span></div>
-          {shown.map((item) => {
+        <div className="min-w-[1040px]">
+          <div className="grid grid-cols-[1fr_1fr_1.2fr_.7fr_.8fr_1.7fr] gap-4 bg-[#ece7de] px-5 py-3 text-[9px] font-extrabold uppercase tracking-[.12em] text-[#726c73]"><span>Student</span><span>Class</span><span>Case</span><span>Score</span><span>Review</span><span>Ownership</span></div>
+          {page.sessions.map((item) => {
             const session = sessionValue(item);
-            const status = reviewStatus(item);
+            const claim = item.reviewClaim;
             const currentReviewer = reviewerId(item);
-            const locked = status === "completed";
-            return <div key={session.id} className="grid min-h-20 grid-cols-[1fr_1fr_1.2fr_.7fr_.8fr_1.5fr] items-center gap-4 border-t border-[#ded8d0] px-5 py-3 text-xs">
-              <div><strong className="font-serif text-sm">{item.student?.name ?? "Unknown student"}</strong><small className="block text-[10px] text-[#726c73]">{session.status}</small></div>
-              <span>{item.class?.name ?? item.teachingClass?.name ?? item.assignment?.class?.name ?? item.className ?? "—"}</span>
-              <span>{item.case?.title ?? "—"}</span>
+            const progress = session.assignmentId ? page.assignmentProgress[session.assignmentId] : undefined;
+            // Admins reassign unfinished reviews; professor edit ownership must
+            // not hide these administrative controls for a claimed review.
+            const locked = session.status !== "completed" || session.reviewStatus === "completed";
+            return <div key={session.id} className="grid min-h-20 grid-cols-[1fr_1fr_1.2fr_.7fr_.8fr_1.7fr] items-center gap-4 border-t border-[#ded8d0] px-5 py-3 text-xs">
+              <div><strong className="font-serif text-sm">{item.student.name}</strong><small className="block text-[10px] text-[#726c73]">{session.status}</small></div>
+              <span>{item.teachingClass?.name ?? "—"}<small className="block text-[10px] text-[#726c73]">{progress ? `${progress.completedCount}/${progress.sessionCount} complete` : "No assignment progress"}</small></span>
+              <span>{item.case.title}{item.case.version ? <small className="ml-2 text-[10px] text-[#726c73]">v{item.case.version}</small> : null}</span>
               <strong>{session.score == null ? "—" : `${session.score}/100`}</strong>
-              <span className="status-badge w-fit">{status.replaceAll("_", " ")}</span>
-              {locked ? <span className="text-[#726c73]">{item.reviewClaim?.reviewerName ?? item.reviewer?.name ?? professors.find((entry) => entry.id === currentReviewer)?.name ?? "Completed"}</span> : <div className="flex gap-2"><select aria-label={`Reviewer for ${item.student?.name ?? session.id}`} className={`${inputClass} py-2 text-xs`} value={assignee[session.id] ?? currentReviewer} onChange={(event) => setAssignee({ ...assignee, [session.id]: event.target.value })} disabled={Boolean(busy)}><option value="">Release claim</option>{professors.map((professor) => <option key={professor.id} value={professor.id}>{professor.name}</option>)}</select><button type="button" aria-label={busy === `reassign-${session.id}` ? "Saving review assignment" : "Save review assignment"} className="rounded-lg bg-[#4e263f] p-2 text-white disabled:cursor-wait disabled:opacity-50" disabled={Boolean(busy)} onClick={() => void reassign(item)}>{busy === `reassign-${session.id}` ? <LoaderCircle size={14} className="spin" /> : <Save size={14} />}</button></div>}
+              <span className="status-badge w-fit">{claim.state.replaceAll("_", " ")}</span>
+              {locked ? <span className="text-[#726c73]">{claim.reviewerName ?? (claim.state === "other" ? "Claimed by colleague" : claim.state === "completed" ? "Completed" : "Read only")}</span> : <div className="flex gap-2"><select aria-label={`Reviewer for ${item.student.name}`} className={`${inputClass} py-2 text-xs`} value={assignee[session.id] ?? currentReviewer} onChange={(event) => { const reviewerId = event.currentTarget.value; setAssignee((current) => ({ ...current, [session.id]: reviewerId })); }} disabled={Boolean(busy)}><option value="">Release claim</option>{professors.map((professor) => <option key={professor.id} value={professor.id}>{professor.name}</option>)}</select><button type="button" aria-label={busy === `reassign-${session.id}` ? "Saving review assignment" : "Save review assignment"} className="rounded-lg bg-[#4e263f] p-2 text-white disabled:cursor-wait disabled:opacity-50" disabled={Boolean(busy)} onClick={() => void reassign(item)}>{busy === `reassign-${session.id}` ? <LoaderCircle size={14} className="spin" /> : <Save size={14} />}</button></div>}
             </div>;
           })}
         </div>
       </section>
-      {shown.length === 0 ? <div className="empty-state"><ClipboardCheck className="mx-auto" /><h2>No session activity</h2><p>Student sessions will appear here after a class assignment begins.</p></div> : null}
+      {loadingPage && page.sessions.length === 0 ? <div className="empty-state"><LoaderCircle className="spin mx-auto" /><p>Loading session activity…</p></div> : null}
+      {!loadingPage && page.sessions.length === 0 ? <div className="empty-state"><ClipboardCheck className="mx-auto" /><h2>No session activity</h2><p>Student sessions will appear here after a class assignment begins.</p></div> : null}
+      {page.nextCursor ? <div className="flex justify-center"><button type="button" className="secondary-button" onClick={() => void loadPage("more", page.nextCursor)} disabled={loadingPage || loadingMore || Boolean(busy)}>{loadingMore ? <LoaderCircle size={15} className="spin" /> : null}{loadingMore ? "Loading…" : "Load more sessions"}</button></div> : null}
     </div>
   );
 }

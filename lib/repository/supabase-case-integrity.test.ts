@@ -219,7 +219,7 @@ describe("SupabaseTutorRepository case integrity boundaries", () => {
       if (action.table === "sessions" && action.operation === "select") {
         return { data: null, error: null };
       }
-      if (action.table === "sessions" && action.operation === "insert") {
+      if (action.table === "create_session_for_assignment" && action.operation === "rpc") {
         return { data: null, error: { message: triggerMessage } };
       }
       throw new Error(`Unexpected ${action.table} ${action.operation}`);

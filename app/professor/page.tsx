@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
   BookOpenCheck,
@@ -17,10 +17,12 @@ import {
   School,
   UsersRound,
 } from "lucide-react";
-import type { CaseAssignment, ClinicalCase, SessionBundle, TeachingClass } from "@/lib/domain";
+import type { CaseAssignment, ClinicalCase, StaffSessionPage, StaffSessionSummary, TeachingClass } from "@/lib/domain";
 import styles from "./professor.module.css";
 import FacultyReleaseApproval from "./faculty-release-approval";
 import { DateTimeSelect } from "@/components/date-time-select";
+import { assignmentRequest, type AssignmentRequest } from "@/lib/assignment-request";
+import { describeRequestFailure, readJsonBody, requestSignal } from "@/lib/client-request";
 
 type DashboardTab = "classes" | "assignments" | "reviews";
 type AssignmentStatus = "scheduled" | "open" | "closed";
@@ -44,13 +46,7 @@ interface ProfessorAssignment extends Omit<CaseAssignment, "status"> {
   completedCount?: number;
 }
 
-interface ReviewQueueItem extends Omit<SessionBundle, "assignment" | "teachingClass"> {
-  assignment?: ProfessorAssignment | null;
-  teachingClass?: ProfessorClass | null;
-  reviewerName?: string | null;
-  isClaimedByCurrentProfessor?: boolean;
-  canReview?: boolean;
-}
+type ReviewQueueItem = StaffSessionSummary;
 
 interface PublishedCaseSummary extends ClinicalCase {
   version?: number;
@@ -96,10 +92,10 @@ function getClassProfessors(item: ProfessorClass) {
 
 function reviewState(bundle: ReviewQueueItem): "in_progress" | "available" | "mine" | "claimed" | "completed" {
   if (bundle.session.status !== "completed") return "in_progress";
-  if (bundle.session.reviewStatus === "completed" || bundle.sessionReview?.status === "completed") return "completed";
-  if (bundle.reviewClaim?.state === "mine" || bundle.isClaimedByCurrentProfessor) return "mine";
+  if (bundle.session.reviewStatus === "completed") return "completed";
+  if (bundle.reviewClaim?.state === "mine") return "mine";
   if (bundle.reviewClaim?.state === "completed") return "completed";
-  const reviewerId = bundle.reviewClaim?.reviewerId ?? bundle.sessionReview?.professorId;
+  const reviewerId = bundle.reviewClaim?.reviewerId ?? bundle.session.reviewerId;
   if (bundle.reviewClaim?.state === "other" || reviewerId) return "claimed";
   return "available";
 }
@@ -113,7 +109,7 @@ const reviewLabels: Record<ReturnType<typeof reviewState>, string> = {
 };
 
 async function readJson(response: Response) {
-  const data = await response.json().catch(() => ({}));
+  const data = await readJsonBody<Record<string, any>>(response, "The request could not be completed.");
   if (!response.ok) throw new Error(data.error ?? "The request could not be completed.");
   return data;
 }
@@ -124,6 +120,10 @@ export default function ProfessorDashboard() {
   const [assignments, setAssignments] = useState<ProfessorAssignment[]>([]);
   const [cases, setCases] = useState<PublishedCaseSummary[]>([]);
   const [sessions, setSessions] = useState<ReviewQueueItem[]>([]);
+  const [sessionStats, setSessionStats] = useState<StaffSessionPage["stats"] | null>(null);
+  const [assignmentProgress, setAssignmentProgress] = useState<StaffSessionPage["assignmentProgress"]>({});
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -131,61 +131,80 @@ export default function ProfessorDashboard() {
   const [draft, setDraft] = useState<AssignmentDraft>(EMPTY_DRAFT);
   const [reviewFilter, setReviewFilter] = useState<"all" | "available" | "mine" | "claimed" | "completed">("all");
   const [pendingAction, setPendingAction] = useState("");
+  const creationRequest = useRef<AssignmentRequest | null>(null);
+  const creationInFlight = useRef(false);
+  const dashboardRequest = useRef(0);
+  const pageRequest = useRef(false);
 
   const loadDashboard = useCallback(async () => {
+    const requestId = ++dashboardRequest.current;
+    pageRequest.current = false;
+    setLoadingMore(false);
     setLoading(true);
     setError("");
+    setSessions([]);
+    setNextCursor(null);
     try {
       const [classData, assignmentData, sessionData] = await Promise.all([
-        fetch("/api/professor/classes", { cache: "no-store" }).then(readJson),
-        fetch("/api/professor/assignments", { cache: "no-store" }).then(readJson),
-        fetch("/api/professor/sessions", { cache: "no-store" }).then(readJson),
+        fetch("/api/professor/classes", { cache: "no-store", signal: requestSignal(30_000) }).then(readJson),
+        fetch("/api/professor/assignments", { cache: "no-store", signal: requestSignal(30_000) }).then(readJson),
+        fetch(`/api/professor/sessions?reviewFilter=${reviewFilter}`, { cache: "no-store", signal: requestSignal(30_000) }).then(readJson),
       ]);
+      if (requestId !== dashboardRequest.current) return;
       setClasses(Array.isArray(classData) ? classData : classData.classes ?? []);
       setAssignments(Array.isArray(assignmentData) ? assignmentData : assignmentData.assignments ?? []);
       setCases(assignmentData.cases ?? assignmentData.publishedCases ?? []);
-      const queue = Array.isArray(sessionData) ? sessionData : sessionData.sessions ?? [];
-      setSessions(queue);
+      setSessions(sessionData.sessions);
+      setSessionStats(sessionData.stats);
+      setAssignmentProgress(sessionData.assignmentProgress);
+      setNextCursor(sessionData.nextCursor);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Professor workspace could not be loaded.");
+      if (requestId === dashboardRequest.current) setError(describeRequestFailure(reason, "Professor workspace could not be loaded.", "Loading timed out. Please refresh to try again."));
     } finally {
-      setLoading(false);
+      if (requestId === dashboardRequest.current) setLoading(false);
     }
-  }, []);
+  }, [reviewFilter]);
 
-  useEffect(() => { void loadDashboard(); }, [loadDashboard]);
+  useEffect(() => {
+    void loadDashboard();
+    return () => { dashboardRequest.current += 1; };
+  }, [loadDashboard]);
+
+  async function loadMoreSessions() {
+    if (!nextCursor || pageRequest.current || loading) return;
+    pageRequest.current = true;
+    const requestId = dashboardRequest.current;
+    setLoadingMore(true);
+    setError("");
+    try {
+      const query = new URLSearchParams({ reviewFilter, cursor: nextCursor });
+      const page = await fetch(`/api/professor/sessions?${query}`, { cache: "no-store", signal: requestSignal(30_000) }).then(readJson);
+      if (requestId !== dashboardRequest.current) return;
+      setSessions((current) => [...new Map([...current, ...page.sessions].map((item: ReviewQueueItem) => [item.session.id, item])).values()]);
+      setNextCursor(page.nextCursor);
+      setSessionStats(page.stats);
+      setAssignmentProgress(page.assignmentProgress);
+    } catch (reason) {
+      if (requestId === dashboardRequest.current) setError(describeRequestFailure(reason, "More sessions could not be loaded. Try again.", "Loading timed out. Try again."));
+    } finally {
+      if (requestId === dashboardRequest.current) { pageRequest.current = false; setLoadingMore(false); }
+    }
+  }
 
   const stats = useMemo(() => ({
     students: classes.reduce((sum, item) => sum + getClassStudents(item), 0),
     openAssignments: assignments.filter((item) => item.status === "open").length,
-    readyReviews: sessions.filter((item) => reviewState(item) === "available").length,
-    myDrafts: sessions.filter((item) => reviewState(item) === "mine").length,
-  }), [assignments, classes, sessions]);
-
-  const visibleSessions = useMemo(() => sessions.filter((item) => {
-    const state = reviewState(item);
-    if (reviewFilter === "all") return true;
-    return state === reviewFilter;
-  }), [reviewFilter, sessions]);
-
-  const assignmentProgress = useMemo(() => {
-    const progress = new Map<string, { sessionCount: number; completedCount: number }>();
-    for (const bundle of sessions) {
-      const assignmentId = bundle.session.assignmentId ?? bundle.assignment?.id;
-      if (!assignmentId) continue;
-      const current = progress.get(assignmentId) ?? { sessionCount: 0, completedCount: 0 };
-      current.sessionCount += 1;
-      if (bundle.session.status === "completed") current.completedCount += 1;
-      progress.set(assignmentId, current);
-    }
-    return progress;
-  }, [sessions]);
+    readyReviews: sessionStats?.available ?? 0,
+    myDrafts: sessionStats?.mine ?? 0,
+  }), [assignments, classes, sessionStats]);
 
   async function createAssignment() {
+    if (creationInFlight.current) return;
     if (!draft.classId || !draft.caseId || !draft.opensAt) {
       setError("Choose a class, case and opening time before publishing the assignment.");
       return;
     }
+    creationInFlight.current = true;
     setError(""); setNotice("");
     setPendingAction("create-assignment");
     try {
@@ -200,18 +219,23 @@ export default function ProfessorDashboard() {
         opensAt,
         dueAt,
       };
-      await fetch("/api/professor/assignments", {
+      creationRequest.current = assignmentRequest(creationRequest.current, payload);
+      const created = await fetch("/api/professor/assignments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(creationRequest.current),
+        signal: requestSignal(30_000),
       }).then(readJson);
+      if (!created.assignment?.id) throw new Error("The server did not confirm the assignment. Retry with the same details.");
+      creationRequest.current = null;
       setDraft(EMPTY_DRAFT);
       setShowAssignmentForm(false);
       setNotice("Assignment published to the class.");
       await loadDashboard();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Assignment could not be created.");
+      setError(`${describeRequestFailure(reason, "Assignment could not be created.", "The assignment request timed out.")} Retrying unchanged details will not create a duplicate.`);
     } finally {
+      creationInFlight.current = false;
       setPendingAction("");
     }
   }
@@ -224,6 +248,7 @@ export default function ProfessorDashboard() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ assignmentId: id, status }),
+        signal: requestSignal(30_000),
       }).then(readJson);
       setNotice(status === "closed" ? "Assignment closed." : "Assignment reopened.");
       await loadDashboard();
@@ -284,13 +309,13 @@ export default function ProfessorDashboard() {
 
       {!loading && tab === "assignments" ? (
         <section className={styles.panel} aria-labelledby="assignments-heading">
-          <div className={styles.panelHeading}><div><span className="section-kicker">Assignments</span><h2 id="assignments-heading">Learning activities</h2></div><button className="primary-button" type="button" onClick={() => setShowAssignmentForm((value) => !value)}><Plus size={15} /> New assignment</button></div>
+          <div className={styles.panelHeading}><div><span className="section-kicker">Assignments</span><h2 id="assignments-heading">Learning activities</h2></div><button className="primary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => setShowAssignmentForm((value) => !value)}><Plus size={15} /> New assignment</button></div>
           {showAssignmentForm ? <div className={styles.assignmentForm}>
-            <label><span>Class</span><select value={draft.classId} onChange={(event) => setDraft((current) => ({ ...current, classId: event.target.value }))}><option value="">Select a class</option>{classes.map((item) => <option value={item.id} key={item.id}>{item.code} · {item.name}</option>)}</select></label>
-            <label><span>Published case</span><select value={draft.caseId} onChange={(event) => setDraft((current) => ({ ...current, caseId: event.target.value }))}><option value="">Select a case</option>{cases.map((item) => <option value={item.id} key={item.id}>{item.title}{item.version ? ` · v${item.version}` : ""}</option>)}</select></label>
+            <label><span>Class</span><select value={draft.classId} onChange={(event) => { const classId = event.currentTarget.value; setDraft((current) => ({ ...current, classId })); }}><option value="">Select a class</option>{classes.map((item) => <option value={item.id} key={item.id}>{item.code} · {item.name}</option>)}</select></label>
+            <label><span>Published case</span><select value={draft.caseId} onChange={(event) => { const caseId = event.currentTarget.value; setDraft((current) => ({ ...current, caseId })); }}><option value="">Select a case</option>{cases.map((item) => <option value={item.id} key={item.id}>{item.title}{item.version ? ` · v${item.version}` : ""}</option>)}</select></label>
             <DateTimeSelect label="Opens" value={draft.opensAt} onChange={(opensAt) => setDraft((current) => ({ ...current, opensAt }))} helperText="Choose a date and a 15-minute time slot." />
             <DateTimeSelect label="Deadline (optional)" value={draft.dueAt} onChange={(dueAt) => setDraft((current) => ({ ...current, dueAt }))} minValue={draft.opensAt} optional helperText="Select No deadline to leave the activity open-ended." />
-            <div className={styles.formActions}><button type="button" className="secondary-button" onClick={() => { setShowAssignmentForm(false); setDraft(EMPTY_DRAFT); }} disabled={Boolean(pendingAction)}>Cancel</button><button type="button" className="primary-button" disabled={Boolean(pendingAction)} onClick={() => void createAssignment()}>{pendingAction === "create-assignment" ? <LoaderCircle size={15} className="spin" /> : <BookOpenCheck size={15} />} {pendingAction === "create-assignment" ? "Publishing…" : "Publish"}</button></div>
+            <div className={styles.formActions}><button type="button" className="secondary-button" onClick={() => { setShowAssignmentForm(false); setDraft(EMPTY_DRAFT); creationRequest.current = null; }} disabled={Boolean(pendingAction)}>Cancel</button><button type="button" className="primary-button" disabled={Boolean(pendingAction)} onClick={() => void createAssignment()}>{pendingAction === "create-assignment" ? <LoaderCircle size={15} className="spin" /> : <BookOpenCheck size={15} />} {pendingAction === "create-assignment" ? "Publishing…" : "Publish"}</button></div>
           </div> : null}
           {assignments.length === 0 ? <Empty title="No assignments yet" text="Publish a case to one of your classes to begin collecting student sessions." /> : <div className={styles.assignmentList}>{assignments.map((item) => {
             const className = item.class?.name ?? item.className ?? classes.find((entry) => entry.id === item.classId)?.name ?? "Teaching class";
@@ -298,7 +323,7 @@ export default function ProfessorDashboard() {
             const deadline = item.dueAt ?? item.closesAt;
             return <article className={styles.assignmentRow} key={item.id}>
               <div className={styles.assignmentIcon}><BookOpenCheck size={19} /></div><div><div className={styles.rowTitle}><h3>{caseTitle}</h3><span data-status={item.status}>{item.status}</span></div><p>{className} · Opens {formatDate(item.opensAt, true)} · {deadline ? `Due ${formatDate(deadline, true)}` : "No deadline"}</p></div>
-              <div className={styles.completion}><strong>{item.completedCount ?? assignmentProgress.get(item.id)?.completedCount ?? 0}/{item.sessionCount ?? assignmentProgress.get(item.id)?.sessionCount ?? 0}</strong><span>completed</span></div>
+              <div className={styles.completion}><strong>{item.completedCount ?? assignmentProgress[item.id]?.completedCount ?? 0}/{item.sessionCount ?? assignmentProgress[item.id]?.sessionCount ?? 0}</strong><span>completed</span></div>
               <button className={styles.outlineButton} type="button" disabled={Boolean(pendingAction)} onClick={() => void updateAssignment(item.id, item.status === "closed" ? "open" : "closed")}>{pendingAction === `assignment-${item.id}` ? <><LoaderCircle size={14} className="spin" /> {item.status === "closed" ? "Reopening…" : "Closing…"}</> : item.status === "closed" ? "Reopen" : "Close"}</button>
             </article>;
           })}</div>}
@@ -308,10 +333,10 @@ export default function ProfessorDashboard() {
       {!loading && tab === "reviews" ? (
         <><section className={styles.panel} aria-labelledby="reviews-heading">
           <div className={styles.panelHeading}><div><span className="section-kicker">Review queue</span><h2 id="reviews-heading">Clinical calibration</h2></div><div className={styles.filter} aria-label="Filter review queue">{(["all", "available", "mine", "claimed", "completed"] as const).map((value) => <button type="button" className={reviewFilter === value ? styles.activeFilter : ""} key={value} onClick={() => setReviewFilter(value)}>{value === "all" ? "All" : reviewLabels[value]}</button>)}</div></div>
-          {visibleSessions.length === 0 ? <Empty title="Nothing in this queue" text="Completed student sessions will appear here when they match this filter." /> : <div className={styles.reviewList}>{visibleSessions.map((bundle) => {
+          {sessions.length === 0 ? <Empty title="Nothing in this queue" text="Completed student sessions will appear here when they match this filter." /> : <div className={styles.reviewList}>{sessions.map((bundle) => {
             const state = reviewState(bundle);
-            const className = bundle.teachingClass?.name ?? bundle.assignment?.class?.name ?? "Assigned class";
-            const reviewer = bundle.reviewClaim?.reviewerName ?? bundle.reviewerName;
+            const className = bundle.teachingClass?.name ?? "Assigned class";
+            const reviewer = bundle.reviewClaim?.reviewerName;
             return <article className={styles.reviewRow} key={bundle.session.id}>
               <div className={styles.studentAvatar}>{bundle.student.name.slice(0, 1)}</div><div><h3>{bundle.student.name}</h3><p>{bundle.case.title} · {className}</p><small>{formatDate(bundle.session.completedAt ?? bundle.session.createdAt, true)}</small></div>
               <div className={styles.score}><strong>{bundle.session.score ?? "—"}</strong><span>AI score</span></div>
@@ -319,6 +344,7 @@ export default function ProfessorDashboard() {
               <Link className={styles.reviewLink} href={`/professor/review/${bundle.session.id}`}>{state === "in_progress" || state === "claimed" ? "View" : state === "completed" ? "Open" : "Review"} <ArrowUpRight size={14} /></Link>
             </article>;
           })}</div>}
+          {nextCursor ? <button type="button" className="secondary-button" disabled={loadingMore} onClick={() => void loadMoreSessions()}>{loadingMore ? "Loading…" : "Load more sessions"}</button> : null}
         </section><FacultyReleaseApproval /></>
       ) : null}
     </main>
