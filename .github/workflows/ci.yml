@@ -98,15 +98,20 @@ jobs:
         run: |
           test "$(supabase --version)" = "2.114.0"
       - name: Start the isolated local Supabase API stack
-        # Keep Postgres, Kong, PostgREST, and GoTrue: the concurrency checks
+        # Keep Postgres, Kong, PostgREST, GoTrue and Storage: the concurrency checks
         # use the local REST/RPC gateway and need the local service-role JWT
-        # emitted by `supabase status`; the remaining optional services add
+        # emitted by `supabase status`; Storage initializes the real metadata
+        # schema used by the media cutover regression. Other optional services add
         # cold-start cost and are not needed by migrations or pgTAP.
-        run: supabase start --exclude realtime,storage-api,imgproxy,mailpit,studio,edge-runtime,logflare,vector,supavisor,postgres-meta
+        run: supabase start --exclude realtime,imgproxy,mailpit,studio,edge-runtime,logflare,vector,supavisor,postgres-meta
       - name: Apply all migrations and the compatibility seed to the local database
         run: supabase db reset --local
       - name: Run database pgTAP tests
         run: supabase test db --local supabase/tests/database
+      - name: Verify private-media cutover against disposable database fixtures
+        env:
+          SUPABASE_DATA_ENVIRONMENT: test
+        run: node scripts/test-private-media-cutover.mjs
       - name: Test concurrency target guard
         run: node --test scripts/test-db-concurrency-target.node.mjs
       - name: Run isolated multi-connection database checks

@@ -308,20 +308,24 @@ try {
 
   requireCondition(supersedingPublishResult.status === 200, `Three-argument publish failed: ${JSON.stringify(supersedingPublishResult.body)}`);
   requireCondition(firstRow(supersedingPublishResult.body)?.id === supersedingCaseId, "Three-argument publish returned the wrong case.");
+  // The publish transaction has committed at this point.  If the following
+  // race assertion fails, cleanup must not try to archive the now-superseded
+  // source case.
+  supersedingPublishSucceeded = true;
   requireCondition(
-    [201, 204, 400].includes(racedAssignmentResult.status),
+    [201, 204, 400, 409, 500].includes(racedAssignmentResult.status),
     `Concurrent assignment insert returned an unexpected status: ${JSON.stringify(racedAssignmentResult)}`,
   );
-  if (racedAssignmentResult.status === 400) {
-    requireCondition(
-      racedAssignmentResult.body?.code === "55000"
-        && /active cases/i.test(racedAssignmentResult.body?.message ?? ""),
-      `Concurrent assignment rejection was not the publication guard: ${JSON.stringify(racedAssignmentResult.body)}`,
-    );
-  } else {
+  const raceAssignmentRejected = [400, 409, 500].includes(racedAssignmentResult.status)
+    && racedAssignmentResult.body?.code === "55000"
+    && racedAssignmentResult.body?.message === "Assignments may target only active cases";
+  if (raceAssignmentRejected) {
+    // Expected outcome when publication wins the parent-case lock.
+  } else if ([201, 204].includes(racedAssignmentResult.status)) {
     racedAssignmentCreated = true;
+  } else {
+    throw new Error(`Concurrent assignment rejection was not the publication guard: ${JSON.stringify(racedAssignmentResult)}`);
   }
-  supersedingPublishSucceeded = true;
 
   const caseRows = await selectRows("cases", { id: `in.(${caseId},${supersedingCaseId})` });
   const oldCase = caseRows.find((row) => row.id === caseId);
