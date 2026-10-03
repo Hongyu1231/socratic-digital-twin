@@ -1,6 +1,6 @@
 # Tutor engine v2
 
-Status: draft for review. Spec by Arshin, engine by Bruce. Written 29 Sep 2026 against `master` as of that date.
+Status: draft for review. Spec by Arshin, engine by Bruce. Written 29 Sep 2026 against `master` as of that date. Updated 3 Oct 2026 with the clinical leads' answers for Case 1 (section 6).
 
 This document describes the changes to the Socratic tutor engine agreed after the clinical leads tested Cases 1 to 3. It's the contract the frontend and backend build against in parallel, so field names in section 4 are binding once this PR merges.
 
@@ -36,7 +36,7 @@ Every change below follows these rules.
 - **Model judgement can speed a student up. It can never be the only way forward.** Progress always has a floor that doesn't depend on the model.
 - **Fail open.** When a model-dependent feature fails, the student gets simpler behaviour, never a blocked session.
 - **Clinicians own the content and the settings.** Code supplies sensible defaults. Clinicians change them through the admin case editor, not through a developer.
-- **One owner per mechanism.** The tutor engine changes (sections 3.2 to 3.6) share the same files and form one mechanism, so they're built by one person.
+- **One owner per mechanism.** The tutor engine changes (sections 3.2 to 3.6, and the engine side of 3.12) share the same files and form one mechanism, so they're built by one person.
 
 ---
 
@@ -54,11 +54,26 @@ Each change lists what it does, why, how it fails safely, and what it touches.
 
 Clinicians write the criteria per case, per phase. Criterion text is never sent to the student.
 
-**Why.** The model grades against something concrete instead of chasing hidden notes, and every other change keys off these IDs.
+**Accepted extras.** Each phase can also list accepted extras, in the same `{ id, text }` shape:
 
-**Fails safe.** Existing phases whose rubric is a plain string list stay valid. Each string gets an index-based ID (`r1`, `r2`, ...) at read time. Legacy phases only; new content always uses explicit IDs.
+```json
+{ "id": "c1-p1-x1", "text": "A correct point the clinician wants recognised but doesn't require." }
+```
 
-**Touches.** `case_phases.metadata.rubric` shape, `lib/repository/supabase.ts` phase mapping, `lib/schemas.ts`, `lib/domain.ts` (`CasePhase.rubric: string[]`), `scripts/publish-teaching-materials.mjs`.
+An accepted extra is a point that is correct and worth recognising but that the phase doesn't require. The rules:
+
+- If the student raises an extra, the tutor acknowledges it (3.4).
+- The tutor never brings up an extra the student hasn't raised, and never asks a question aimed at one.
+- Extras never count toward completing the phase. They aren't criteria, so they aren't in `criteriaMet` or `criteriaTotal`, and they don't count as progress for the no-progress counter (3.2).
+- Extra IDs must be different from the criterion IDs in the same phase. If the model lists an extra's ID in `criteriaMet`, it's filtered out like any other unknown ID (3.2).
+- Extra IDs and text are never sent to the student.
+- The list is optional. A phase with no extras behaves exactly as described in the rest of this document.
+
+**Why.** The model grades against something concrete instead of chasing hidden notes, and every other change keys off these IDs. Accepted extras let the tutor recognise a good point that goes beyond the phase without that point changing what the phase requires.
+
+**Fails safe.** Existing phases whose rubric is a plain string list stay valid. Each string gets an index-based ID (`r1`, `r2`, ...) at read time. Legacy phases only; new content always uses explicit IDs. A missing or invalid `acceptedExtras` list is read as empty.
+
+**Touches.** `case_phases.metadata.rubric` shape, a new `case_phases.metadata.acceptedExtras` list, `lib/repository/supabase.ts` phase mapping, `lib/schemas.ts`, `lib/domain.ts` (`CasePhase.rubric: string[]`), `lib/tutor/prompt.ts` (the model receives the extras for the current phase), `scripts/publish-teaching-materials.mjs`.
 
 **Current storage (fact note).** `case_phases.metadata` is a JSONB object with no constraint beyond being an object (`schema.sql:99,110`), so `{ id, text }` items fit there. Three things assume strings today and must change together:
 
@@ -67,6 +82,8 @@ Clinicians write the criteria per case, per phase. Criterion text is never sent 
 - `phaseInputSchema.rubric` is an array of strings of at most 180 characters (`lib/schemas.ts:69`).
 
 The student bundle already blanks `rubric` (`lib/http.ts:35`).
+
+`acceptedExtras` has no home today. `mapPhase` builds the phase field by field (`supabase.ts:37-62`) and `phaseInputSchema` has no such key (`lib/schemas.ts:64-88`), so the list must be added to both, to `CasePhase` and to the publish script, or it is silently lost. The allowlist in 3.10 keeps it out of the student bundle.
 
 ### 3.2 Criterion tagging and the no-progress counter
 
@@ -90,7 +107,7 @@ The prompt also tells the tutor not to repeat or rephrase any of its own earlier
 
 Comparing against the best so far, not the previous answer, means a student who oscillates (vague, partial, vague, partial) doesn't reset the counter every other turn.
 
-**The counter.** Counts consecutive no-progress answers at the current support level. Progress resets it to zero. When it reaches the phase's `noProgressLimit` (default 2), the engine steps up one support level (3.3).
+**The counter.** Counts consecutive no-progress answers at the current support level. Progress resets it to zero. When it reaches the phase's `noProgressLimit` (default 2), the engine steps up one support level (3.3). A press of the help button also steps up one level and resets the counter to zero (3.12).
 
 **Why.** Jessica's loop was the same target, reworded. Tracking the target, not the wording, is what stops it.
 
@@ -123,7 +140,9 @@ Per-evaluation values (`targetCriterionId`, `criteriaMet`) have an existing home
 
 **Independent or supported.** A phase is recorded as `completedWithSupport: true` if and only if a level 2 reveal happened in it. A phase completed after a level 1 hypothetical still counts as independent. Professors see this flag, and the learning summary shows each phase as independent or supported.
 
-**The ceiling.** `phaseCeiling` (default 8) counts the answers in a phase before the reveal. When that count reaches `phaseCeiling`, the engine jumps straight to level 2 and reveals, whatever the model says. The application answer doesn't count toward the ceiling. So a phase takes at most `phaseCeiling` answers plus one application.
+**The ceiling.** `phaseCeiling` (default 5) counts the answers in a phase before the reveal. When that count reaches `phaseCeiling`, the engine jumps straight to level 2 and reveals, whatever the model says. The application answer doesn't count toward the ceiling. So with the default, a phase takes at most 5 answers plus 1 application.
+
+**Two ways up the ladder.** The support level rises when the no-progress counter reaches `noProgressLimit` (3.2), or when the student presses the help button (3.12). Both move one level at a time. Only the ceiling skips a level.
 
 **The final reflection.** The reflection question is always asked before the session ends, however the final phase completes. When the final phase completes by any route, the next tutor message is the reflection question instead of the completion message. If the final phase completes through a level 2 reveal, whether stepped up to or forced by the ceiling, the order is: the reveal, then the student's application answer, then the reflection, then the session ends. Any answer to the reflection ends the session. It's never graded as a gate.
 
@@ -151,6 +170,7 @@ Rules for the acknowledgement, enforced in the prompt:
 - Affirm the reasoning, not correctness, until the phase is complete.
 - When the answer is wrong, acknowledge what's usable in it without endorsing the error.
 - Never reveal hidden case facts.
+- When the student raises an accepted extra (3.1), acknowledge it as a good point. Never bring up an extra the student hasn't raised, and never treat one as progress on the phase.
 - On independent completion (3.3), say clearly that they've got it. This is the only case where "you've got it" is allowed.
 - On supported completion, after a reveal, acknowledge specifically what the student did with the finding in their application answer. Never claim mastery.
 
@@ -180,7 +200,7 @@ The count shown is the same number that decides advancement (3.2). The phase com
 
 - **Strike one:** the model writes the probe asking for the student's basis. The fixed text "What evidence or case finding supports that statement?" becomes the fallback only.
 - **Strike two:** triggers when the next answer in the same phase is also classified `wrong` at or above the confidence threshold. The `misconceptionKey` match is removed.
-- **Probe count:** configurable as `correctionProbes`, default 1. Clinicians confirm 1 or 2.
+- **Probe count:** configurable as `correctionProbes`, default 1. The clinical leads confirmed 1 for Case 1: the tutor probes once before saying the claim is incorrect.
 - The correction still states that the claim is incorrect without giving the answer. This matches both Jessica's rule and the expert panel.
 - Wrong answers count as no-progress answers, so the counter and ceiling still apply.
 
@@ -326,6 +346,34 @@ The only earlier writes are the humanization experiment's arm assignment and sha
 - Assignments point at one case row through `class_case_assignments.case_id` (`20260812000000_add_class_collaboration.sql:77`), and each session keeps its own `case_id` (`schema.sql:118`). Moving an assignment changes the former. Running sessions keep the latter, which is why mid-session students finish on the old version.
 - `expertNotes` is part of each case entry in the pack manifest (`lib/materials/pack.ts:45,118`). The publish script writes the manifest to a private bucket at `<packageId>/manifest.json` and refuses to overwrite an existing object whose contents differ (`scripts/publish-teaching-materials.mjs:34,551-562,761`). The server reads it from there (`lib/materials/hosted.ts:32`) and passes it to the model (`lib/materials/retrieval.ts:203`).
 
+### 3.12 Help button
+
+**What.** The student chat gets a "More help" button. The clinical leads approved it (section 6, question 4).
+
+- **When it's available.** Only after the student's first real answer in the current phase. A real answer is one the student submitted and the engine evaluated in this phase. A new phase starts with the button unavailable. It's also unavailable once the phase has reached the reveal, on the reflection question, and when the session is paused or complete. The server works this out and sends it to the student as `canRequestHelp`.
+- **What a press does.** Each press moves the phase up one support level on the ladder in 3.3. From the narrower question (level 0), a press gives a plan to critique (level 1). From there, a press gives the reveal (level 2). A press never jumps straight from level 0 to the reveal.
+- **The counter.** A press resets the no-progress counter (3.2) to zero, so the student gets a full `noProgressLimit` of tries at the new level.
+- **A press isn't an answer.** It isn't graded, it meets no criteria, and it doesn't count toward `phaseCeiling`, `phaseAttempts` or the two-strike correction (3.6).
+- **Logging.** Every press is saved as its own turn, marked `helpRequested: true`, and shown to professors in the review, in order with the student's answers.
+- **Completion.** A phase that reaches the reveal through the button is recorded as `completedWithSupport: true`, exactly as in 3.3. After the reveal the phase waits for the application answer and then advances. A phase where the button only took the student to level 1 still counts as independent.
+
+**How a press is sent.** The button uses the existing message route with `helpRequested: true` and no answer text. It carries a `clientRequestId` like any other turn, so the duplicate protection in 3.8 applies and a double press or a retry produces one step, not two. The tutor's reply to a press is the level 1 hypothetical or the level 2 reveal, with the matching `moveType` (section 4).
+
+**Why.** A student who knows they're stuck shouldn't have to give two more weak answers to get help. The first-answer rule keeps the button from replacing an attempt, and the one-level step keeps it from becoming a "show me the answer" button.
+
+**Fails safe.**
+
+- The server checks the same rule that sets `canRequestHelp`. A press that isn't allowed changes nothing and returns the current session, so a stale or tampered client can't skip the first answer or step past level 2.
+- The new support level is saved in the same commit as the tutor's reply. If the model call fails, nothing is saved, the phase stays where it was and the student can press again.
+- A press to level 2 uses the same reveal fallback as 3.3 (`revealText`, then the criterion text).
+- If the button is broken or hidden, the counter and the ceiling still move the student on.
+
+**Ownership.** Bruce handles the engine side: the request flag, the level step, the counter reset, `canRequestHelp` and the logging. Arshin handles the button UI and showing presses in the professor review.
+
+**Touches.** `lib/schemas.ts` (`sessionMessageSchema`), `app/api/session/message/route.ts`, `lib/tutor/state-machine.ts`, `lib/tutor/prompt.ts`, `lib/http.ts` (allowlist, 3.10), evaluation storage, the student chat UI (`app/session/[id]/socratic-chat.tsx`), the professor review.
+
+**Current request shape (fact note).** `sessionMessageSchema` requires `message` to be 2 to 2,000 characters (`lib/schemas.ts:13-17`), so a press with no text is rejected today. `performStudentAnswer` treats every request as an answer and increments `phaseAttempts` (`lib/tutor/state-machine.ts:31-46`). The commit RPC always writes a student message, an evaluation and a tutor message (see 3.8), so how an ungraded press is stored in those rows is settled in review.
+
 ---
 
 ## 4. The contract
@@ -339,17 +387,29 @@ Name check (29 Sep 2026, whole repo excluding `node_modules`): none of `phasePro
 - `clientRequestId` already exists as the optional request field on `/api/session/message` (`lib/schemas.ts:16`, `lib/tutor/state-machine.ts:21-26`) with the same meaning as the proposed column.
 - `evaluations.criteria` already exists but holds the evaluation record, not rubric criteria (see 3.2).
 
+Name check for the 3 Oct 2026 additions (same scope): none of `acceptedExtras`, `canRequestHelp` or `helpRequested` appear, in camelCase or snake_case.
+
+### Phase content (server only, never in the student bundle)
+
+```ts
+rubric: { id: string; text: string; revealText?: string }[];   // the criteria (3.1)
+acceptedExtras: { id: string; text: string }[];                // optional, default []; never counts toward completion (3.1)
+```
+
 ### Student session bundle
 
-The student bundle is allowlisted (3.10). It contains the fields the current student UI reads plus the fields below, and nothing else. In particular, it never contains session state, criterion IDs, criterion text or evaluations.
+The student bundle is allowlisted (3.10). It contains the fields the current student UI reads plus the fields below, and nothing else. In particular, it never contains session state, criterion IDs, criterion text, accepted extras or evaluations.
 
 ```ts
 // Added to each phase in the bundle
 phaseProgress: {
   criteriaMet: number;          // count only, never criterion text; the phase completes when it reaches criteriaTotal
-  criteriaTotal: number;
+  criteriaTotal: number;        // criteria only; accepted extras are not counted
   completedWithSupport: boolean; // the learning summary shows each phase as independent or supported
 }
+
+// Added to the session, for the current phase
+canRequestHelp: boolean;        // true after the first real answer in the phase and before the reveal (3.12)
 
 // Added to tutor messages
 acknowledgement?: string;
@@ -363,6 +423,17 @@ attachments: { id; kind; title; description; url; unlockPhase }[];
 findings: { id; title; text; unlockPhase }[];   // unlocked only
 ```
 
+### Message request
+
+`/api/session/message` gains one optional field (3.12).
+
+```ts
+sessionId: string;
+message?: string;               // required for an answer; omitted when helpRequested is true
+clientRequestId?: string;
+helpRequested?: boolean;        // true for a press of the "More help" button
+```
+
 ### Case catalogue
 
 `/api/cases` sends no attachment URLs at all. Locked attachments never receive a signed URL anywhere.
@@ -371,9 +442,10 @@ findings: { id; title; text; unlockPhase }[];   // unlocked only
 
 ```ts
 targetCriterionId: string | null;                  // null when untagged
-criteriaMet: { id: string; evidence: string }[];   // evidence recorded, not verified
-supportLevel: 0 | 1 | 2;
-completedWithSupport: boolean;                     // true only if a reveal happened in the phase
+criteriaMet: { id: string; evidence: string }[];   // evidence recorded, not verified; always empty for a help press
+supportLevel: 0 | 1 | 2;                           // the level after this turn
+helpRequested: boolean;                            // true when this turn was a press of the help button, not an answer (3.12)
+completedWithSupport: boolean;                     // true only if a reveal happened in the phase, by any route
 retrieval?: { query: string; passages: { sourceId: string; page: number; locator?: string; score: number }[] };
 ```
 
@@ -398,7 +470,7 @@ criteriaMet: { id: string; evidence: string }[];   // evidence is a short quote 
 
 Strict on what the turn needs, lenient on labels. A missing `classification`, or a `nextQuestion` without exactly one question mark, rejects the output as today. A missing, `null` or unknown `targetCriterionId` is recorded as untagged, and `criteriaMet` entries with unknown IDs are filtered out. Neither ever rejects the turn (3.2).
 
-A phase completes when every criterion ID appears in its accumulated `criteriaMet`, or when the application answer after a reveal arrives (3.3). `classification` doesn't gate advancement.
+A phase completes when every criterion ID appears in its accumulated `criteriaMet`, or when the application answer after a reveal arrives (3.3). `classification` doesn't gate advancement. Accepted extras add no field to the model output: the model acknowledges them in `acknowledgement`, and an extra's ID in `criteriaMet` is filtered out as unknown.
 
 ---
 
@@ -409,8 +481,9 @@ All editable by clinicians in the admin case editor. Defaults apply until they c
 | Setting | Scope | Default |
 |---|---|---|
 | Criteria (ID, text, optional `revealText`) | Per phase | None. Clinician-written |
+| Accepted extras (ID, text) | Per phase | None. Optional, clinician-written |
 | `noProgressLimit` | Per phase | 2 |
-| `phaseCeiling` | Per phase | 8 |
+| `phaseCeiling` | Per phase | 5 |
 | `unlockPhase` | Per attachment and finding | 1 |
 | Attachment description | Per attachment | Clinician-written |
 | Scripted move `targetCriterionId` | Per scripted move | None. Clinician-written; an untagged move counts as untagged |
@@ -421,23 +494,31 @@ The admin editor is extended to expose these fields where it doesn't already (fr
 
 ---
 
-## 6. Open questions for the clinical leads
+## 6. Questions for the clinical leads
 
-1. Is 2 the right default for `noProgressLimit`, and should some phases differ?
-2. Is 8 the right `phaseCeiling`?
-3. Strike one probes once or twice before the correction?
-4. Should students have a way to ask for help? Options: a button available after one real attempt, the tutor recognising "I'm stuck" in chat, or neither.
-5. Which attachments and findings unlock in which phase, per case?
+### Answered for Case 1
+
+| # | Question | Answer for Case 1 | Where it lands |
+|---|---|---|---|
+| 1 | How many tries before the tutor gives more help? | 2 | `noProgressLimit` stays at its default of 2 (3.2) |
+| 2 | What is the hard limit on answers in a phase? | 5 | `phaseCeiling` default changes from 8 to 5 (3.3) |
+| 3 | How many probes before the tutor says a claim is incorrect? | Once | `correctionProbes` stays at its default of 1 (3.6) |
+| 4 | Should students have a way to ask for help? | Yes, a button | The "More help" button (3.12) |
+| 5 | Which records unlock in which phase? | Everything except the CBCT is available from phase 1. The CBCT is available from phase 2 | `unlockPhase` is 2 for the CBCT and 1 for every other item (3.7) |
+
+These answers are for Case 1. Cases 2 and 3 use the same defaults until the clinical leads say otherwise. Question 5 is still open for Cases 2 and 3.
+
+### Still open
+
 6. Neutral case and phase titles ("Case 1", "Identify and localise the problem") instead of ones that name the canine?
 7. Image descriptions and clinical findings for each case.
-8. Approval of the case-specific phase content, Case 1 first.
+8. Approval of the case-specific phase content, Case 1 first. This now includes any accepted extras (3.1).
 
 ---
 
 ## 7. Parked
 
 - **Unlocking on request.** Parked because its failure is silent: if the model misses a request, the student asks for a CBCT and nothing happens. The data field is reserved so it can be added later without a migration.
-- **A student help button.** Parked until the clinical leads answer open question 4. It changes student behaviour, so it's their decision.
 
 ---
 
@@ -454,6 +535,20 @@ The admin editor is extended to expose these fields where it doesn't already (fr
 - The counter resets on a new criterion met or a new best classification, and does not reset on vague, partial, vague, partial.
 - The ladder steps up exactly at `noProgressLimit`.
 - The ceiling forces level 2 at `phaseCeiling` answers before the reveal. The application answer doesn't count toward it, so the phase takes at most `phaseCeiling` answers plus one.
+- With no `phaseCeiling` set on the phase, the default of 5 applies: the reveal is forced at the fifth answer, and the phase ends after at most 5 answers plus 1 application.
+- An accepted extra never changes `criteriaMet` or completion: an answer that raises only an extra leaves the `criteriaMet` count unchanged, doesn't complete the phase and doesn't reset the no-progress counter.
+- An extra's ID returned in the model's `criteriaMet` is filtered out and doesn't reject the turn.
+- The student bundle never contains accepted extra IDs or text, and `criteriaTotal` doesn't include extras.
+- `canRequestHelp` is false at the start of a phase, true after the first answer in it, and false again once the phase reaches level 2.
+- A help press before the first answer in a phase changes nothing: the support level, the counter and the messages are unchanged.
+- A help press at level 0 moves the phase to level 1, never to level 2. A second press moves it to level 2.
+- A help press resets the no-progress counter to zero.
+- A help press doesn't count toward `phaseCeiling` or `phaseAttempts`, and records no criteria.
+- A phase that reaches the reveal through the help button sets `awaitingApplication`, advances on the next answer and records `completedWithSupport: true`.
+- A phase where the help button only reached level 1, then completed on criteria, records `completedWithSupport: false`.
+- Every help press is recorded with `helpRequested: true` and appears in the professor review. Ordinary answers record `helpRequested: false`.
+- Two help presses with the same `clientRequestId` step up one level, not two.
+- A message request with neither `message` nor `helpRequested: true` is rejected.
 - After a level 2 reveal in a non-final phase, `awaitingApplication` is set, the next answer is accepted whatever its classification, and the phase advances with `completedWithSupport: true`.
 - A phase completed after a level 1 hypothetical, with no reveal, records `completedWithSupport: false`.
 - A missing acknowledgement falls back to the question alone, and never errors.
@@ -494,21 +589,21 @@ The admin editor is extended to expose these fields where it doesn't already (fr
 | A | Security PR (Next 15.5.26, sharp 0.35.4, `npm audit fix`) | Arshin |
 | A | Shared-password gate in front of the whole live site | Arshin |
 | B | Real individual accounts (Supabase Auth, with roles). Prerequisite for real patient materials, see below | Bruce |
-| B | Engine changes, sections 3.1 to 3.6 and 3.9 | Bruce |
+| B | Engine changes, sections 3.1 to 3.6 and 3.9, and the engine side of the help button (3.12) | Bruce |
 | B | Migrations, sections 3.7, 3.8 and 3.11 | Bruce |
 | B | `superseded` case status and moving assignments to a new version (3.11) | Bruce |
 | B | Publish-time choice UI: move open assignments or not (3.11) | Arshin |
 | B | Private media bucket, signed URLs, re-signing route, publish script upload (3.7) | Bruce |
 | B | Allowlisted student view (3.10) | Arshin, Bruce reviews |
 | B | Image viewer refresh of expired signed URLs (3.7) | Arshin |
-| B | Student UI: progress, acknowledgement, attachment gating, findings | Arshin |
-| B | Professor Transcript tab and the support flag | Arshin |
+| B | Student UI: progress, acknowledgement, attachment gating, findings, the "More help" button (3.12) | Arshin |
+| B | Professor Transcript tab, the support flag and help presses | Arshin |
 | B | Admin editor extensions for section 5 settings | Arshin |
 | C | Clinician content approved for Cases 1 to 3 | Clinical leads, in a Google Doc (3.11) |
 | C | Content conversion to the pack format and publishing (3.11) | Arshin |
 | C | Manual testing, retrieval comparison | Arshin |
 
-Dependencies: 3.2, 3.3, 3.5 and 3.9 need 3.1's criterion IDs. Frontend work in stage B builds against section 4 and can start as soon as this spec merges.
+Dependencies: 3.2, 3.3, 3.5 and 3.9 need 3.1's criterion IDs. 3.12 needs the ladder in 3.3. Frontend work in stage B builds against section 4 and can start as soon as this spec merges.
 
 **Hard prerequisite: real accounts before real patient materials.** No real patient materials are introduced until real individual accounts (Supabase Auth, with roles) ship. In the meantime, the whole live site sits behind a shared-password gate. Under today's demo identity switcher (`app/api/demo/identity/route.ts`), anyone can become any user. So the ownership checks in 3.7 and 3.8 are correct to build now, but they only become real protection once real accounts exist.
 
