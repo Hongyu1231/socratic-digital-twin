@@ -4,7 +4,7 @@ Status: draft for review. Spec by Arshin, engine by Bruce. Written 29 Sep 2026 a
 
 This document describes the changes to the Socratic tutor engine agreed after the clinical leads tested Cases 1 to 3. It's the contract the frontend and backend build against in parallel, so field names in section 4 are binding once this PR merges.
 
-File and line references come from a read-only investigation of `master` and were verified against master on 29 Sep 2026.
+File and line references come from a read-only investigation of `master` and were verified against master on 29 Sep 2026. These fact notes describe that baseline, not the implementation status of today's `master`. The 4 Oct review additions below settle the Help storage contract, extras-only progress and failure precedence; they are requirements, not a claim that the features have shipped.
 
 ---
 
@@ -87,10 +87,11 @@ The student bundle already blanks `rubric` (`lib/http.ts:35`).
 
 ### 3.2 Criterion tagging and the no-progress counter
 
-**What.** The model's output gains two fields:
+**What.** The model's output gains three fields:
 
 - `targetCriterionId`: which criterion the next question is aimed at, as `string | null`. The model returns `null` when no criterion fits. The schema doesn't restrict it to the current phase's IDs. Code checks it against them instead (see "Fails safe" below).
 - `criteriaMet`: the criteria this answer satisfies, as a list of `{ id, evidence }`. `evidence` is a short quote from the student's answer.
+- `answerCriterionId`: a required criterion that this answer meaningfully addresses, as `string | null`. It need not be fully satisfied. This describes the **current answer**, unlike `targetCriterionId`, which describes the **next question**. An answer only discussing accepted extras or unrelated material returns `null`.
 
 The engine stores, per session and phase, the set of criteria met so far and the best classification so far.
 
@@ -103,23 +104,25 @@ The prompt also tells the tutor not to repeat or rephrase any of its own earlier
 **What counts as progress.** An answer is progress if either:
 
 - it newly satisfies at least one criterion, or
-- its classification ranks above the **best** classification so far in this phase (`wrong < vague < partial < correct`).
+- its classification ranks above the **best eligible** classification so far in this phase (`wrong < vague < partial < correct`), and is eligible for that comparison as defined below.
 
 Comparing against the best so far, not the previous answer, means a student who oscillates (vague, partial, vague, partial) doesn't reset the counter every other turn.
+
+**Extras cannot reset the counter indirectly.** In a phase with accepted extras, a classification is eligible only when the server validates `answerCriterionId` against the phase's required criterion IDs. An extra ID, an unknown ID, `null` or a missing value is ineligible: the answer's classification is still recorded for review, but it neither resets the counter nor raises the saved best classification. Do not use `targetCriterionId` for this decision: a sensible next question is not evidence of progress in the answer. A newly met, valid required criterion still counts as progress independently of this tag, so an answer containing both an extra and genuine required progress is not penalised. Phases with no accepted extras retain the classification-only comparison for backward compatibility.
 
 **The counter.** Counts consecutive no-progress answers at the current support level. Progress resets it to zero. When it reaches the phase's `noProgressLimit` (default 2), the engine steps up one support level (3.3). A press of the help button also steps up one level and resets the counter to zero (3.12).
 
 **Why.** Jessica's loop was the same target, reworded. Tracking the target, not the wording, is what stops it.
 
-**Fails safe.** Code checks `targetCriterionId` against the current phase's criterion IDs. A missing, `null` or unknown value means the turn is untagged, and the rest of the evaluation is kept. The counter still runs on classification alone. `criteriaMet` entries with unknown IDs are filtered out. They never cause a rejection.
+**Fails safe.** Code checks `targetCriterionId` and `answerCriterionId` independently against the current phase's required criterion IDs. A missing, `null` or unknown value is normalised to `null`, and the rest of the evaluation is kept. Missing answer tagging in a phase with extras disables only classification-based progress; valid newly met criteria, the counter, the ladder and the ceiling still work. `criteriaMet` entries with unknown IDs are filtered out. They never cause a rejection.
 
-The general rule: be strict on what the turn needs, and lenient on labels. The turn needs a valid `classification` and a `nextQuestion` with exactly one question mark, and output without them is rejected as today. Labels (`targetCriterionId`, `criteriaMet` IDs) are filtered when invalid, never used to reject a turn.
+The general rule: be strict on what the turn needs, and lenient on labels. An answer evaluation needs a valid `classification` and a `nextQuestion` with exactly one question mark, and output without them is rejected as today. Labels (`targetCriterionId`, `answerCriterionId`, `criteriaMet` IDs) are filtered when invalid, never used to reject a turn. Help is a separate ungraded path (3.12), so it never requires a classification or an evaluation.
 
 **Touches.** `lib/schemas.ts` output schema, `lib/tutor/prompt.ts` (including `prompt.ts:31`, whose current anti-repeat rule covers only the phase starter question), `lib/tutor/state-machine.ts`, evaluation storage. The output schema stays a single fixed definition, as it is today, so the providers that receive it (`lib/tutor/openai.ts`, `lib/tutor/claude.ts`) don't change. The deterministic fallback (`lib/tutor/deterministic.ts`) produces the same result shape.
 
 **Where the state lives today (fact note).** Per-session, per-phase state already exists: `LearnerState` (`lib/domain.ts:176-188`) holds maps keyed by phase order, such as `phaseAttempts` and `mastery`. `phaseAttempts` is read at `state-machine.ts:46` and written at `state-machine.ts:144-148`. The whole object is persisted as `session_state.state` JSONB (`schema.sql:178-191`, one row per session). The commit RPC writes it (`p_state`, `schema.sql:487-509`) in the same transaction as the messages and evaluation, guarded by the `version` check. That object is the most natural existing home for the no-progress counter, the best classification so far and the criteria met, as new phase-keyed maps. It needs no new table or column. This state never reaches the student, because the student bundle becomes an allowlist (3.10).
 
-Per-evaluation values (`targetCriterionId`, `criteriaMet`) have an existing home in `evaluations.criteria` JSONB (`schema.sql:168`). Despite its name, that column holds the whole evaluation record (classification, confidence, attempt, phaseOrder, model and so on), built by `lib/repository/evaluation-criteria.ts:9-25` and read back at `supabase.ts:173-189`. None of the proposed keys exist there today.
+Per-evaluation values (`targetCriterionId`, `answerCriterionId`, `criteriaMet`) have an existing home in `evaluations.criteria` JSONB (`schema.sql:168`). Despite its name, that column holds the whole evaluation record (classification, confidence, attempt, phaseOrder, model and so on), built by `lib/repository/evaluation-criteria.ts:9-25` and read back at `supabase.ts:173-189`. None of the proposed keys existed in the investigated baseline.
 
 ### 3.3 The escalation ladder and the phase ceiling
 
@@ -142,6 +145,8 @@ Per-evaluation values (`targetCriterionId`, `criteriaMet`) have an existing home
 
 **The ceiling.** `phaseCeiling` (default 5) counts the answers in a phase before the reveal. When that count reaches `phaseCeiling`, the engine jumps straight to level 2 and reveals, whatever the model says. The application answer doesn't count toward the ceiling. So with the default, a phase takes at most 5 answers plus 1 application.
 
+This is a limit of **five pre-reveal answers, not five total interactions**. Help presses aren't answers. The application and the final session reflection are separate; neither consumes the pre-reveal allowance. This counting convention must be explicit in the UI and clinical review, rather than describing it as five total answers.
+
 **Two ways up the ladder.** The support level rises when the no-progress counter reaches `noProgressLimit` (3.2), or when the student presses the help button (3.12). Both move one level at a time. Only the ceiling skips a level.
 
 **The final reflection.** The reflection question is always asked before the session ends, however the final phase completes. When the final phase completes by any route, the next tutor message is the reflection question instead of the completion message. If the final phase completes through a level 2 reveal, whether stepped up to or forced by the ceiling, the order is: the reveal, then the student's application answer, then the reflection, then the session ends. Any answer to the reflection ends the session. It's never graded as a gate.
@@ -157,6 +162,8 @@ Each scripted move carries a clinician-written `targetCriterionId`. When a scrip
 **Why.** It mirrors how the expert panel handles a stuck resident: revisit, offer a hypothetical, tell them if they're wrong, and never let them stay lost. The ceiling guarantees no session can be trapped, and the reflection closes every session the same way.
 
 **Fails safe.** If the model fails to write the level 2 reveal, the engine uses the criterion's optional `revealText`, and failing that, the criterion text itself. While `awaitingApplication` is set, the phase advances on the next answer even if the model call fails.
+
+These deterministic reveal/application paths take precedence over the level 1 Help failure rule in 3.12. A failed provider call must not undo a reveal or leave an application answer waiting for a model to approve it.
 
 **Touches.** `lib/tutor/state-machine.ts`, `lib/tutor/question-planner.ts`, `lib/tutor/prompt.ts`, session-phase storage (`session_state.state`, see the note in 3.2), `lib/schemas.ts`, `lib/domain.ts` (`TutorMove`, `LearnerState`). The scripted move schema is strict (`lib/schemas.ts:73-87`), so the editor rejects `targetCriterionId` until it's added there. `mapPhase` passes `metadata.tutorMoves` through without validation (`lib/repository/supabase.ts:60`).
 
@@ -266,9 +273,9 @@ A locked attachment and a non-existent one return the same not-found response, s
 - The commit RPC receives `clientRequestId`.
 - Inside `commit_tutor_turn`, the order becomes:
   1. Lock the session row.
-  2. Look up `(session_id, client_request_id)`.
-  3. Run the version check.
-- If the request ID already exists, the RPC returns the existing turn and skips the version check.
+  2. Look up `(session_id, client_request_id)` and check the stored request kind and content.
+  3. For a new request only, check the current session status, expected version and the operation's eligibility, then commit.
+- If the request ID already exists with the same kind and content, the RPC returns the existing turn and skips the current-status, eligibility and version checks. Reusing it for different answer text or for a different kind (`answer` versus `help`) returns a conflict, never an unrelated turn.
 
 A concurrent retry waits on the row lock, then finds the committed turn and returns it. The outcome is exactly one turn, and both requests receive it. There's no 409 and no "still processing" state. The unique constraint remains as a backstop.
 
@@ -276,10 +283,16 @@ A concurrent retry waits on the row lock, then finds the committed turn and retu
 
 1. Authenticate the caller.
 2. Verify the session belongs to the caller.
-3. Look up `(session_id, client_request_id)`. If the request ID already exists, return that turn immediately.
-4. Only then run the completed and paused checks, the model call and the RPC.
+3. Look up `(session_id, client_request_id)`. If the kind and content match, return that turn immediately; a mismatched reuse is a conflict.
+4. Only then run the completed, paused and Help-eligibility checks, the model call and the RPC.
 
 This covers late retries, including a retry of the answer that completed the session. Today that retry would be rejected by the completed-session check before it reached the RPC. It also avoids a second model call. The lookup runs only after ownership is verified, so it can't be used to probe other sessions.
+
+**Typed replay for Help.** The same rules cover a committed Help press, including a retry after the phase changes or the session is paused or completed. A committed turn is a tagged union: an answer has an evaluation; Help has a request marker and a tutor reply but `evaluation: null` (sections 3.12 and 4). Finding no evaluation must not be treated as a missing or incomplete Help turn. The early lookup, RPC result, repository types and memory repository all use this contract. Existing untagged student turns read as `answer`; existing answer request IDs remain valid.
+
+**One press, one request ID.** The UI creates an ID for a press, keeps it for retries and disables repeat submission while it is pending. A later deliberate press gets a new ID. Duplicate requests with the same ID always replay one step. Concurrent requests with different IDs are different actions: if built from the same version, only one can commit and the other receives a version conflict. Do not automatically rerun a stale Help request against the new version, which could silently turn one requested step into a second reveal. Refresh the bundle and require a new deliberate action instead.
+
+**Short, atomic commits.** Generate the tutor reply before opening the locked transaction. Under the lock, recheck ownership, replay, status, expected version and eligibility, then persist the entire turn and state change together. A failure rolls back every row and state change; no half-turn can be replayed. Keep the current restricted RPC grants and existing answer-call compatibility when extending it; no new public database write path is needed.
 
 Today the ownership check and the completed and paused checks sit next to each other in `performStudentAnswer`: ownership at `lib/tutor/state-machine.ts:39`, then the completed check at `:40` and the paused check at `:41`. The message route itself only authenticates and parses the request (`app/api/session/message/route.ts`). The early lookup goes between lines 39 and 40, and the repository gains a read of a turn by `(session_id, client_request_id)`.
 
@@ -354,25 +367,38 @@ The only earlier writes are the humanization experiment's arm assignment and sha
 - **What a press does.** Each press moves the phase up one support level on the ladder in 3.3. From the narrower question (level 0), a press gives a plan to critique (level 1). From there, a press gives the reveal (level 2). A press never jumps straight from level 0 to the reveal.
 - **The counter.** A press resets the no-progress counter (3.2) to zero, so the student gets a full `noProgressLimit` of tries at the new level.
 - **A press isn't an answer.** It isn't graded, it meets no criteria, and it doesn't count toward `phaseCeiling`, `phaseAttempts` or the two-strike correction (3.6).
-- **Logging.** Every press is saved as its own turn, marked `helpRequested: true`, and shown to professors in the review, in order with the student's answers.
+- **Logging.** Every accepted press is saved as its own ungraded turn, marked `turnKind: "help"` and `helpRequested: true`, and shown to professors in the review, in order with the student's answers. A disallowed press isn't a saved turn.
 - **Completion.** A phase that reaches the reveal through the button is recorded as `completedWithSupport: true`, exactly as in 3.3. After the reveal the phase waits for the application answer and then advances. A phase where the button only took the student to level 1 still counts as independent.
 
-**How a press is sent.** The button uses the existing message route with `helpRequested: true` and no answer text. It carries a `clientRequestId` like any other turn, so the duplicate protection in 3.8 applies and a double press or a retry produces one step, not two. The tutor's reply to a press is the level 1 hypothetical or the level 2 reveal, with the matching `moveType` (section 4).
+**How a press is sent.** The button uses the existing message route with `helpRequested: true`, a required non-empty `clientRequestId` and no `message` field. Reject mixed answer-and-Help payloads, a Help request without a request ID, and a request containing neither operation. Ordinary answer requests keep their existing compatibility, including an optional request ID. The UI retains the same ID for duplicate submissions and retries of one press (3.8). The tutor's reply is the level 1 hypothetical or the level 2 reveal, with the matching `moveType` (section 4).
+
+**Storage decision: messages, not a fake evaluation.** An accepted press atomically writes:
+
+1. A student-role message containing a server-generated non-empty label, `Requested more help`, with `turnKind: "help"`, `helpRequested: true` and the request ID. This is a UI action marker, not submitted answer text. The client never sends a dummy answer to satisfy the current message schema.
+2. The tutor reply, linked to the marker by the existing `replyToMessageId` metadata field, with its `moveType` and Help metadata. Only the student marker sets the `client_request_id` column; the tutor row leaves it null, so the unique key is not duplicated.
+3. The updated session state and version, with **no evaluation row** for the press. The turn's evaluation reference is `null`.
+
+The message metadata also snapshots `phaseOrder`, the resulting `supportLevel` and `completedWithSupport` for this turn. Historical review reads that snapshot, not the session's current phase or support level. Both repositories and their replay mappers must preserve it. No new event table is required: the request ID locates the marker, `replyToMessageId` locates its reply, and message sequence orders the transcript. If retrieval runs for Help, its audit data belongs to this turn's metadata, not to a fabricated evaluation, and stays out of the student allowlist.
+
+The same transaction increments the session version once, raises support by one and resets `noProgressCount` to zero. At level 2 it also sets `awaitingApplication: true` and the current phase's `completedWithSupport: true`; Help itself never advances the phase. It leaves `phaseAttempts`, the pre-reveal answer count, the best classification, accumulated criteria, mastery/score and correction history unchanged. Do not disguise Help as a reflection or as a `vague`/zero-score answer. A Help marker must also be excluded from student-answer retrieval text and answer-based summary/analytics inputs; the support flag and chronological transcript remain available for review.
+
+**Professor timeline.** Build chronological turns from the messages, with an optional linked evaluation, rather than iterating only over evaluations. Show a Help turn as "Help requested" followed by the tutor reply and its support level. It has no answer classification, score, rubric judgement or answer-grading controls. Ordinary answers retain those controls. Reloading a session or replaying a request must show the same event once, in the same position.
 
 **Why.** A student who knows they're stuck shouldn't have to give two more weak answers to get help. The first-answer rule keeps the button from replacing an attempt, and the one-level step keeps it from becoming a "show me the answer" button.
 
 **Fails safe.**
 
-- The server checks the same rule that sets `canRequestHelp`. A press that isn't allowed changes nothing and returns the current session, so a stale or tampered client can't skip the first answer or step past level 2.
-- The new support level is saved in the same commit as the tutor's reply. If the model call fails, nothing is saved, the phase stays where it was and the student can press again.
-- A press to level 2 uses the same reveal fallback as 3.3 (`revealText`, then the criterion text).
+- After ownership and committed-request replay checks, the server checks the same rule that sets `canRequestHelp`. A new press that isn't allowed (before the first answer, at level 2, during reflection, or while paused/completed) changes nothing and returns the current session. It calls no model and saves no marker, evaluation or state update. Invalid request shapes are still rejected, not treated as disallowed presses.
+- For a level 0-to-1 press, if no valid hypothetical can be generated, return a retryable error and save nothing. The phase stays where it was and the client retains the same request ID for retry.
+- For a level 1-to-2 press, model failure instead uses the reveal fallback in 3.3 (`revealText`, then the criterion text) and commits the reply and support state normally. This takes precedence over the previous bullet: a usable deterministic reveal is a successful Help turn, not a failed generation. The next application answer still advances even if its model call fails.
+- Persistence failure at either level rolls back the marker, reply and state together. Retry/replay uses the same request ID; it cannot apply the support step twice.
 - If the button is broken or hidden, the counter and the ceiling still move the student on.
 
 **Ownership.** Bruce handles the engine side: the request flag, the level step, the counter reset, `canRequestHelp` and the logging. Arshin handles the button UI and showing presses in the professor review.
 
-**Touches.** `lib/schemas.ts` (`sessionMessageSchema`), `app/api/session/message/route.ts`, `lib/tutor/state-machine.ts`, `lib/tutor/prompt.ts`, `lib/http.ts` (allowlist, 3.10), evaluation storage, the student chat UI (`app/session/[id]/socratic-chat.tsx`), the professor review.
+**Touches.** `lib/schemas.ts` (`sessionMessageSchema`), `app/api/session/message/route.ts`, `lib/tutor/state-machine.ts`, `lib/tutor/prompt.ts`, `lib/http.ts` (allowlist, 3.10), message metadata, the commit RPC, repository turn/replay types and mappers in both repositories, answer-based analytics/summary projections, the student chat UI (`app/session/[id]/socratic-chat.tsx`), the professor review.
 
-**Current request shape (fact note).** `sessionMessageSchema` requires `message` to be 2 to 2,000 characters (`lib/schemas.ts:13-17`), so a press with no text is rejected today. `performStudentAnswer` treats every request as an answer and increments `phaseAttempts` (`lib/tutor/state-machine.ts:31-46`). The commit RPC always writes a student message, an evaluation and a tutor message (see 3.8), so how an ungraded press is stored in those rows is settled in review.
+**Current request shape (fact note).** `sessionMessageSchema` requires `message` to be 2 to 2,000 characters (`lib/schemas.ts:13-17`), so a press with no text is rejected in the investigated baseline. `performStudentAnswer` treats every request as an answer and increments `phaseAttempts` (`lib/tutor/state-machine.ts:31-46`). The existing commit RPC writes a student message, an evaluation and a tutor message (see 3.8); it and any replay path requiring an evaluation must be extended with the ungraded Help branch above, rather than made to accept a dummy grade.
 
 ---
 
@@ -411,6 +437,10 @@ phaseProgress: {
 // Added to the session, for the current phase
 canRequestHelp: boolean;        // true after the first real answer in the phase and before the reveal (3.12)
 
+// Allowlisted on transcript messages for both roles; legacy messages default to answer/false
+turnKind: "answer" | "help";
+helpRequested: boolean;        // true only for an accepted Help turn, never inferred from its text
+
 // Added to tutor messages
 acknowledgement?: string;
 moveType?: "question" | "hypothetical" | "reveal" | "correction" | "transition";
@@ -425,29 +455,62 @@ findings: { id; title; text; unlockPhase }[];   // unlocked only
 
 ### Message request
 
-`/api/session/message` gains one optional field (3.12).
+`/api/session/message` accepts two mutually exclusive request shapes (3.12). No existing answer caller is required to start sending a Help flag.
 
 ```ts
-sessionId: string;
-message?: string;               // required for an answer; omitted when helpRequested is true
-clientRequestId?: string;
-helpRequested?: boolean;        // true for a press of the "More help" button
+type MessageRequest =
+  | {
+      sessionId: string;
+      message: string;          // existing answer validation remains
+      clientRequestId?: string;
+      helpRequested?: false;
+    }
+  | {
+      sessionId: string;
+      helpRequested: true;
+      clientRequestId: string; // required, non-empty; stable across retries of this press
+      message?: never;         // reject even an empty message field
+    };
 ```
+
+`canRequestHelp` is computed by the server from the current phase's real evaluated answers, support level, reflection state and session status. It is a convenience for the UI, not permission supplied by the client. The request carries no classification, score, support level or criterion IDs.
 
 ### Case catalogue
 
 `/api/cases` sends no attachment URLs at all. Locked attachments never receive a signed URL anywhere.
 
-### Professor review, per evaluation
+### Professor review and repository replay, per turn
+
+Both use a discriminated union. These are additions to the existing turn fields (message IDs, timestamps and sequence), not a replacement for them:
+
+```ts
+type Turn = {
+  phaseOrder: number;
+  supportLevel: 0 | 1 | 2;      // snapshot after this turn, not today's session state
+  completedWithSupport: boolean;
+  studentMessage: Message;     // answer text or server-generated Help marker
+  tutorMessage: Message;
+  retrieval?: { query: string; passages: { sourceId: string; page: number; locator?: string; score: number }[] };
+} & (
+  | { turnKind: "answer"; helpRequested: false; evaluation: Evaluation }
+  | { turnKind: "help"; helpRequested: true; evaluation: null }
+);
+```
+
+Help metadata lives on messages, not in `evaluations.criteria`. The timeline includes both variants in message-sequence order; only the answer variant has grading controls. Legacy paired turns without a kind read as answers. Standalone opening/system tutor messages remain standalone transcript messages and are not forced into this paired-turn union. Repository replay must recognise a complete Help turn without looking for an evaluation. The student DTO exposes only the allowlisted message fields above, never this full professor/repository union or arbitrary message metadata.
+
+### Professor review, per answer evaluation
 
 ```ts
 targetCriterionId: string | null;                  // null when untagged
-criteriaMet: { id: string; evidence: string }[];   // evidence recorded, not verified; always empty for a help press
+answerCriterionId: string | null;                  // validated current-answer tag; null when untagged
+criteriaMet: { id: string; evidence: string }[];   // evidence recorded, not verified
 supportLevel: 0 | 1 | 2;                           // the level after this turn
-helpRequested: boolean;                            // true when this turn was a press of the help button, not an answer (3.12)
 completedWithSupport: boolean;                     // true only if a reveal happened in the phase, by any route
 retrieval?: { query: string; passages: { sourceId: string; page: number; locator?: string; score: number }[] };
 ```
+
+There is no Help evaluation with empty criteria or a placeholder classification. Answer evaluations retain their existing classification, scoring and retrieval fields; the turn projection reads their retrieval audit data from the evaluation, while Help reads it from message metadata. Help cannot enter answer-evaluation aggregates.
 
 ### Session state additions (server only, never in the student bundle)
 
@@ -465,12 +528,15 @@ The schema is a single fixed definition, not built per turn.
 ```ts
 acknowledgement: string;                           // one sentence, ≤200 chars, no "?"
 targetCriterionId: string | null;                  // null when no criterion fits
+answerCriterionId: string | null;                  // required criterion addressed in the answer, not the next question
 criteriaMet: { id: string; evidence: string }[];   // evidence is a short quote from the answer
 ```
 
-Strict on what the turn needs, lenient on labels. A missing `classification`, or a `nextQuestion` without exactly one question mark, rejects the output as today. A missing, `null` or unknown `targetCriterionId` is recorded as untagged, and `criteriaMet` entries with unknown IDs are filtered out. Neither ever rejects the turn (3.2).
+These fields extend answer evaluation output. Help reply generation uses its own ungraded validation: the appropriate hypothetical/reveal content and a single application or critique question, without requiring or saving a classification. For a deterministic reveal, the engine supplies the brief reveal plus application question itself (3.3, 3.12).
 
-A phase completes when every criterion ID appears in its accumulated `criteriaMet`, or when the application answer after a reveal arrives (3.3). `classification` doesn't gate advancement. Accepted extras add no field to the model output: the model acknowledges them in `acknowledgement`, and an extra's ID in `criteriaMet` is filtered out as unknown.
+Strict on what the answer turn needs, lenient on labels. A missing `classification`, or a `nextQuestion` without exactly one question mark, rejects answer evaluation output as today. A missing, `null` or unknown `targetCriterionId` or `answerCriterionId` is normalised to `null`, and `criteriaMet` entries with unknown IDs are filtered out. None of these labels rejects the turn (3.2). The deterministic answer fallback produces the same shape, with `answerCriterionId: null` unless it can identify a required criterion.
+
+A phase completes when every criterion ID appears in its accumulated `criteriaMet`, or when the application answer after a reveal arrives (3.3). `classification` doesn't gate advancement. Accepted extras are acknowledged in `acknowledgement`, never awarded as criteria. `answerCriterionId` provides the separate classification-progress gate in phases with extras; an extras-only answer returns `null` even if its quality label improves. Extra IDs are invalid in both criterion tags and in `criteriaMet`.
 
 ---
 
@@ -532,23 +598,32 @@ These answers are for Case 1. Cases 2 and 3 use the same defaults until the clin
 - `criteriaMet` evidence is stored as given, including a paraphrase that doesn't appear in the answer.
 - An invalid `targetCriterionId` keeps the evaluation and records it as untagged.
 - `criteriaMet` entries with unknown IDs are filtered out and don't reject the turn.
-- The counter resets on a new criterion met or a new best classification, and does not reset on vague, partial, vague, partial.
+- The counter resets on a new criterion met or a new best eligible classification, and does not reset on vague, partial, vague, partial.
 - The ladder steps up exactly at `noProgressLimit`.
 - The ceiling forces level 2 at `phaseCeiling` answers before the reveal. The application answer doesn't count toward it, so the phase takes at most `phaseCeiling` answers plus one.
 - With no `phaseCeiling` set on the phase, the default of 5 applies: the reveal is forced at the fifth answer, and the phase ends after at most 5 answers plus 1 application.
+- Help presses, the application and the final reflection do not consume the five pre-reveal answers; the reflection still occurs after the final phase.
 - An accepted extra never changes `criteriaMet` or completion: an answer that raises only an extra leaves the `criteriaMet` count unchanged, doesn't complete the phase and doesn't reset the no-progress counter.
+- An extras-only answer with a higher classification and a valid next-question `targetCriterionId`, but no valid `answerCriterionId`, neither resets the counter nor updates the best classification.
+- Missing/unknown/extra-valued `answerCriterionId` is normalised to `null` without rejecting the evaluation. In a phase with extras, it disables only classification-based progress; in a phase without extras, the legacy comparison still works.
+- An answer containing an extra and a newly met required criterion still resets the counter and records that required criterion, even if `answerCriterionId` is missing. A higher label with a valid required `answerCriterionId` remains eligible for classification progress.
 - An extra's ID returned in the model's `criteriaMet` is filtered out and doesn't reject the turn.
 - The student bundle never contains accepted extra IDs or text, and `criteriaTotal` doesn't include extras.
 - `canRequestHelp` is false at the start of a phase, true after the first answer in it, and false again once the phase reaches level 2.
 - A help press before the first answer in a phase changes nothing: the support level, the counter and the messages are unchanged.
 - A help press at level 0 moves the phase to level 1, never to level 2. A second press moves it to level 2.
 - A help press resets the no-progress counter to zero.
-- A help press doesn't count toward `phaseCeiling` or `phaseAttempts`, and records no criteria.
+- A help press doesn't count toward `phaseCeiling` or `phaseAttempts`, and changes no criteria, best classification, mastery/score or correction history. It increments the session version once.
 - A phase that reaches the reveal through the help button sets `awaitingApplication`, advances on the next answer and records `completedWithSupport: true`.
 - A phase where the help button only reached level 1, then completed on criteria, records `completedWithSupport: false`.
-- Every help press is recorded with `helpRequested: true` and appears in the professor review. Ordinary answers record `helpRequested: false`.
-- Two help presses with the same `clientRequestId` step up one level, not two.
-- A message request with neither `message` nor `helpRequested: true` is rejected.
+- Every accepted Help press records one server-generated marker and one tutor reply, both tagged `turnKind: "help"` and `helpRequested: true`, with no evaluation row. Only the marker has `client_request_id`; the reply's `replyToMessageId` points to it, and replay resolves the pair without an evaluation. Ordinary answers record `turnKind: "answer"` and `helpRequested: false`; untagged historical paired turns still read as answers.
+- The professor timeline includes Help in sequence after a reload, shows its historical phase/support snapshot and exposes no answer-grading controls for it. Answer counts, scoring, correction strikes, retrieval answer text and answer-based summaries exclude Help markers.
+- Two Help requests with the same `clientRequestId` step up one level, not two, and return the same saved turn with `evaluation: null`.
+- A late Help retry replays before current eligibility/status checks, including after a phase change, pause or completion, without another model call. Ownership is checked first; another student's request cannot read or replay it.
+- Reusing a request ID for a different kind or different answer text is a conflict, not a replay. A fresh disallowed Help press returns the current bundle without a model call or writes.
+- Requests with neither operation, both `message` and `helpRequested: true` (including empty text), or Help without a non-empty request ID are rejected. Existing answer requests with no Help flag still work.
+- A failed level 1 Help generation saves nothing and is retryable with the same ID. A failed level 2 generation persists the deterministic reveal plus `awaitingApplication` and `completedWithSupport`; its next application answer advances even if the model fails again.
+- A failed Help commit leaves no marker, reply or state changes. Retrying cannot create a half-turn or double increment.
 - After a level 2 reveal in a non-final phase, `awaitingApplication` is set, the next answer is accepted whatever its classification, and the phase advances with `completedWithSupport: true`.
 - A phase completed after a level 1 hypothetical, with no reveal, records `completedWithSupport: false`.
 - A missing acknowledgement falls back to the question alone, and never errors.
@@ -567,6 +642,9 @@ These answers are for Case 1. Cases 2 and 3 use the same defaults until the clin
 - When a scripted move replaces the model's question, the move's `targetCriterionId` is the one recorded.
 - Two commits with the same `clientRequestId` produce exactly one turn (migration test against local Supabase).
 - A concurrent retry with the same `clientRequestId` returns the same turn, not a 409 (migration test against local Supabase).
+- Repeat the concurrent duplicate test for Help: two messages, zero evaluations, one version increment and one support step; both callers receive the same ungraded turn. Run against both repositories.
+- Concurrent different-ID Help requests built from one version commit only one step; the loser receives a version conflict and is not automatically regenerated at the higher level.
+- The extended RPC keeps its restricted grants; an unauthorised database caller cannot write either kind. A rollback leaves no request ID replayable, and existing answer RPC callers still work (migration tests against local Supabase).
 - A late retry of an ordinary answer returns the committed turn without a second model call.
 - A late retry of the answer that completed the session returns that turn instead of the completed-session error.
 - A late retry on a paused session returns the committed turn instead of the paused error.
@@ -590,7 +668,7 @@ These answers are for Case 1. Cases 2 and 3 use the same defaults until the clin
 | A | Shared-password gate in front of the whole live site | Arshin |
 | B | Real individual accounts (Supabase Auth, with roles). Prerequisite for real patient materials, see below | Bruce |
 | B | Engine changes, sections 3.1 to 3.6 and 3.9, and the engine side of the help button (3.12) | Bruce |
-| B | Migrations, sections 3.7, 3.8 and 3.11 | Bruce |
+| B | Migrations, sections 3.7, 3.8, 3.11 and the ungraded Help commit/replay path in 3.12 | Bruce |
 | B | `superseded` case status and moving assignments to a new version (3.11) | Bruce |
 | B | Publish-time choice UI: move open assignments or not (3.11) | Arshin |
 | B | Private media bucket, signed URLs, re-signing route, publish script upload (3.7) | Bruce |
@@ -603,7 +681,7 @@ These answers are for Case 1. Cases 2 and 3 use the same defaults until the clin
 | C | Content conversion to the pack format and publishing (3.11) | Arshin |
 | C | Manual testing, retrieval comparison | Arshin |
 
-Dependencies: 3.2, 3.3, 3.5 and 3.9 need 3.1's criterion IDs. 3.12 needs the ladder in 3.3. Frontend work in stage B builds against section 4 and can start as soon as this spec merges.
+Dependencies: 3.2, 3.3, 3.5 and 3.9 need 3.1's criterion IDs. 3.12 needs the ladder in 3.3 and the typed, atomic commit/replay contract in 3.8. The professor Help timeline depends on the section 4 turn union, not on synthetic evaluations. Frontend work in stage B builds against section 4 and can start as soon as this spec merges.
 
 **Hard prerequisite: real accounts before real patient materials.** No real patient materials are introduced until real individual accounts (Supabase Auth, with roles) ship. In the meantime, the whole live site sits behind a shared-password gate. Under today's demo identity switcher (`app/api/demo/identity/route.ts`), anyone can become any user. So the ownership checks in 3.7 and 3.8 are correct to build now, but they only become real protection once real accounts exist.
 
