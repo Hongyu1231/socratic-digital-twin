@@ -71,7 +71,7 @@ describe("OpenAI tutor adapter", () => {
     const request = parseMock.mock.calls[0][0];
     expect(request.model).toBe("test-model");
     expect(request.store).toBe(false);
-    expect(request.max_output_tokens).toBe(1200);
+    expect(request.max_output_tokens).toBe(2400);
     expect(request.instructions).toContain("untrusted quoted data");
     expect(request.instructions).toContain("acknowledgement");
     expect(request.instructions).toContain("Do not repeat it inside nextQuestion");
@@ -106,6 +106,31 @@ describe("OpenAI tutor adapter", () => {
 
     parseMock.mockRejectedValueOnce(new Error("schema validation failed"));
     await expect(tutor.evaluate({ phase: impactedCanineCase.phases[0], answer: "An answer", state, attempt: 1 })).rejects.toThrow("schema validation failed");
+  });
+
+  it.each([
+    "max_output_tokens",
+    "content_filter",
+  ])("reports only safe metadata for an incomplete %s response", async (reason) => {
+    parseMock.mockResolvedValue({
+      status: "incomplete",
+      incomplete_details: { reason },
+      output_parsed: parsedOutput,
+      output_text: "private provider output must not be included",
+    });
+    const tutor = new OpenAITutor("test-key", "test-model");
+
+    await expect(tutor.evaluate({ phase: impactedCanineCase.phases[0], answer: "An answer", state, attempt: 1 }))
+      .rejects.toThrow(`OpenAI returned an unusable response status: incomplete (${reason})`);
+    expect(parseMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not include unknown incomplete metadata in the error", async () => {
+    parseMock.mockResolvedValue({ status: "incomplete", incomplete_details: { reason: "private unrecognized metadata" }, output_parsed: null });
+    const tutor = new OpenAITutor("test-key", "test-model");
+
+    await expect(tutor.evaluate({ phase: impactedCanineCase.phases[0], answer: "An answer", state, attempt: 1 }))
+      .rejects.toThrow(/^OpenAI returned an unusable response status: incomplete$/);
   });
 
   it.each([

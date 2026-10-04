@@ -134,6 +134,19 @@ class ClinicalReviewPreparationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 MODULE.build(source, output)
 
+    def test_revising_an_existing_draft_advances_version_and_preserves_root_lineage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            original = self.make_pack(Path(directory))
+            entry = original["cases"][0]
+            root_id = "66666666-6666-4666-8666-666666666666"
+            entry["case"].update({"sourceCaseId": root_id, "version": 2, "status": "draft"})
+            revised, _ = MODULE.transform_manifest(original, case_id=entry["case"]["id"], case1_feedback=True)
+            candidate = revised["cases"][0]["case"]
+            self.assertEqual(candidate["sourceCaseId"], root_id)
+            self.assertEqual(candidate["version"], 3)
+            self.assertEqual(candidate["status"], "draft")
+            self.assertEqual(revised["clinicalReview"]["status"], "pending")
+
     def test_case1_only_feedback_preserves_sources_and_excludes_other_cases(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)

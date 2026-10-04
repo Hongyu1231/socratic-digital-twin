@@ -18,6 +18,16 @@ const state: LearnerState = {
 };
 
 describe("human tutor prompt contract", () => {
+  it("prioritizes an explicit source contradiction without turning uncertainty or alternatives into errors", () => {
+    expect(TUTOR_INSTRUCTIONS).toContain("classification precedence");
+    expect(TUTOR_INSTRUCTIONS).toContain("decision/sequence constraint is wrong");
+    expect(TUTOR_INSTRUCTIONS).toContain("without such a contradiction");
+    expect(TUTOR_INSTRUCTIONS).toContain("Keep independently supported criteria evidence");
+    expect(TUTOR_INSTRUCTIONS).toContain("Do not invent a constraint or reject a permitted alternative");
+    expect(TUTOR_INSTRUCTIONS).toContain("lower confidence, choose vague or partial");
+    expect(TUTOR_INSTRUCTIONS).toContain("evaluate the final position");
+  });
+
   it("requires grounded acknowledgement, one non-leading question, and attempt-aware scaffolding", () => {
     expect(TUTOR_INSTRUCTIONS).toContain("acknowledge one specific idea or uncertainty");
     expect(TUTOR_INSTRUCTIONS).toContain("exactly one open-ended, non-leading question");

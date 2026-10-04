@@ -264,6 +264,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             "When retaining #23, assess its movement before committing to or extracting #24; do not require #24 space creation before the test, and accept removing #23 while retaining #24 if movement is absent.",
             "For a justified direct remove-#23/retain-#24 plan, the retention movement test is not applicable; award appropriate sequencing for that branch without demanding a second plan.",
             "Keep any exposure or surgical route conditional; the source wording does not make a buccal-exposure route mandatory.",
+            "Carry forward the supplied Phase 2 finding: #23 is palatally located, its crown buccal surface faces buccally, it is not rotated, and no #22/#24 root resorption is recorded. Do not reinterpret a buccal crown surface, bracket position, or exposure route in an interview as a buccally located canine; location and orientation are separate.",
         ],
         "acceptedExtras": [
             {
@@ -310,6 +311,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             "Defend an anticipated outcome rather than promising a guaranteed result, and link it to the chosen plan, evidence, and patient concerns.",
             "Make the #23 movement checkpoint and reconsideration rule explicit; absent movement supports removing #23 while retaining #24.",
             "Keep optional second plans, third-molar discussion, and no-bonding #22 as bonus details rather than hidden requirements.",
+            "Carry forward the supplied Phase 2 palatal #23 location with a buccally facing, unrotated crown and no recorded #22/#24 root resorption; do not confuse crown orientation or a possible exposure route with canine location.",
         ],
         "acceptedExtras": [],
         "tutorMoves": [],

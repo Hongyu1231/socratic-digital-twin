@@ -104,6 +104,18 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
         self.assertIn("removing #23 while retaining #24", combined)
         self.assertIn("movement", combined)
 
+    def test_later_decisions_preserve_phase_two_location_without_leaking_it_in_phase_one(self):
+        for phase in (self.phases[4], self.phases[5]):
+            guidance = " ".join(phase["tutorGuidance"]).lower()
+            self.assertIn("phase 2", guidance)
+            self.assertIn("palatal", guidance)
+            self.assertIn("crown", guidance)
+            self.assertIn("orientation", guidance)
+            self.assertIn("exposure route", guidance)
+        initial = " ".join(self.phases[0]["tutorGuidance"]).lower()
+        self.assertNotIn("not rotated", initial)
+        self.assertNotIn("no #22/#24 root resorption", initial)
+
 
 if __name__ == "__main__":
     unittest.main()

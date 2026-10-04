@@ -32,14 +32,18 @@ export class OpenAITutor {
     const response = await this.client.responses.parse({
       model: this.model,
       store: false,
-      max_output_tokens: 1200,
+      // The cap includes reasoning/formatting tokens, not just visible JSON.
+      // Leave room for a multi-criterion evaluation without unbounded retries.
+      max_output_tokens: 2400,
       instructions: this.instructions,
       input: buildTutorInput(input, this.promptVersion),
       text: { format: zodTextFormat(tutorProviderOutputSchema, "tutor_evaluation") },
     }, { timeout: 25_000, maxRetries: 0 });
 
     if (response.status !== "completed" || !response.output_parsed) {
-      throw new Error(`OpenAI returned an unusable response status: ${response.status ?? "unknown"}`);
+      const detail = response.incomplete_details?.reason;
+      const reason = response.status === "incomplete" && (detail === "max_output_tokens" || detail === "content_filter") ? detail : null;
+      throw new Error(`OpenAI returned an unusable response status: ${response.status ?? "unknown"}${reason ? ` (${reason})` : ""}`);
     }
 
     const parsed = tutorProviderOutputSchema.safeParse(response.output_parsed);
