@@ -40,6 +40,7 @@ describe("admin case editor serialization", () => {
           "Explain why it matters",
         ],
         noProgressLimit: 3,
+        acceptedExtras: [{ id: "extra-parallax", text: "  Mentions parallax  " }],
         phaseCeiling: 6,
         starterQuestion: "What do you observe?",
         exampleQuestions: ["Which record supports it?"],
@@ -78,6 +79,10 @@ describe("admin case editor serialization", () => {
       "Explain why it matters",
     ]);
     expect(roundTripped.phases?.[0]?.tutorMoves?.[0]?.targetCriterionId).toBe("finding");
+    expect(roundTripped.phases?.[0]?.acceptedExtras).toEqual([{ id: "extra-parallax", text: "Mentions parallax" }]);
+    const clone = cloneCaseDraft(draft);
+    clone.phases![0].acceptedExtras![0].text = "Changed";
+    expect(draft.phases![0].acceptedExtras![0].text).toBe("  Mentions parallax  ");
     expect(roundTripped.attachments?.[0]).toMatchObject({
       storagePath: "cases/case/opg.webp",
       unlockPhase: 1,

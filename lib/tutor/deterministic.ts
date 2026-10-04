@@ -28,7 +28,7 @@ function criteriaForAnswer(phase: CasePhase, answer: string, classification: Tut
   // criteria from keywords: a negation or incidental mention is not reliable
   // evidence. Preserve the historical all-string compatibility path only,
   // while retaining the real answer quote in the structured representation.
-  if (!phase.rubric.every((item) => typeof item === "string") || classification !== "correct") return [];
+  if (phase.acceptedExtras?.length || !phase.rubric.every((item) => typeof item === "string") || classification !== "correct") return [];
   return criteria.map(({ id }) => ({ id, evidence: quote }));
 }
 

@@ -41,11 +41,12 @@ function normalizeCriteriaMet(criteriaMet: CriteriaMet | undefined, allowed: Set
 /** Invalid optional annotations must not discard a usable classification. */
 export function normalizeCriterionTags(result: TutorEvaluationResult, phase: CasePhase): TutorEvaluationResult {
   const allowed = new Set(phaseCriteria(phase).map((criterion) => criterion.id));
-  const legacy = phase.rubric.every((criterion) => typeof criterion === "string");
+  const legacy = !phase.acceptedExtras?.length && phase.rubric.every((criterion) => typeof criterion === "string");
   const acknowledgement = result.acknowledgement?.trim();
   return {
     ...result,
     targetCriterionId: result.targetCriterionId && allowed.has(result.targetCriterionId) ? result.targetCriterionId : null,
+    answerCriterionId: result.answerCriterionId && allowed.has(result.answerCriterionId) ? result.answerCriterionId : null,
     criteriaMet: normalizeCriteriaMet(result.criteriaMet, allowed, legacy, result.classification),
     acknowledgement: acknowledgement && acknowledgement.length <= 200 && !/[?？]/.test(acknowledgement)
       ? acknowledgement : undefined,

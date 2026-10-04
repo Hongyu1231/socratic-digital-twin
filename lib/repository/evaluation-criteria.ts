@@ -50,6 +50,7 @@ export function buildEvaluationCriteria(evaluation: Evaluation) {
     model: evaluation.model,
     promptVersion: evaluation.promptVersion,
     targetCriterionId: evaluation.targetCriterionId ?? null,
+    answerCriterionId: evaluation.answerCriterionId ?? null,
     criteriaMet: evaluation.criteriaMet ?? [],
     supportLevel: evaluation.supportLevel ?? 0,
     completedWithSupport: evaluation.completedWithSupport ?? false,

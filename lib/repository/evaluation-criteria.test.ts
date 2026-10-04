@@ -35,6 +35,7 @@ describe("Supabase evaluation criteria", () => {
       phaseComplete: false,
       feedback: "What changes your plan?",
       targetCriterionId: "consequence",
+      answerCriterionId: "finding",
       criteriaMet: ["finding"],
       supportLevel: 1,
       completedWithSupport: true,
@@ -45,6 +46,7 @@ describe("Supabase evaluation criteria", () => {
 
     expect(criteria).toMatchObject({
       targetCriterionId: "consequence",
+      answerCriterionId: "finding",
       criteriaMet: ["finding"],
       supportLevel: 1,
       completedWithSupport: true,

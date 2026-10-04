@@ -243,6 +243,45 @@ describe("phase progression", () => {
   });
 });
 
+describe("accepted extras never gate or prolong required reasoning", () => {
+  const withExtras = () => phase({ acceptedExtras: [{ id: "bonus-parallax", text: "Mentions parallax" }] });
+
+  it.each([null, undefined, "unknown", "bonus-parallax"])("does not reset support or update best-label for answer tag %s", (answerCriterionId) => {
+    const result = progressPhase(withExtras(), progress({ bestClassification: "partial", noProgressCount: 1 }),
+      evaluation({ classification: "correct", answerCriterionId, criteriaMet: [] }), 2, false);
+    expect(result.state.bestClassification).toBe("partial");
+    expect(result.state.supportLevel).toBe(1);
+    expect(result.escalated).toBe(true);
+    expect(result.complete).toBe(false);
+  });
+
+  it("sanitizes extra IDs independently of quality and next-question IDs", () => {
+    const result = normalizeCriterionTags(evaluation({ classification: "correct", answerCriterionId: "bonus-parallax", targetCriterionId: "bonus-parallax", criteriaMet: ["bonus-parallax"] }), withExtras());
+    expect(result).toMatchObject({ classification: "correct", answerCriterionId: null, targetCriterionId: null, criteriaMet: [] });
+  });
+
+  it("allows quality improvement on a required answer even when the next question targets another criterion", () => {
+    const result = progressPhase(withExtras(), progress({ bestClassification: "vague", noProgressCount: 1 }),
+      evaluation({ classification: "partial", answerCriterionId: "observation", targetCriterionId: "evidence", criteriaMet: [] }), 2, false);
+    expect(result.state.bestClassification).toBe("partial");
+    expect(result.state.noProgressCount).toBe(0);
+    expect(result.state.supportLevel).toBe(0);
+  });
+
+  it("new required evidence remains progress without a valid answer tag; missing extras do not block completion", () => {
+    const result = progressPhase(withExtras(), progress({ criteriaMet: ["observation"], noProgressCount: 1 }),
+      evaluation({ classification: "partial", answerCriterionId: null, criteriaMet: [{ id: "evidence", evidence: "The occlusal record supports localisation." }] }), 2, false);
+    expect(result.complete).toBe(true);
+    expect(result.state.criteriaMet).toEqual(["observation", "evidence"]);
+    expect(result.state.noProgressCount).toBe(0);
+  });
+
+  it("does not infer all legacy criteria from an untagged bonus answer", () => {
+    const legacy = phase({ rubric: ["Required observation"], acceptedExtras: [{ id: "bonus", text: "Optional" }] });
+    expect(normalizeCriterionTags(evaluation({ classification: "correct" }), legacy).criteriaMet).toEqual([]);
+  });
+});
+
 describe("support and repeated-question safeguards", () => {
   it("asks for the first unmet criterion at reveal level", () => {
     const question = supportQuestion(phase(), progress({ supportLevel: 2, criteriaMet: ["observation"] }));

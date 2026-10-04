@@ -75,6 +75,17 @@ describe("local teaching material pack", () => {
     expect(getMaterialPack()).toBeNull();
   });
 
+  it("retains accepted extras as private phase metadata without adding required criteria", () => {
+    const input = caseInput();
+    const root = createPackRoot({ cases: [{ case: { ...input, phases: [{ ...input.phases[0], acceptedExtras: [{ id: "bonus-parallax", text: "Discusses parallax" }] }] }, expertNotes: "Faculty only", sourceDocument: "synthetic.docx" }] });
+    process.env.TUTOR_MATERIALS_DIR = root;
+    process.env.FORCE_MEMORY_REPOSITORY = "true";
+    delete process.env.VERCEL;
+    const phase = getMaterialPack()?.cases[0].case.phases[0];
+    expect(phase?.acceptedExtras).toEqual([{ id: "bonus-parallax", text: "Discusses parallax" }]);
+    expect(phase?.rubric).toEqual(["evidence"]);
+  });
+
   it("fails closed when a configured pack is running in a production or non-memory mode", () => {
     const root = createPackRoot();
     process.env.TUTOR_MATERIALS_DIR = root;

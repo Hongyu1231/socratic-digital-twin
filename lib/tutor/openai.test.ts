@@ -30,6 +30,7 @@ const state: LearnerState = {
 const parsedOutput = {
   acknowledgement: null,
   targetCriterionId: null,
+  answerCriterionId: null,
   criteriaMet: [],
   classification: "partial" as const,
   confidence: 0.8,

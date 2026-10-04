@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import importlib.util
+import copy
 import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 SPEC = importlib.util.spec_from_file_location(
@@ -131,6 +133,75 @@ class ClinicalReviewPreparationTests(unittest.TestCase):
             output.mkdir()
             with self.assertRaises(ValueError):
                 MODULE.build(source, output)
+
+    def test_case1_only_feedback_preserves_sources_and_excludes_other_cases(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "source"
+            source.mkdir()
+            original = self.make_pack(source)
+            first = original["cases"][0]
+            case1_id = first["case"]["id"]
+            case2_id = "44444444-4444-4444-8444-444444444444"
+            second = copy.deepcopy(first)
+            second["case"].update({"id": case2_id, "title": "Case 2", "attachments": []})
+            second["sourceDocument"] = "Description of Case 2.docx"
+            original["cases"].append(second)
+            original["articles"][0]["pages"].extend([
+                {"page": 2, "text": "Case 2 only", "caseIds": [case2_id]},
+                {"page": 3, "text": "Shared source", "caseIds": [case1_id, case2_id]},
+                {"page": 4, "text": "Unscoped literature"},
+            ])
+            cbct_id = "55555555-5555-4555-8555-555555555555"
+            cbct = {**copy.deepcopy(original["media"][0]), "id": cbct_id, "file": f"media/{cbct_id}.webp"}
+            (source / cbct["file"]).write_bytes(b"synthetic-webp-bytes")
+            original["media"].append(cbct)
+            first["case"]["attachments"].append({**copy.deepcopy(first["case"]["attachments"][0]), "id": cbct_id, "title": "X-ray (CBCT)", "url": f"/api/materials/{cbct_id}"})
+            (source / "manifest.json").write_text(json.dumps(original), encoding="utf-8")
+            output = base / "feedback"
+            MODULE.build(source, output, case_id=case1_id, case1_feedback=True)
+            revised = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(revised["cases"]), 1)
+            case = revised["cases"][0]["case"]
+            self.assertEqual(case["sourceCaseId"], case1_id)
+            self.assertEqual([item["unlockPhase"] for item in case["attachments"]], [1, 2])
+            self.assertEqual(case["findings"][0]["unlockPhase"], 1)
+            self.assertIn("palatal", case["findings"][0]["text"])
+            self.assertEqual({phase["phaseCeiling"] for phase in case["phases"]}, {5})
+            self.assertTrue(any(phase["acceptedExtras"] for phase in case["phases"]))
+            pages = revised["articles"][0]["pages"]
+            self.assertEqual([page["page"] for page in pages], [1, 3, 4])
+            self.assertNotIn(case2_id, json.dumps(revised))
+            self.assertEqual(revised["clinicalReview"]["status"], "pending")
+            self.assertEqual(revised["clinicalReview"]["contentSha256"], MODULE.clinical_content_sha256(revised["cases"]))
+            self.assertIn("Bonus only", (output / "review.md").read_text(encoding="utf-8"))
+            self.assertEqual(json.loads((source / "manifest.json").read_text(encoding="utf-8")), original)
+
+    def test_requires_explicit_case1_selection_and_rejects_a_different_document(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)
+            original = self.make_pack(source)
+            with self.assertRaises(ValueError):
+                MODULE.transform_manifest(original, case1_feedback=True)
+            with self.assertRaises(ValueError):
+                MODULE.transform_manifest(original, case_id="99999999-9999-4999-8999-999999999999", case1_feedback=True)
+            original["cases"][0]["sourceDocument"] = "Description of Case 2.docx"
+            with self.assertRaises(ValueError):
+                MODULE.transform_manifest(original, case_id=original["cases"][0]["case"]["id"], case1_feedback=True)
+
+    def test_a_changed_feedback_profile_receives_a_new_case_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            original = self.make_pack(Path(directory))
+            case_id = original["cases"][0]["case"]["id"]
+            first, _ = MODULE.transform_manifest(original, case_id=case_id, case1_feedback=True)
+            builder = MODULE.build_case1_feedback_phases
+            def revised_profile(case_id, id_factory):
+                phases = builder(case_id, id_factory)
+                phases[0]["goal"] += " Revised review wording."
+                return phases
+            with patch.object(MODULE, "build_case1_feedback_phases", side_effect=revised_profile):
+                second, _ = MODULE.transform_manifest(original, case_id=case_id, case1_feedback=True)
+            self.assertNotEqual(first["cases"][0]["case"]["id"], second["cases"][0]["case"]["id"])
 
 
 if __name__ == "__main__":

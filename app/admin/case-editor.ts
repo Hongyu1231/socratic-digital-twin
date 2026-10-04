@@ -24,6 +24,7 @@ export interface CasePhaseDraft {
   title: string;
   goal: string;
   rubric: RubricDraft[];
+  acceptedExtras?: Array<{ id: string; text: string }>;
   noProgressLimit?: number;
   phaseCeiling?: number;
   starterQuestion: string;
@@ -106,6 +107,7 @@ export function clonePhase(phase: CasePhaseDraft, index: number): CasePhaseDraft
     ...phase,
     order: index + 1,
     rubric: phase.rubric.map(cloneRubric),
+    acceptedExtras: phase.acceptedExtras?.map((extra) => ({ ...extra })) ?? [],
     exampleQuestions: [...phase.exampleQuestions],
     tutorGuidance: phase.tutorGuidance ? [...phase.tutorGuidance] : [],
     tutorMoves: phase.tutorMoves?.map((move) => ({
@@ -192,6 +194,7 @@ export function serializeCaseDraft<T extends CaseVersionDraft>(draft: T): T {
       title: phase.title.trim(),
       goal: phase.goal.trim(),
       rubric: phase.rubric.map(cleanRubric).filter((item): item is RubricDraft => Boolean(item)),
+      acceptedExtras: (phase.acceptedExtras ?? []).map((extra) => ({ id: extra.id.trim(), text: extra.text.trim() })),
       starterQuestion: phase.starterQuestion.trim(),
       exampleQuestions: cleanLines(phase.exampleQuestions),
       tutorGuidance: cleanLines(phase.tutorGuidance),

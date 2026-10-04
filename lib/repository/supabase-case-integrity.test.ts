@@ -178,12 +178,17 @@ describe("SupabaseTutorRepository case integrity boundaries", () => {
     }, actions);
     vi.spyOn(repository, "getCase").mockImplementation(async () => caseInput({ id: insertedCaseId, difficulty: "advanced" }));
 
-    const result = await repository.saveCase(caseInput({ id: "", difficulty: "advanced" }), ADMIN_ID);
+    const input = caseInput({ id: "", difficulty: "advanced" });
+    input.phases[0].acceptedExtras = [{ id: "context", text: "Recognise the wider context." }];
+    const result = await repository.saveCase(input, ADMIN_ID);
     const save = actions.find((action) => action.table === "save_case_draft" && action.operation === "rpc");
 
     expect(save?.payload).toEqual(expect.objectContaining({
       p_difficulty: "advanced",
-      p_phases: [expect.objectContaining({ metadata: expect.objectContaining({ rubric: expect.any(Array) }) })],
+      p_phases: [expect.objectContaining({ metadata: expect.objectContaining({
+        rubric: expect.any(Array),
+        acceptedExtras: [{ id: "context", text: "Recognise the wider context." }],
+      }) })],
     }));
     expect(result.difficulty).toBe("advanced");
   });

@@ -55,4 +55,15 @@ describe("deterministic tutor", () => {
 
     expect(result.criteriaMet).toEqual([]);
   });
+
+  it("does not infer required legacy criteria in a phase with accepted extras", async () => {
+    const result = await tutor.evaluate({
+      phase: { ...phase, acceptedExtras: [{ id: "bonus", text: "An optional observation" }] },
+      answer: "The unerupted canine and eruption asymmetry are concerning because the timing at this age raises the possibility of impaction.",
+      state, attempt: 1,
+    });
+    expect(result.classification).toBe("correct");
+    expect(result.criteriaMet).toEqual([]);
+    expect(result.answerCriterionId ?? null).toBeNull();
+  });
 });

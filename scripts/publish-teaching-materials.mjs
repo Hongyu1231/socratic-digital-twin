@@ -183,6 +183,24 @@ function normalizePhaseRubric(rawRubric, caseId) {
   return { normalized, ids };
 }
 
+function normalizePhaseAcceptedExtras(rawExtras, criterionIds, caseId) {
+  if (rawExtras === undefined) return [];
+  const extras = requireArray(rawExtras, "phase accepted extras", 32);
+  const ids = new Set();
+  return extras.map((item) => {
+    if (!isObject(item)) fail(`Invalid accepted extra in case ${caseId}.`);
+    if (Object.keys(item).some((key) => key !== "id" && key !== "text")) fail(`Invalid accepted extra in case ${caseId}.`);
+    nonBlank(item.id, "accepted extra id", 100);
+    if (!CRITERION_ID_RE.test(item.id.trim())) fail(`Invalid accepted extra id in case ${caseId}.`);
+    nonBlank(item.text, "accepted extra text", 500);
+    const id = item.id.trim();
+    if (criterionIds.has(id)) fail(`Accepted extra ${id} collides with a required criterion in case ${caseId}.`);
+    if (ids.has(id)) fail(`Case ${caseId} contains duplicate accepted extra id ${id}.`);
+    ids.add(id);
+    return { id, text: item.text.trim() };
+  });
+}
+
 function normalizeTutorMoves(rawMoves, criterionIds, caseId) {
   if (rawMoves === undefined) return [];
   const moves = requireArray(rawMoves, "phase tutor moves", 20);
@@ -210,6 +228,7 @@ function validatePhase(phase, caseId, index) {
   nonBlank(phase.title, "phase title", 160);
   nonBlank(phase.goal, "phase goal", 1_500);
   const { normalized: rubric, ids: criterionIds } = normalizePhaseRubric(phase.rubric, caseId);
+  const acceptedExtras = normalizePhaseAcceptedExtras(phase.acceptedExtras, criterionIds, caseId);
   const exampleQuestions = requireArray(phase.exampleQuestions, "phase example questions", 32);
   nonBlank(phase.starterQuestion, "phase starter question", 1_500);
   exampleQuestions.forEach((item) => nonBlank(item, "phase example question", 1_500));
@@ -226,6 +245,7 @@ function validatePhase(phase, caseId, index) {
   return {
     ...phase,
     rubric,
+    acceptedExtras,
     tutorMoves,
     ...(phase.noProgressLimit === undefined ? {} : { noProgressLimit: phase.noProgressLimit }),
     ...(phase.phaseCeiling === undefined ? {} : { phaseCeiling: phase.phaseCeiling }),
@@ -528,6 +548,7 @@ function buildPhaseRows(candidate) {
     expected_findings: {},
     metadata: {
       rubric: phase.rubric,
+      acceptedExtras: phase.acceptedExtras ?? [],
       tutorGuidance: phase.tutorGuidance ?? [],
       tutorMoves: phase.tutorMoves ?? [],
       ...(phase.noProgressLimit === undefined ? {} : { noProgressLimit: phase.noProgressLimit }),

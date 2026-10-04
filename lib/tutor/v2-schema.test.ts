@@ -46,6 +46,7 @@ const twoPhaseCase = (overrides: Record<string, unknown> = {}) => caseInput({
 const providerOutput = (overrides: Record<string, unknown> = {}) => ({
   acknowledgement: null,
   targetCriterionId: null,
+  answerCriterionId: null,
   criteriaMet: [],
   classification: "partial" as const,
   confidence: 0.8,
@@ -117,6 +118,18 @@ describe("tutor engine v2 schemas", () => {
       question: "Which record supports that observation?",
       targetCriterionId: "unknown",
     }] })).success).toBe(false);
+  });
+
+  it("keeps extras separate and rejects duplicate or overlapping IDs, including legacy IDs", () => {
+    expect(phaseInputSchema.parse(phaseInput()).acceptedExtras).toEqual([]);
+    expect(phaseInputSchema.parse(phaseInput({ acceptedExtras: [{ id: "bonus", text: "Optional parallax" }] })).acceptedExtras).toHaveLength(1);
+    for (const acceptedExtras of [
+      [{ id: "observation", text: "Collides" }],
+      [{ id: "bonus", text: "First" }, { id: "bonus", text: "Second" }],
+      [{ id: "bonus", text: "" }],
+    ]) expect(phaseInputSchema.safeParse(phaseInput({ acceptedExtras })).success).toBe(false);
+    expect(phaseInputSchema.safeParse(phaseInput({ rubric: ["Legacy"], acceptedExtras: [{ id: "r1", text: "Collision" }] })).success).toBe(false);
+    expect(phaseInputSchema.safeParse(phaseInput({ acceptedExtras: [{ id: "bonus", text: "Optional" }], tutorMoves: [{ id: "move", strategy: "probe", question: "What about this optional point?", targetCriterionId: "bonus" }] })).success).toBe(false);
   });
 
   it("bounds the no-progress and phase-ceiling controls", () => {
@@ -222,6 +235,7 @@ describe("tutor engine v2 schemas", () => {
     expect(tutorProviderOutputSchema.safeParse({ ...providerOutput(), criteriaMet: ["observation"] }).success).toBe(false);
     expect(tutorProviderOutputSchema.safeParse({ ...providerOutput(), acknowledgement: undefined }).success).toBe(false);
     expect(tutorProviderOutputSchema.safeParse({ ...providerOutput(), criteriaMet: undefined }).success).toBe(false);
+    expect(tutorProviderOutputSchema.safeParse({ ...providerOutput(), answerCriterionId: undefined }).success).toBe(false);
   });
 
   it("serializes with the real OpenAI zodTextFormat helper", () => {
@@ -230,7 +244,7 @@ describe("tutor engine v2 schemas", () => {
     expect(format.schema).toMatchObject({
       type: "object",
       additionalProperties: false,
-      required: expect.arrayContaining(["acknowledgement", "targetCriterionId", "criteriaMet"]),
+      required: expect.arrayContaining(["acknowledgement", "targetCriterionId", "answerCriterionId", "criteriaMet"]),
     });
   });
 
@@ -283,6 +297,7 @@ describe("tutor engine v2 schemas", () => {
       ...providerOutput(),
       acknowledgement: undefined,
       targetCriterionId: undefined,
+      answerCriterionId: undefined,
       criteriaMet: undefined,
     }).success).toBe(true);
   });

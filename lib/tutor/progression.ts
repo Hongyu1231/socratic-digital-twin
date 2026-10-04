@@ -16,11 +16,15 @@ export function progressPhase(phase: CasePhase, previous: PhaseTutorProgress | u
   // quality label. It can accumulate for any classification; classification
   // still drives the best-label/no-progress counter and correction policy.
   for (const id of criterionIds(result.criteriaMet)) if (ids.has(id)) met.add(id);
-  const improved = (met.size > before.criteriaMet.length
-    || rank[result.classification] > rank[before.bestClassification]);
+  // A bonus-only answer must not postpone support by improving its quality
+  // label. The answer tag refers to required reasoning, not the next question.
+  const classificationImproved = (!(phase.acceptedExtras?.length)
+    || Boolean(result.answerCriterionId && ids.has(result.answerCriterionId)))
+    && rank[result.classification] > rank[before.bestClassification];
+  const improved = met.size > before.criteriaMet.filter((id) => ids.has(id)).length || classificationImproved;
   const state: PhaseTutorProgress = {
     ...before, criteriaMet: [...met],
-    bestClassification: rank[result.classification] > rank[before.bestClassification] ? result.classification : before.bestClassification,
+    bestClassification: classificationImproved ? result.classification : before.bestClassification,
     noProgressCount: improved ? 0 : before.noProgressCount + 1,
   };
   if (before.awaitingApplication) {

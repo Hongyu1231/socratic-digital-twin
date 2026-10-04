@@ -89,6 +89,42 @@ describe("Supabase case mapping", () => {
     expect(phase).toMatchObject({ noProgressLimit: 2, phaseCeiling: 5 });
   });
 
+  it("round-trips accepted extras separately from required rubric criteria", () => {
+    const phase = mapPhase({
+      id: crypto.randomUUID(),
+      case_id: crypto.randomUUID(),
+      phase_order: 1,
+      title: "Observe",
+      objectives: ["Observe the record", "Legacy fallback criterion"],
+      questions: ["What do you notice?"],
+      metadata: {
+        rubric: [{ id: "finding", text: "Name the key finding" }],
+        acceptedExtras: [{ id: "context", text: "Recognise the wider context." }],
+      },
+    });
+
+    expect(phase.acceptedExtras).toEqual([{ id: "context", text: "Recognise the wider context." }]);
+    expect(phase.rubric).toEqual([{ id: "finding", text: "Name the key finding" }]);
+  });
+
+  it("fails safe when accepted extras are malformed or collide with a rubric id", () => {
+    const base = {
+      id: crypto.randomUUID(),
+      case_id: crypto.randomUUID(),
+      phase_order: 1,
+      title: "Observe",
+      objectives: ["Observe the record", "Legacy fallback criterion"],
+      questions: ["What do you notice?"],
+      metadata: { rubric: [{ id: "finding", text: "Name the key finding" }] },
+    };
+
+    expect(mapPhase({ ...base, metadata: { ...base.metadata, acceptedExtras: [{ id: "finding", text: "Collision." }] } }).acceptedExtras)
+      .toEqual([]);
+    expect(mapPhase({ ...base, metadata: { ...base.metadata, acceptedExtras: [{ id: "context", text: "Valid." }, { id: "", text: "Malformed." }] } }).acceptedExtras)
+      .toEqual([]);
+    expect(mapPhase({ ...base, metadata: {} }).acceptedExtras).toEqual([]);
+  });
+
   it("maps findings, correction policy and evaluation trace fields", () => {
     const clinicalCase = mapCase({
       id: crypto.randomUUID(),
@@ -114,6 +150,7 @@ describe("Supabase case mapping", () => {
         phaseComplete: false,
         feedback: "Explain why.",
         targetCriterionId: "consequence",
+        answerCriterionId: "finding",
         criteriaMet: ["finding"],
         supportLevel: 1,
         completedWithSupport: true,
@@ -128,10 +165,18 @@ describe("Supabase case mapping", () => {
     });
     expect(evaluation).toMatchObject({
       targetCriterionId: "consequence",
+      answerCriterionId: "finding",
       criteriaMet: ["finding"],
       supportLevel: 1,
       completedWithSupport: true,
       retrieval: { query: "canine" },
     });
+
+    expect(mapEvaluation({
+      id: crypto.randomUUID(),
+      message_id: crypto.randomUUID(),
+      created_at: new Date().toISOString(),
+      criteria: {},
+    }).answerCriterionId).toBeNull();
   });
 });

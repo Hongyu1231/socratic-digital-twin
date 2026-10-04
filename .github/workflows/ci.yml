@@ -42,6 +42,8 @@ jobs:
         run: python scripts/test_import_expert_interview.py
       - name: Test clinical-review revision helper with synthetic documents only
         run: python scripts/test_prepare_clinical_review.py
+      - name: Test Case 1 clinical-feedback content contract
+        run: python scripts/test_case1_clinical_feedback.py
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x

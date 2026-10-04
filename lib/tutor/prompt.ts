@@ -1,7 +1,7 @@
 import type { TutorEvaluateInput } from "@/lib/domain";
 import { phaseCriteria } from "@/lib/tutor/criteria";
 
-export const TUTOR_PROMPT_VERSION = "scripted-v8-criterion-progress";
+export const TUTOR_PROMPT_VERSION = "scripted-v9-accepted-extras";
 
 export const TUTOR_INSTRUCTIONS = [
   "You are a warm, attentive Socratic clinical-reasoning tutor for a dentistry teaching POC.",
@@ -32,6 +32,8 @@ export const TUTOR_INSTRUCTIONS = [
   "Do not use generic praise such as 'good job' or 'great answer', do not merely restate the phase question, and do not ask a yes/no, leading, or multi-part question.",
   "Keep nextQuestion to at most 45 words. On attempt 1, probe the student's reasoning; on attempt 2, narrow the task or contrast two considerations; on attempt 3 or later, change approach rather than rephrasing any of your earlier questions. If the learner explicitly requests help, clarify the task without inventing findings. The application controls the support ladder and any authorized reveal; never reveal hidden notes yourself.",
   "Return criteriaMet as objects with an id and a short evidence quote (at most 240 characters) taken from this answer, for current-phase criteria directly supported by this answer, never by earlier tutor hints or a copied answer alone. Evidence is recorded for professor review and is not checked for literal word overlap. Keep criteria evidence separate from the classification quality label: a wrong, vague, or partial answer may still contain a supported criterion. The phaseProgress contains previously met IDs; judge reasoning in that context. targetCriterionId identifies the unmet criterion your next question addresses, or null when untagged. Use only supplied IDs, not invented IDs. At support level 1, frame a hypothetical for the learner to critique, without asserting invented facts about this patient.",
+  "acceptedExtras are optional clinically relevant points, not required criteria. Acknowledge a relevant extra without demanding it, targeting it in the next question, or adding it to criteriaMet. Missing extras never make an otherwise sufficient answer incomplete. Accept the case-specific alternative plans explicitly allowed by tutorGuidance; do not require every alternative or a preferred tooth number when a justified permitted variation is given.",
+  "answerCriterionId identifies the required criterion meaningfully addressed by the current student answer, or null for an extras-only, off-topic or untagged answer. It is independent of targetCriterionId, which tags the next question. Use only a supplied required criterion ID, never an accepted-extra ID. This annotation lets the application distinguish improvement on required reasoning from an optional observation.",
   "Keep feedback to at most two concise sentences describing observable answer evidence. Memory patches must be conservative, deduplicated, and contain only durable evidence directly observable in this answer; when evidence is absent, use empty arrays and masteryDelta 0.",
 ].join(" ");
 
@@ -47,6 +49,7 @@ export function buildTutorInput(
       goal: phase.goal,
       rubric: phase.rubric,
       criteria: phaseCriteria(phase),
+      acceptedExtras: phase.acceptedExtras ?? [],
       progress: state.phaseProgress?.[String(phase.order)] ?? null,
       tutorGuidance: phase.tutorGuidance ?? [],
       scriptedMoves: (phase.tutorMoves ?? []).map(({ id, strategy, question }) => ({ id, strategy, question })),

@@ -378,6 +378,10 @@ describe("teaching-material publication boundary", () => {
       question: "Which record supports that observation?",
       targetCriterionId: "observation",
     }];
+    fixture.manifest.cases[0].case.phases[0].acceptedExtras = [{
+      id: "extra-context",
+      text: "Recognises a useful but non-required contextual point.",
+    }];
     fixture.manifest.cases[0].case.findings = [{
       id: "finding-1",
       title: "Visible finding",
@@ -404,9 +408,11 @@ describe("teaching-material publication boundary", () => {
         { id: "observation", text: "States the visible observation.", revealText: "State only what the record shows." },
         { id: "r2", text: "Names the supporting record." },
       ],
+      acceptedExtras: [{ id: "extra-context", text: "Recognises a useful but non-required contextual point." }],
       noProgressLimit: 4,
       phaseCeiling: 12,
     });
+    expect(plan.cases[0].phases[0].objectives).not.toContain("Recognises a useful but non-required contextual point.");
     expect(plan.cases[0].case.patient_context).toMatchObject({
       correctionProbes: 2,
       findings: [{ id: "finding-1", unlockPhase: 1 }],
@@ -427,6 +433,17 @@ describe("teaching-material publication boundary", () => {
       targetCriterionId: "not-in-this-phase",
     }];
     expect(() => validateManifest(invalidMove, fixture.root)).toThrow(/outside its phase/i);
+
+    const extraCollision = structuredClone(fixture.manifest);
+    extraCollision.cases[0].case.phases[0].acceptedExtras = [{ id: "r1", text: "Collides with the generated criterion." }];
+    expect(() => validateManifest(extraCollision, fixture.root)).toThrow(/collides with a required criterion/i);
+
+    const duplicateExtras = structuredClone(fixture.manifest);
+    duplicateExtras.cases[0].case.phases[0].acceptedExtras = [
+      { id: "extra", text: "First." },
+      { id: "extra", text: "Second." },
+    ];
+    expect(() => validateManifest(duplicateExtras, fixture.root)).toThrow(/duplicate accepted extra/i);
   });
 
   it("rejects an unregistered or modified media object before any write", () => {

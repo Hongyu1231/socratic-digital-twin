@@ -193,6 +193,7 @@ export interface CasePhase {
   title: string;
   goal: string;
   rubric: Array<string | RubricCriterion>;
+  acceptedExtras?: Array<{ id: string; text: string }>;
   starterQuestion: string;
   exampleQuestions: string[];
   tutorGuidance?: string[];
@@ -265,6 +266,8 @@ export interface Evaluation {
   model?: string;
   promptVersion?: string;
   targetCriterionId?: string;
+  /** Required criterion meaningfully addressed by the current answer. */
+  answerCriterionId?: string | null;
   criteriaMet?: CriteriaMet;
   supportLevel?: 0 | 1 | 2;
   completedWithSupport?: boolean;
@@ -442,6 +445,8 @@ export interface TutorEvaluationResult {
   nextQuestion: string;
   acknowledgement?: string;
   targetCriterionId?: string | null;
+  /** Required criterion meaningfully addressed by the current answer. */
+  answerCriterionId?: string | null;
   criteriaMet?: CriteriaMet;
   memoryPatch: MemoryPatch;
   source: "deterministic" | "claude" | "openai";

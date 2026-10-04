@@ -22,7 +22,7 @@ describe("v2 end-to-end tutor state", () => {
   beforeEach(() => { repository = new InMemoryTutorRepository(); repository.reset(); resetRepositoryForTests(repository); });
   afterEach(() => vi.restoreAllMocks());
 
-  async function start(phaseCount = 2, phaseCeiling = 8, tutorMoves: ClinicalCase["phases"][number]["tutorMoves"] = []) {
+  async function start(phaseCount = 2, phaseCeiling = 8, tutorMoves: ClinicalCase["phases"][number]["tutorMoves"] = [], acceptedExtras: ClinicalCase["phases"][number]["acceptedExtras"] = []) {
     const clinicalCase: ClinicalCase = {
       id: "", title: "Synthetic progression case", description: "A synthetic case for engine testing only.",
       difficulty: "foundation", status: "draft", learningObjectives: ["Reason using supplied evidence"],
@@ -32,7 +32,7 @@ describe("v2 end-to-end tutor state", () => {
         rubric: [{ id: "private-observation", text: "Identify the supplied finding", revealText: "Separate what is observed from an assumed cause." },
           { id: "private-evidence", text: "Justify the observation using a record" }],
         starterQuestion: "Which finding or uncertainty had the greatest influence on your reasoning?",
-        exampleQuestions: ["Which record supports that observation?"], phaseCeiling, tutorMoves,
+        exampleQuestions: ["Which record supports that observation?"], phaseCeiling, tutorMoves, acceptedExtras,
       })),
       // Keep phase-unlock fixtures valid for one-phase reflection tests too;
       // a phase-2 item cannot exist in a one-phase case under the integrity
@@ -65,6 +65,27 @@ describe("v2 end-to-end tutor state", () => {
     expect(JSON.stringify(evaluate.mock.calls[0][0].caseContext)).not.toContain("LOCKED_");
     expect(JSON.stringify(studentView(partial))).not.toContain("private-observation");
     expect(studentCaseView(started.case).attachments).toEqual([]);
+  });
+
+  it("records optional observations without delaying support, and completes on required evidence alone", async () => {
+    const evaluate = vi.spyOn(tutor, "evaluateWithFallback")
+      .mockResolvedValueOnce(result({ classification: "correct", answerCriterionId: "bonus-parallax", targetCriterionId: "bonus-parallax", criteriaMet: ["bonus-parallax"] }))
+      .mockResolvedValueOnce(result({ classification: "correct", answerCriterionId: null, criteriaMet: [] }))
+      .mockResolvedValueOnce(result({ classification: "partial", answerCriterionId: "private-observation", criteriaMet: ["private-observation", "private-evidence"] }));
+    const started = await start(2, 5, [], [{ id: "bonus-parallax", text: "PRIVATE_BONUS_TEXT" }]);
+    const first = await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "Parallax is an optional technique.");
+    expect(first.session.currentPhase).toBe(1);
+    expect(first.session.state.phaseProgress?.["1"]).toMatchObject({ criteriaMet: [], bestClassification: "wrong", noProgressCount: 1 });
+    const second = await submitStudentAnswer(first.session.id, DEMO_STUDENT_ID, "I can also discuss third molars.");
+    expect(second.session.state.phaseProgress?.["1"]).toMatchObject({ supportLevel: 1, criteriaMet: [] });
+    const complete = await submitStudentAnswer(second.session.id, DEMO_STUDENT_ID, "Here is the required observation and its evidence.");
+    expect(complete.session.currentPhase).toBe(2);
+    expect(complete.session.evaluations.at(-1)?.answerCriterionId).toBe("private-observation");
+    const publicResponse = JSON.stringify(studentView(complete));
+    expect(publicResponse).not.toContain("PRIVATE_BONUS_TEXT");
+    expect(publicResponse).not.toContain("answerCriterionId");
+    expect(publicResponse).not.toContain("acceptedExtras");
+    expect(evaluate.mock.calls[0][0].phase.acceptedExtras).toHaveLength(1);
   });
 
   it("bounds Jessica-style repeated partial answers and preserves unresolved gaps", async () => {

@@ -45,6 +45,7 @@ import {
 
 type Row = Record<string, any>;
 const HOSTED_PACKAGE_ID = /^[a-f0-9]{64}$/i;
+const CRITERION_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
 
 function must<T>(data: T | null, error: { message: string } | null, context: string): T {
   if (error || data === null) throw new Error(`${context}: ${error?.message ?? "no data"}`);
@@ -66,6 +67,29 @@ export function mapPhase(row: Row): CasePhase {
     : [];
   const rubric = metadataRubric.length ? metadataRubric : objectives.slice(1);
   const goal = objectives[0] ?? row.teaching_notes ?? row.title;
+  const resolvedRubric = rubric.length ? rubric : [goal];
+  const requiredCriterionIds = new Set(resolvedRubric.map((criterion, index) =>
+    typeof criterion === "string" ? `r${index + 1}` : criterion.id,
+  ));
+  const acceptedExtras = Array.isArray(metadata.acceptedExtras) && metadata.acceptedExtras.length <= 32
+    ? (() => {
+      const seen = new Set<string>();
+      const normalized = metadata.acceptedExtras.flatMap((item: unknown) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+        const extra = item as Record<string, unknown>;
+        if (Object.keys(extra).some((key) => key !== "id" && key !== "text")) return [];
+        if (typeof extra.id !== "string" || !extra.id.trim()
+          || typeof extra.text !== "string" || !extra.text.trim()) return [];
+        const id = extra.id.trim();
+        const text = extra.text.trim();
+        if (id.length > 100 || !CRITERION_ID_RE.test(id) || text.length > 500) return [];
+        if (requiredCriterionIds.has(id) || seen.has(id)) return [];
+        seen.add(id);
+        return [{ id, text }];
+      });
+      return normalized.length === metadata.acceptedExtras.length ? normalized : [];
+    })()
+    : [];
   const rawNoProgressLimit = metadata.noProgressLimit ?? metadata.no_progress_limit;
   const rawPhaseCeiling = metadata.phaseCeiling ?? metadata.phase_ceiling;
   return {
@@ -74,7 +98,8 @@ export function mapPhase(row: Row): CasePhase {
     order: row.phase_order,
     title: row.title,
     goal,
-    rubric: rubric.length ? rubric : [goal],
+    rubric: resolvedRubric,
+    acceptedExtras,
     starterQuestion: questions[0] ?? "What evidence supports your current reasoning?",
     exampleQuestions: questions.slice(1).length ? questions.slice(1) : questions,
     tutorGuidance: Array.isArray(metadata.tutorGuidance)
@@ -304,6 +329,9 @@ export function mapEvaluation(row: Row): Evaluation {
     targetCriterionId: typeof criteria.targetCriterionId === "string" && criteria.targetCriterionId.length > 0
       ? criteria.targetCriterionId
       : undefined,
+    answerCriterionId: typeof criteria.answerCriterionId === "string" && criteria.answerCriterionId.length > 0
+      ? criteria.answerCriterionId
+      : null,
     criteriaMet: readCriteriaMet(criteria),
     supportLevel: criteria.supportLevel === 0 || criteria.supportLevel === 1 || criteria.supportLevel === 2
       ? criteria.supportLevel
@@ -898,6 +926,7 @@ export class SupabaseTutorRepository implements TutorRepository {
       expected_findings: {},
       metadata: {
         rubric: phase.rubric,
+        acceptedExtras: phase.acceptedExtras ?? [],
         tutorGuidance: phase.tutorGuidance ?? [],
         tutorMoves: phase.tutorMoves ?? [],
         ...(phase.noProgressLimit === undefined ? {} : { noProgressLimit: phase.noProgressLimit }),

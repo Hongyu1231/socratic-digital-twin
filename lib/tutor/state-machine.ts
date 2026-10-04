@@ -181,6 +181,7 @@ async function performStudentAnswer(
     strategy: appliedStrategy,
     phaseComplete,
     criteriaMet: result.criteriaMet,
+    answerCriterionId: isReflectionAnswer ? undefined : result.answerCriterionId ?? undefined,
     targetCriterionId: (tutorMove?.targetCriterionId && phaseCriteria(phase).some((item) => item.id === tutorMove.targetCriterionId)
       ? tutorMove.targetCriterionId : tutorMove ? undefined : result.targetCriterionId ?? undefined),
     supportLevel: progress?.state.supportLevel ?? bundle.session.state.phaseProgress?.[phaseKey]?.supportLevel ?? 0,

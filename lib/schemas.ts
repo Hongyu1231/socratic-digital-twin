@@ -98,6 +98,7 @@ export const phaseInputSchema = z.object({
   title: z.string().trim().min(1).max(120),
   goal: z.string().trim().min(1).max(500),
   rubric: z.array(z.union([z.string().trim().min(1).max(180), rubricCriterionSchema])).min(1).max(32),
+  acceptedExtras: z.array(rubricCriterionSchema.omit({ revealText: true })).max(32).default([]),
   noProgressLimit: z.number().int().min(1).max(4).optional(),
   phaseCeiling: z.number().int().min(2).max(12).optional(),
   starterQuestion: z.string().trim().min(3).max(500),
@@ -122,6 +123,10 @@ export const phaseInputSchema = z.object({
 }).superRefine((phase, context) => {
   const ids = phase.rubric.map((item, index) => typeof item === "string" ? `r${index + 1}` : item.id);
   if (new Set(ids).size !== ids.length) context.addIssue({ code: "custom", path: ["rubric"], message: "Criterion IDs must be unique within a phase." });
+  const extraIds = phase.acceptedExtras.map((extra) => extra.id);
+  if (new Set(extraIds).size !== extraIds.length || extraIds.some((id) => ids.includes(id))) {
+    context.addIssue({ code: "custom", path: ["acceptedExtras"], message: "Accepted-extra IDs must be unique and must not overlap required criteria." });
+  }
   phase.tutorMoves.forEach((move, index) => {
     if (move.targetCriterionId && !ids.includes(move.targetCriterionId)) {
       context.addIssue({ code: "custom", path: ["tutorMoves", index, "targetCriterionId"], message: "A scripted move must target a criterion in this phase." });
@@ -254,6 +259,7 @@ export const tutorOutputSchema = z.object({
   // sanitized independently from the grading result.
   acknowledgement: z.string().nullable().optional(),
   targetCriterionId: z.string().nullable().optional(),
+  answerCriterionId: z.string().nullable().optional(),
   criteriaMet: criteriaMetSchema.optional(),
   classification: classificationSchema,
   confidence: z.number().min(0).max(1),
@@ -291,6 +297,7 @@ export const tutorOutputSchema = z.object({
 export const tutorProviderOutputSchema = tutorOutputSchema.safeExtend({
   acknowledgement: z.string().nullable(),
   targetCriterionId: z.string().nullable(),
+  answerCriterionId: z.string().nullable(),
   criteriaMet: z.array(criterionEvidenceSchema).max(32),
 });
 

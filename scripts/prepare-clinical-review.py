@@ -31,6 +31,7 @@ from draft_clinical_content import (  # noqa: E402
     build_draft_review,
     clinical_content_sha256,
 )
+from case1_clinical_feedback import build_case1_feedback_phases  # noqa: E402
 
 
 NAMESPACE = uuid.UUID("3b7cb4f5-c8a1-4c3a-9bd8-04a0fb5f98e5")
@@ -141,9 +142,49 @@ def copy_media(source_root: Path, output_root: Path, media: list[dict[str, Any]]
             raise ValueError(f"Media {media_id} failed its copy hash check")
 
 
-def transform_manifest(source: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
+def select_source_case(source: dict[str, Any], case_id: str) -> dict[str, Any]:
+    """Build a single-case pack without publishing or altering other cases."""
+    selected_id = str(uuid.UUID(case_id)).lower()
+    known_ids = {str(entry["case"]["id"]).lower() for entry in source["cases"]}
+    cases = [entry for entry in source["cases"] if str(entry["case"]["id"]).lower() == selected_id]
+    if len(cases) != 1:
+        raise ValueError("Select exactly one existing source case")
+    result = copy.deepcopy(source)
+    result["cases"] = copy.deepcopy(cases)
+    result["media"] = [item for item in result["media"] if str(item.get("caseId", "")).lower() == selected_id]
+    articles = []
+    for article in result["articles"]:
+        pages = []
+        for page in article.get("pages", []):
+            scoped = page.get("caseIds")
+            if scoped is not None:
+                if not isinstance(scoped, list) or any(str(value).lower() not in known_ids for value in scoped):
+                    raise ValueError("Article references an unknown source case")
+                if selected_id not in [str(value).lower() for value in scoped]:
+                    continue
+                page["caseIds"] = [selected_id]
+            pages.append(page)
+        if pages:
+            article["pages"] = pages
+            articles.append(article)
+    result["articles"] = articles
+    return result
+
+
+def transform_manifest(source: dict[str, Any], *, case_id: str | None = None, case1_feedback: bool = False) -> tuple[dict[str, Any], dict[str, str]]:
+    if case1_feedback and not case_id:
+        raise ValueError("Case 1 feedback requires an explicit --case-id")
+    if case_id:
+        source = select_source_case(source, case_id)
+    if case1_feedback and Path(str(source["cases"][0].get("sourceDocument", ""))).name.lower() != "description of case 1.docx":
+        raise ValueError("Case 1 feedback may only be applied to the supplied Case 1 document")
     source_cases = source["cases"]
     source_package_id = source["packageId"]
+    # Content-address the new profile as well as the source pack: changing
+    # its teaching rules must never reuse a previously published case ID.
+    revision_label = ("case1-clinical-feedback-v1:" + canonical_sha256(
+        build_case1_feedback_phases("profile", lambda value: value)
+    )) if case1_feedback else REVISION_LABEL
     case_map: dict[str, str] = {}
     for entry in source_cases:
         if not isinstance(entry, dict) or not isinstance(entry.get("case"), dict):
@@ -156,7 +197,7 @@ def transform_manifest(source: dict[str, Any]) -> tuple[dict[str, Any], dict[str
             raise ValueError("Source case ID is invalid") from exc
         if old_id in case_map:
             raise ValueError(f"Duplicate source case {old_id}")
-        case_map[old_id] = identity(f"{source_package_id}:{REVISION_LABEL}:case:{old_id}")
+        case_map[old_id] = identity(f"{source_package_id}:{revision_label}:case:{old_id}")
 
     media_by_id: dict[str, dict[str, Any]] = {}
     for item in source["media"]:
@@ -182,11 +223,23 @@ def transform_manifest(source: dict[str, Any]) -> tuple[dict[str, Any], dict[str
         new_case["version"] = version + 1
         new_case["status"] = "draft"
         new_case["publishedAt"] = None
-        new_case["phases"] = build_draft_phases(new_id, identity)
+        new_case["phases"] = (build_case1_feedback_phases if case1_feedback else build_draft_phases)(new_id, identity)
         new_case["attachments"] = [
             remap_attachment(attachment, media_by_id)
             for attachment in old_case.get("attachments", [])
         ]
+        if case1_feedback:
+            for attachment in new_case["attachments"]:
+                attachment["unlockPhase"] = 2 if "cbct" in attachment["title"].lower() else 1
+                attachment["unlockOnRequest"] = False
+            new_case["correctionProbes"] = 1
+            findings = copy.deepcopy(new_case.get("findings", []))
+            for finding in findings:
+                finding["unlockPhase"] = 2 if "cbct" in finding["title"].lower() else 1
+            palpation_id = "case1-palatal-palpation"
+            findings = [finding for finding in findings if finding["id"] != palpation_id]
+            findings.append({"id": palpation_id, "title": "Clinical palpation", "text": "A canine bulge is palpable on the palatal aspect of the #23 region.", "unlockPhase": 1, "unlockOnRequest": False})
+            new_case["findings"] = findings
         cases.append({**copy.deepcopy(entry), "case": new_case})
 
     articles = copy.deepcopy(source["articles"])
@@ -272,6 +325,8 @@ def write_review_files(output: Path, manifest: dict[str, Any], source_package_id
             lines.append(f"  - Starter: {phase['starterQuestion']}")
             for criterion in phase.get("rubric", []):
                 lines.append(f"  - `{criterion['id']}`: {criterion['text']}")
+            for extra in phase.get("acceptedExtras", []):
+                lines.append(f"  - Bonus only `{extra['id']}`: {extra['text']}")
         lines.append("")
     lines.extend([
         "## Required clinician review",
@@ -285,7 +340,7 @@ def write_review_files(output: Path, manifest: dict[str, Any], source_package_id
     (output / "review.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def build(source_dir: Path, output_dir: Path) -> dict[str, Any]:
+def build(source_dir: Path, output_dir: Path, *, case_id: str | None = None, case1_feedback: bool = False) -> dict[str, Any]:
     source = absolute_directory(source_dir, "Source pack")
     output = output_dir.expanduser().resolve()
     if output == source or source in output.parents:
@@ -294,7 +349,7 @@ def build(source_dir: Path, output_dir: Path) -> dict[str, Any]:
         raise ValueError("Output directory already exists; refusing to overwrite it")
 
     source_manifest = load_manifest(source)
-    manifest, case_map = transform_manifest(source_manifest)
+    manifest, case_map = transform_manifest(source_manifest, case_id=case_id, case1_feedback=case1_feedback)
     output.mkdir(parents=True)
     try:
         copy_media(source, output, manifest["media"])
@@ -321,8 +376,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True, help="Existing private material pack")
     parser.add_argument("--output", type=Path, required=True, help="New private output directory")
+    parser.add_argument("--case-id", help="Revise only this source case; omit to prepare all cases")
+    parser.add_argument("--case1-feedback", action="store_true", help="Apply Jessica's Case 1 feedback to the selected source case")
     args = parser.parse_args()
-    print(json.dumps(build(args.source, args.output), ensure_ascii=False, indent=2))
+    print(json.dumps(build(args.source, args.output, case_id=args.case_id, case1_feedback=args.case1_feedback), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
