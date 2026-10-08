@@ -48,13 +48,19 @@ const sentence = (text: string) => {
   const value = text.replace(/[?？]/g, ".").trim();
   return /[.!。！]$/.test(value) ? value : `${value}.`;
 };
+export const SUPPORT_FALLBACK_QUESTION = "Which finding would you check first, and why?";
+
+/** The criterion a step-up is about: the first unmet one. */
+export function supportTarget(phase: CasePhase, progress: PhaseTutorProgress) {
+  return phaseCriteria(phase).find((item) => !progress.criteriaMet.includes(item.id)) ?? phaseCriteria(phase)[0];
+}
+
+/** Fixed step-up wording, used when the model cannot write it. Never contains the phase goal. */
 export function supportQuestion(phase: CasePhase, progress: PhaseTutorProgress) {
-  if (progress.supportLevel === 2) {
-    const criterion = phaseCriteria(phase).find((item) => !progress.criteriaMet.includes(item.id)) ?? phaseCriteria(phase)[0];
-    const point = criterion?.revealText ?? criterion?.text ?? phase.goal;
-    return `Review point: ${sentence(point)} How would you apply this point to the case using the available evidence?`;
-  }
-  return `Suppose a colleague reached a conclusion without checking the evidence for this goal: ${sentence(phase.goal)} What would you challenge first?`;
+  const criterion = supportTarget(phase, progress);
+  const point = criterion?.revealText ?? criterion?.text;
+  if (progress.supportLevel === 2 && point) return `${sentence(point)} How would you use this in your plan?`;
+  return SUPPORT_FALLBACK_QUESTION;
 }
 
 export function avoidRepeatedQuestion(question: string, earlier: string[], phase: CasePhase, attempt: number) {

@@ -19,47 +19,49 @@ def _criterion(criterion_id, text, reveal_text):
     }
 
 
+CASE1_TITLE = "Case 1"
+CASE1_CLOSING_QUESTION = (
+    "Looking back over the whole case, which prognostic factor had the biggest impact "
+    "on the management of the impacted maxillary canine, and why?"
+)
+
 CASE1_FEEDBACK_PHASE_TEMPLATES = [
     {
-        "title": "Initial record and provisional localisation",
-        "goal": (
-            "Record the patient context, eruption and occlusal findings, then form a "
-            "provisional palatal-versus-buccal inference for missing #23 while stating "
-            "the limits of an OPG alone."
-        ),
+        "title": "Observe the records",
+        "goal": "Describe what you see in the records, then say what you think the main problem is and how sure you can be from these records alone.",
         "rubric": [
             _criterion(
                 "p1-patient-context",
                 "Records the 22-year-old patient's chief complaint of crooked teeth and no relevant medical history.",
-                "State the recorded 22-year-old patient's context: crooked teeth and no relevant medical history; do not add unrecorded history.",
+                "She's 22, her concern is crooked teeth, and she has no relevant medical history.",
             ),
             _criterion(
                 "p1-23-crowding",
                 "Identifies missing #23 together with severe upper-arch crowding and moderate lower-arch crowding.",
-                "Identify missing #23 and the recorded severe upper-arch and moderate lower-arch crowding before explaining its significance.",
+                "The upper left canine, #23, is missing from the arch. There's severe crowding in the upper arch and moderate crowding in the lower.",
             ),
             _criterion(
                 "p1-occlusion-two-findings",
                 "Names at least two relevant occlusal findings, such as a Class III incisor relationship, bilateral Class I molars, #22/#33 crossbite, or a lateral open bite.",
-                "Name at least two relevant occlusal findings from the record, choosing from the Class III incisor relationship, bilateral Class I molars, #22/#33 crossbite, or lateral open bite.",
+                "She has a Class III incisor relationship, Class I molars on both sides, a crossbite at #22/#33, and lateral open bites at #13/#43 and #24/#34.",
             ),
             _criterion(
                 "p1-provisional-buccopalatal",
                 "Forms a provisional palatal-versus-buccal inference for #23 by combining the OPG with the anterior occlusal view and palatal palpation.",
-                "Use the OPG, anterior occlusal view, and palatal palpation to state a provisional palatal-versus-buccal inference for #23.",
+                "A canine bulge can be felt on the palatal side at #23. On the occlusal film the crown moves in the same direction as the beam compared with the OPG. Both point to a palatal position.",
             ),
             _criterion(
                 "p1-opg-limit",
                 "Acknowledges that an OPG alone cannot definitively establish bucco-palatal position, so the location remains provisional until corroborated.",
-                "Explain why an OPG-only bucco-palatal conclusion is not definitive and identify what corroboration makes the inference provisional rather than certain.",
+                "An OPG is a 2D image, so on its own it can't show whether the canine is buccal or palatal. Palpation and the shift between the two films support a palatal position, but only 3D imaging can confirm it.",
             ),
         ],
-        "starterQuestion": "What does the initial record suggest about #23's palatal-versus-buccal position, and what limits that inference?",
+        "starterQuestion": "Looking through the records, what do you notice about this patient's malocclusion?",
         "exampleQuestions": [
-            "Which history and examination facts are relevant to this initial assessment?",
-            "Which two occlusal findings would you record?",
-            "How do the OPG, anterior occlusal view, and palatal palpation support a provisional location?",
-            "Why is an OPG-only bucco-palatal conclusion not definitive?",
+            "Looking at the arch, which teeth would you expect to see that you can't?",
+            "How would you describe the bite?",
+            "If a tooth hasn't erupted, how would you work out where it is from these records?",
+            "How much can an OPG alone tell you about where a tooth sits?",
         ],
         "tutorGuidance": [
             "Keep the recorded context separate from interpretation: the 22-year-old patient reports crooked teeth and has no relevant medical history in this source.",
@@ -82,39 +84,36 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
         "phaseCeiling": 5,
     },
     {
-        "title": "CBCT location and orientation",
-        "goal": (
-            "Use the supplied CBCT finding to confirm #23's palatal location while keeping "
-            "location, crown orientation, root findings, and image-source limits distinct."
-        ),
+        "title": "Localise the problem",
+        "goal": "Use the CBCT to confirm where the unerupted tooth is located, and what each record can and can't show you.",
         "rubric": [
             _criterion(
                 "p2-cbct-palatal-location",
                 "Uses the supplied CBCT record to confirm the provisional palatal location of #23.",
-                "Use the supplied CBCT record to check and confirm the provisional palatal location of #23.",
+                "The CBCT shows #23 in the mid-alveolus and confirms the palatal position suggested by palpation and the 2D films.",
             ),
             _criterion(
                 "p2-crown-buccal-surface",
                 "Distinguishes location from orientation: #23's crown buccal surface faces buccally.",
-                "Describe the crown orientation separately from location and state that #23's crown buccal surface faces buccally.",
+                "The crown's buccal surface faces buccally.",
             ),
             _criterion(
                 "p2-not-rotated",
                 "States that #23 is not rotated, rather than treating a palatal location as evidence of rotation.",
-                "State whether #23 is rotated and explain why palatal location and rotation are separate observations.",
+                "So the crown isn't rotated. Where a tooth sits and which way it faces are separate things: #23 sits palatally but faces the normal way.",
             ),
             _criterion(
                 "p2-no-22-24-resorption",
                 "Records no root resorption of #22 or #24 on the supplied CBCT finding.",
-                "Record the supplied absence of root resorption affecting #22 or #24 without inventing any additional image finding.",
+                "There's no root resorption on #22 or #24.",
             ),
         ],
-        "starterQuestion": "What does the supplied CBCT establish about #23's location, crown orientation, and adjacent-root resorption?",
+        "starterQuestion": "How would you work out exactly where #23 is located, and what can each of the records tell you about that?",
         "exampleQuestions": [
-            "What record supports the conclusion that #23 is palatal?",
-            "How is #23's buccal crown surface oriented, and is the tooth rotated?",
-            "What does the supplied CBCT record about resorption of #22 and #24?",
-            "How does the CBCT confirmation compare with your provisional localisation from the initial records?",
+            "What does the CBCT show about where #23 is?",
+            "Which way does the crown of #23 face?",
+            "How can you tell from the CBCT whether #23 is rotated?",
+            "What do the roots of #22 and #24 look like on the CBCT?",
         ],
         "tutorGuidance": [
             "Treat the supplied CBCT record as the source-backed confirmation of a palatal #23; never claim the model read image pixels.",
@@ -127,39 +126,36 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
         "phaseCeiling": 5,
     },
     {
-        "title": "Local prognosis and a movement checkpoint",
-        "goal": (
-            "Assess the local and patient-specific prognosis for #23 and define a reversible "
-            "movement checkpoint before committing to an irreversible #24 space decision."
-        ),
+        "title": "Assess the prognosis",
+        "goal": "Weigh what makes it more or less likely that the tooth can be brought safely into the arch.",
         "rubric": [
             _criterion(
                 "p3-local-prognosis",
                 "Assesses prognosis from the local canine, its root, and adjacent teeth rather than from age alone.",
-                "Explain how the local canine, its root, and adjacent teeth contribute to prognosis, keeping the assessment patient-specific.",
+                "The crown is superficial, the root shape is uncomplicated, and the neighbouring roots show no resorption, so the local prognosis for bringing #23 into the arch is favourable.",
             ),
             _criterion(
                 "p3-adult-ankylosis",
                 "Includes adult age and ankylosis risk when judging whether #23 movement is feasible.",
-                "Relate adult age and possible ankylosis risk to the feasibility and prognosis of moving #23.",
+                "At 22 the eruptive potential is lower than in an adolescent, and the tooth could be ankylosed, so whether it can move needs testing early.",
             ),
             _criterion(
                 "p3-test-movement",
                 "Recognises a #23 test-movement checkpoint before committing to or extracting #24 when trying to retain #23; #24 space creation is not required before the test, and absent movement supports removing #23 while retaining #24.",
-                "Describe the #23 movement checkpoint, make clear that #24 extraction or space creation waits when retaining #23, and state the remove-#23/retain-#24 fallback if movement is absent.",
+                "Before extracting #24, expose #23 and apply an orthodontic force to check it moves. If it doesn't move, remove #23 and keep #24 instead.",
             ),
             _criterion(
                 "p3-crowding-final-space",
                 "Recognises that the upper and lower crowding require space for final alignment without using that need to bypass the #23 movement test.",
-                "Explain why crowding needs space for final alignment while preserving the movement checkpoint before any #24 extraction decision.",
+                "The severe upper crowding means space will be needed to bring #23 into its final position, but only after you've confirmed it can move.",
             ),
         ],
-        "starterQuestion": "How would you assess #23 prognosis and decide what movement checkpoint should precede an irreversible space decision?",
+        "starterQuestion": "How likely is it that #23 can be brought into the arch, and what makes it more or less likely?",
         "exampleQuestions": [
-            "Which local canine, root, and adjacent-tooth factors shape prognosis?",
-            "How do adult age and ankylosis risk affect the feasibility of moving #23?",
-            "What should be tested before committing to #24 extraction when trying to retain #23?",
-            "Why is final-alignment space still needed even though #24 space creation can wait for the test?",
+            "What about the tooth and its neighbours makes it easier or harder to bring into the arch?",
+            "Would your view change if this patient were 13 instead of 22?",
+            "How would you find out whether #23 can move before committing to the full plan?",
+            "Where would the space for #23 come from in this upper arch?",
         ],
         "tutorGuidance": [
             "Assess prognosis from the local canine, root, and adjacent teeth together with adult age and ankylosis risk; do not reduce it to one factor.",
@@ -172,41 +168,42 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
         "phaseCeiling": 5,
     },
     {
-        "title": "Integrated problem list",
-        "goal": "Integrate the source skeletal, dental, occlusal, and patient-concern findings into a prioritised problem list.",
+        "title": "Build the problem list",
+        "goal": "Pull everything together into a list of the problems a treatment plan would need to address, not just the unerupted tooth.",
         "rubric": [
             _criterion(
                 "p4-skeletal-classiii-lowangle",
                 "Includes the source Class III, low-angle pattern with a retrusive maxilla.",
-                "State the source skeletal pattern as Class III and low-angle with a retrusive maxilla, without adding an unrecorded skeletal finding.",
+                "Skeletally, she's Class III on a low-angle base because of a retrusive maxilla.",
             ),
             _criterion(
                 "p4-incisor-compensation",
                 "Identifies incisor compensation as part of the dental presentation.",
-                "Include incisor compensation in the dental problem list and distinguish it from the skeletal pattern.",
+                "Her incisors have compensated for the skeletal pattern: the uppers are proclined and the lowers upright.",
             ),
             _criterion(
                 "p4-both-arch-crowding",
                 "Includes severe upper-arch and moderate lower-arch crowding in the problem list.",
-                "Include both upper-arch severe crowding and lower-arch moderate crowding as separate alignment problems.",
+                "There's severe crowding in the upper arch and moderate crowding in the lower, and each needs addressing.",
             ),
             _criterion(
                 "p4-occlusion",
                 "Includes relevant occlusion, such as Class III incisors, bilateral Class I molars, #22/#33 crossbite, or a lateral open bite.",
-                "Link the problem list to relevant occlusion, including the recorded Class III incisors, bilateral Class I molars, #22/#33 crossbite, or lateral open bite where applicable.",
+                "The bite problems to address include the Class III incisor relationship, the crossbite at #22/#33 and the lateral open bites.",
             ),
             _criterion(
                 "p4-patient-concerns",
                 "Includes the patient's concern about crooked teeth and links the proposed priorities to patient concerns.",
-                "Connect the problem list and priorities to the patient's crooked-teeth concern rather than presenting a plan detached from patient priorities.",
+                "Her main concern is crooked teeth, so your problem list should connect back to that.",
             ),
         ],
-        "starterQuestion": "How would you integrate the source skeletal, dental, occlusal, and patient-concern findings into one problem list?",
+        "starterQuestion": "Putting everything together, what problems does this patient have that a treatment plan would need to address?",
         "exampleQuestions": [
-            "Which skeletal findings belong in the integrated problem list?",
-            "How do incisor compensation and both-arch crowding affect the dental problem list?",
-            "Which occlusal findings should be prioritised?",
-            "How does the patient's crooked-teeth concern influence your priorities?",
+            "What do the ceph findings tell you about her skeletal pattern?",
+            "How have her front teeth compensated for the skeletal pattern?",
+            "Beyond the canine, what else would your plan have to deal with?",
+            "Of these problems, which matters most to her?",
+            "How would her soft-tissue profile affect your treatment considerations?",
         ],
         "tutorGuidance": [
             "Keep the source Class III, low-angle retrusive-maxilla pattern distinct from incisor compensation and the occlusal findings.",
@@ -224,46 +221,44 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
         "phaseCeiling": 5,
     },
     {
-        "title": "Justified extraction plan",
-        "goal": (
-            "Construct one justified extraction plan for both arches, respecting the #23 "
-            "movement checkpoint and the conditional upper-arch choices."
-        ),
+        "title": "Compare management options",
+        "goal": "Put forward a treatment plan for both arches, justify it, and weigh it against the alternatives.",
         "rubric": [
             _criterion(
                 "p5-both-arch-plan",
                 "Gives one justified extraction plan that explicitly addresses both the upper and lower arches; one coherent plan is sufficient.",
-                "State one coherent, justified extraction plan for both arches and connect it to crowding, prognosis, occlusion, and patient concerns; a second plan is optional.",
+                "Given the crowding in both arches, a plan needs two extractions in the upper arch and two premolar extractions in the lower.",
             ),
             _criterion(
                 "p5-upper-extraction-choice",
                 "Justifies either #23 extraction or #24 extraction as the upper-arch choice; both choices are acceptable when tied to the evidence.",
-                "Choose and justify either #23 extraction or #24 extraction for the upper arch, making the evidence and conditional reasoning explicit.",
+                "In the upper left, either keep #23 and extract #24, or remove #23 and keep #24. #24 already sits where #23 should be and is similar in width and colour to #13, but its gum line won't match #13, so her smile line needs checking.",
             ),
             _criterion(
                 "p5-remaining-premolar-choice",
                 "Specifies and justifies the remaining premolar choice as first premolars or second premolars rather than treating the selection as fixed.",
-                "State whether the remaining premolars would be first or second premolars and justify that choice for the selected both-arch plan.",
+                "The other three extractions are premolars, for example #14, #34 and #44. They can be first or second premolars.",
             ),
             _criterion(
                 "p5-movement-before-24",
                 "Sequences the chosen plan appropriately: if retaining #23, test movement before committing to or extracting #24, without requiring #24 space creation first; directly choosing remove-#23/retain-#24 does not require a retention movement test.",
-                "If retaining #23, test movement before deciding on #24 extraction; absent movement permits remove-#23/retain-#24. A justified direct remove-#23/retain-#24 plan does not require a retention movement test or a second plan.",
+                "If you keep #23, test that it moves before extracting #24. If it doesn't move, remove #23 and keep #24.",
             ),
         ],
-        "starterQuestion": "What one justified extraction plan would you choose for both arches, and how would the #23 movement checkpoint shape it?",
+        "starterQuestion": "What treatment plan would you propose for both arches, and why?",
         "exampleQuestions": [
-            "How does your one plan address extraction in both the upper and lower arches?",
-            "Why would you choose #23 extraction or #24 extraction for the upper arch?",
-            "Would the remaining premolars be first or second premolars, and why?",
-            "What must happen before committing to #24 extraction when you are trying to retain #23?",
+            "Which teeth would you extract, and why?",
+            "What would you want to know about #23 before deciding which tooth to extract?",
+            "What's your Plan B, and why isn't it your Plan A?",
+            "Would the final result look very different if you kept #23 rather than removed it?",
+            "If she wanted the quickest, most predictable option, how would that change your plan?",
         ],
         "tutorGuidance": [
             "Require one justified plan that addresses both arches; do not require two alternative plans when one plan is coherent and evidence-linked.",
             "Accept either #23 extraction or #24 extraction as the upper-arch choice, and accept first or second premolars when justified for the remaining space plan.",
             "When retaining #23, assess its movement before committing to or extracting #24; do not require #24 space creation before the test, and accept removing #23 while retaining #24 if movement is absent.",
             "For a justified direct remove-#23/retain-#24 plan, the retention movement test is not applicable; award appropriate sequencing for that branch without demanding a second plan.",
-            "Keep any exposure or surgical route conditional; the source wording does not make a buccal-exposure route mandatory.",
+            "The crown is palatal, superficial and reachable from the palatal side, so an open palatal exposure is appropriate.",
             "Carry forward the supplied Phase 2 finding: #23 is palatally located, its crown buccal surface faces buccally, it is not rotated, and no #22/#24 root resorption is recorded. Do not reinterpret a buccal crown surface, bracket position, or exposure route in an interview as a buccally located canine; location and orientation are separate.",
         ],
         "acceptedExtras": [
@@ -281,31 +276,31 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
         "phaseCeiling": 5,
     },
     {
-        "title": "Anticipated outcome and reconsideration",
-        "goal": "Defend the anticipated outcome of the chosen plan and state the checkpoint and new evidence that would trigger reconsideration.",
+        "title": "Review the plan",
+        "goal": "Picture where treatment should end up, and what would make you change course along the way.",
         "rubric": [
             _criterion(
                 "p6-anticipated-outcome",
                 "Defends an anticipated outcome by linking it to the chosen both-arch extraction and alignment plan and the patient's concerns.",
-                "Defend the anticipated outcome using the selected both-arch plan, the case evidence, and the patient's crooked-teeth concern; keep the outcome conditional rather than guaranteed.",
+                "If #23 is kept, it ends up in the arch where #24 was, with the crowding resolved. If #23 is removed, #24 takes its place.",
             ),
             _criterion(
                 "p6-checkpoint-reconsideration",
                 "States a reassessment checkpoint relevant to the chosen plan; if retaining #23, absent movement triggers the remove-#23/retain-#24 fallback, while direct #23 extraction does not require testing its retention.",
-                "Name a reassessment checkpoint for your chosen plan; for retained #23, explain the absent-movement fallback of remove-#23/retain-#24, without demanding that test after choosing direct extraction.",
+                "The key checkpoint is testing whether #23 moves. The premolar hasn't been extracted yet at that point, so if #23 doesn't move you can still switch to removing it and keeping #24.",
             ),
             _criterion(
                 "p6-evidence-tradeoffs",
                 "Acknowledges the principal evidence-based trade-off or uncertainty that could change the anticipated outcome.",
-                "Identify the main evidence-based trade-off or uncertainty that could change the anticipated outcome and what you would reassess.",
+                "The main uncertainty is whether #23 will move, given her age and the risk of ankylosis. For the removal plan, it's how the uneven gum line of #24 looks when she smiles.",
             ),
         ],
-        "starterQuestion": "How would you defend the anticipated outcome of your chosen plan, and what checkpoint would make you reconsider it?",
+        "starterQuestion": "Picture the end of treatment under your plan. Where does each tooth that matters end up?",
         "exampleQuestions": [
-            "Which case evidence most supports your anticipated outcome?",
-            "How does your chosen plan address the patient's concerns and both-arch alignment?",
-            "What result at the #23 movement checkpoint would make you reconsider?",
-            "Which trade-off or uncertainty should remain explicit in your conclusion?",
+            "Working backwards from that end result, is there anything in your plan you'd change?",
+            "What would tell you partway through that the plan isn't working?",
+            "If #23 doesn't move when you test it, what would you do next?",
+            "What's the main uncertainty in your plan?",
         ],
         "tutorGuidance": [
             "Defend an anticipated outcome rather than promising a guaranteed result, and link it to the chosen plan, evidence, and patient concerns.",
@@ -314,7 +309,13 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             "Carry forward the supplied Phase 2 palatal #23 location with a buccally facing, unrotated crown and no recorded #22/#24 root resorption; do not confuse crown orientation or a possible exposure route with canine location.",
         ],
         "acceptedExtras": [],
-        "tutorMoves": [],
+        "tutorMoves": [
+            {
+                "id": "p6-closing-reflection",
+                "strategy": "reflect",
+                "question": CASE1_CLOSING_QUESTION,
+            },
+        ],
         "noProgressLimit": 2,
         "phaseCeiling": 5,
     },
@@ -341,4 +342,4 @@ def build_case1_feedback_phases(case_id, id_factory):
     return phases
 
 
-__all__ = ["CASE1_FEEDBACK_PHASE_TEMPLATES", "build_case1_feedback_phases"]
+__all__ = ["CASE1_CLOSING_QUESTION", "CASE1_FEEDBACK_PHASE_TEMPLATES", "CASE1_TITLE", "build_case1_feedback_phases"]

@@ -31,7 +31,7 @@ from draft_clinical_content import (  # noqa: E402
     build_draft_review,
     clinical_content_sha256,
 )
-from case1_clinical_feedback import build_case1_feedback_phases  # noqa: E402
+from case1_clinical_feedback import CASE1_TITLE, build_case1_feedback_phases  # noqa: E402
 
 
 NAMESPACE = uuid.UUID("3b7cb4f5-c8a1-4c3a-9bd8-04a0fb5f98e5")
@@ -229,6 +229,7 @@ def transform_manifest(source: dict[str, Any], *, case_id: str | None = None, ca
             for attachment in old_case.get("attachments", [])
         ]
         if case1_feedback:
+            new_case["title"] = CASE1_TITLE
             for attachment in new_case["attachments"]:
                 attachment["unlockPhase"] = 2 if "cbct" in attachment["title"].lower() else 1
                 attachment["unlockOnRequest"] = False

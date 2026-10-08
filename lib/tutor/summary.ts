@@ -25,22 +25,22 @@ export function buildSessionSummary(
     overallScore: score,
     headline:
       score >= 80
-        ? "Evidence-led reasoning is taking shape"
+        ? "Your reasoning is well backed by evidence"
         : score >= 55
-          ? "A sound foundation with gaps to revisit"
-          : "Slow down and anchor each decision to evidence",
+          ? "A sound start, with some gaps to go back over"
+          : "Try linking each decision to a finding in the case",
     narrative: (completedAllPhases
-      ? "You completed the assigned teaching phases and reflection. The score reflects the quality of the reasoning expressed, not simply the final conclusion."
-      : "You ended the session before all assigned phases were completed. This summary reflects the reasoning evidence available so far and should be treated as formative feedback.")
+      ? "You finished all the phases and the reflection. The score reflects how well you explained your reasoning, not just your final answer."
+      : "You ended the session before finishing all the phases. This summary covers the reasoning you showed so far. Treat it as feedback to learn from.")
       + (supportedPhases.length ? ` ${supportedPhases.length === 1 ? "Phase" : "Phases"} ${supportedPhases.join(", ")} ${supportedPhases.length === 1 ? "was" : "were"} completed with tutor support, not demonstrated independent mastery.` : ""),
-    strengths: strengths.length ? strengths : ["Stayed engaged with iterative questioning"],
+    strengths: strengths.length ? strengths : ["Kept working through the questions"],
     // An empty gap list is meaningful: do not invent a deficit after the
     // learner has resolved the recorded ones. The UI has an explicit empty state.
     weaknesses,
     nextSteps: [
-      "State the clinical finding before naming a conclusion",
-      "Justify the next investigation in terms of the uncertainty it resolves",
-      "Name one assumption that could change the management plan",
+      "Say what you see before you name a conclusion",
+      "Explain what each new test or image would tell you",
+      "Name one assumption that could change your plan",
     ],
     completedAllPhases,
     supportedPhases,

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { CasePhase, PhaseTutorProgress, TutorEvaluationResult } from "@/lib/domain";
 import { normalizeCriterionTags, phaseCriteria } from "@/lib/tutor/criteria";
-import { avoidRepeatedQuestion, progressPhase, supportQuestion } from "@/lib/tutor/progression";
+import { avoidRepeatedQuestion, progressPhase, SUPPORT_FALLBACK_QUESTION, supportQuestion, supportTarget } from "@/lib/tutor/progression";
 
 const phase = (overrides: Partial<CasePhase> = {}): CasePhase => ({
   id: "phase-1",
@@ -285,17 +285,36 @@ describe("accepted extras never gate or prolong required reasoning", () => {
 describe("support and repeated-question safeguards", () => {
   it("asks for the first unmet criterion at reveal level", () => {
     const question = supportQuestion(phase(), progress({ supportLevel: 2, criteriaMet: ["observation"] }));
-    expect(question).toContain("Name the supporting record.");
-    expect(question).toContain("How would you apply this point");
-    expect(question).toContain("?");
+    expect(question).toBe("Name the supporting record. How would you use this in your plan?");
+    expect(supportTarget(phase(), progress({ supportLevel: 2, criteriaMet: ["observation"] }))?.id).toBe("evidence");
+  });
+
+  it("uses fixed plain fallbacks that never carry the phase goal or an internal label", () => {
+    const empty = phase({ rubric: [] });
+    const fallbacks = [
+      supportQuestion(phase(), progress({ supportLevel: 1 })),
+      supportQuestion(phase(), progress({ supportLevel: 2 })),
+      supportQuestion(empty, progress({ supportLevel: 1 })),
+      supportQuestion(empty, progress({ supportLevel: 2 })),
+      avoidRepeatedQuestion("What do you notice?", ["What do you notice?", "Which record supports that observation?"], phase(), 3),
+    ];
+    expect(fallbacks[0]).toBe("Which finding would you check first, and why?");
+    expect(fallbacks[0]).toBe(SUPPORT_FALLBACK_QUESTION);
+    expect(fallbacks[2]).toBe(SUPPORT_FALLBACK_QUESTION);
+    expect(fallbacks[3]).toBe(SUPPORT_FALLBACK_QUESTION);
+    for (const text of fallbacks) {
+      expect(text).not.toContain("Suppose a colleague");
+      expect(text).not.toMatch(/^Review point:/);
+      expect(text).not.toContain("Describe the supplied evidence before deciding");
+      expect(text).not.toContain("\u2014");
+    }
   });
 
   it("falls back to legacy string rubric text for a review point", () => {
     const legacyPhase = phase({ rubric: ["Name the visible observation", "Link it to the supplied record"] });
     const question = supportQuestion(legacyPhase, progress({ supportLevel: 2, criteriaMet: ["r1"] }));
 
-    expect(question).toContain("Link it to the supplied record.");
-    expect(question).toContain("How would you apply this point");
+    expect(question).toBe("Link it to the supplied record. How would you use this in your plan?");
   });
 
   it("uses an unused example or a deterministic fallback for an exact duplicate", () => {

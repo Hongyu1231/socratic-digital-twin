@@ -180,6 +180,71 @@ describe("v2 end-to-end tutor state", () => {
     expect(JSON.stringify(studentView(repeated))).not.toContain("private-blocking-move");
   });
 
+  it("writes step-up wording in a second call that carries the new level and target criterion", async () => {
+    vi.spyOn(tutor, "getTutorMode").mockReturnValue("openai");
+    let turn = 0;
+    const evaluate = vi.spyOn(tutor, "evaluateWithFallback").mockImplementation(async (input) => input.support
+      ? result({ source: "openai", nextQuestion: `Model wording for level ${input.support.level}, would that hold up?` })
+      : result({ source: "openai", nextQuestion: `Ordinary question ${++turn}?` }));
+    let bundle = await start();
+    for (const answer of ["First try.", "Second try.", "Third try.", "Fourth try.", "Fifth try."]) {
+      bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, answer);
+    }
+    const supportCalls = evaluate.mock.calls.map(([input]) => input).filter((input) => input.support);
+    expect(supportCalls.map((input) => input.support)).toEqual([
+      { level: 1, targetCriterion: expect.objectContaining({ id: "private-observation" }) },
+      { level: 2, targetCriterion: expect.objectContaining({ id: "private-observation", revealText: "Separate what is observed from an assumed cause." }) },
+    ]);
+    expect(supportCalls.map((input) => input.state.phaseProgress?.["1"].supportLevel)).toEqual([1, 2]);
+    expect(evaluate).toHaveBeenCalledTimes(7);
+    const tutorMessages = bundle.session.messages.filter((message) => message.sender === "ai");
+    expect(tutorMessages.filter((message) => message.moveType === "hypothetical").map((message) => message.content))
+      .toEqual([expect.stringContaining("Model wording for level 1, would that hold up?")]);
+    expect(tutorMessages.at(-1)).toMatchObject({ moveType: "reveal", content: expect.stringContaining("Model wording for level 2, would that hold up?") });
+    expect(bundle.session.evaluations.at(-1)?.targetCriterionId).toBe("private-observation");
+    for (const message of tutorMessages) {
+      expect(message.content).not.toContain("Suppose a colleague");
+      expect(message.content).not.toContain("Review point:");
+      expect(message.content).not.toContain("Distinguish observations from assumptions");
+    }
+  });
+
+  it("uses the fixed plain text when the step-up call fails, with no goal text", async () => {
+    vi.spyOn(tutor, "getTutorMode").mockReturnValue("openai");
+    let turn = 0;
+    vi.spyOn(tutor, "evaluateWithFallback").mockImplementation(async (input) => {
+      if (input.support?.level === 1) throw new Error("provider unavailable");
+      if (input.support) return { ...result({ nextQuestion: "A deterministic stand-in?" }), fallbackFrom: "openai" as const };
+      return result({ source: "openai", acknowledgement: undefined, nextQuestion: `Ordinary question ${++turn}?` });
+    });
+    let bundle = await start();
+    for (const answer of ["First try.", "Second try.", "Third try."]) bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, answer);
+    expect(bundle.session.messages.at(-1)).toMatchObject({ moveType: "hypothetical", content: "Which finding would you check first, and why?" });
+    expect(bundle.session.evaluations.at(-1)?.targetCriterionId).toBeUndefined();
+    for (const answer of ["Fourth try.", "Fifth try."]) bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, answer);
+    expect(bundle.session.messages.at(-1)).toMatchObject({
+      moveType: "reveal", content: "Separate what is observed from an assumed cause. How would you use this in your plan?",
+    });
+    for (const message of bundle.session.messages.filter((item) => item.sender === "ai")) {
+      expect(message.content).not.toContain("Suppose a colleague");
+      expect(message.content).not.toMatch(/^Review point:/);
+      expect(message.content).not.toContain("Distinguish observations from assumptions");
+    }
+  });
+
+  it("asks the final phase's reflect move as the closing question, never mid-phase", async () => {
+    const closing = "Looking back over the whole case, which prognostic factor had the biggest impact on the management of the impacted maxillary canine, and why?";
+    vi.spyOn(tutor, "evaluateWithFallback")
+      .mockResolvedValueOnce(result({ classification: "correct" }))
+      .mockResolvedValueOnce(result({ criteriaMet: ["private-observation", "private-evidence"] }));
+    const started = await start(1, 8, [{ id: "private-closing", strategy: "reflect", question: closing }]);
+    const first = await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "A correct but incomplete answer.");
+    expect(first.session.messages.at(-1)?.content).not.toContain(closing);
+    expect(first.session.state.usedTutorMoves).toEqual([]);
+    const second = await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "The remaining evidence.");
+    expect(second.session.messages.at(-1)).toMatchObject({ moveType: "reflection", content: `${result().acknowledgement} ${closing}` });
+  });
+
   it("ignores a stale reflection flag outside the final phase", async () => {
     const evaluate = vi.spyOn(tutor, "evaluateWithFallback").mockResolvedValue(result());
     const started = await start();

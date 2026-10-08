@@ -11,7 +11,7 @@ import { mergeLearnerEvidence } from "@/lib/tutor/learner-model";
 import { buildStudentVisibleTutorReply } from "@/lib/tutor/correction-policy";
 import { getTeachingContextWithTrace, getTeachingContextWithTraceAsync } from "@/lib/materials/retrieval";
 import { normalizeCriterionTags, phaseCriteria } from "@/lib/tutor/criteria";
-import { avoidRepeatedQuestion, progressPhase, supportQuestion } from "@/lib/tutor/progression";
+import { avoidRepeatedQuestion, progressPhase, supportQuestion, supportTarget } from "@/lib/tutor/progression";
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 
@@ -111,7 +111,12 @@ async function performStudentAnswer(
     baseline: baselineResult,
   });
   const result = normalizeCriterionTags(experimentDecision.studentResult, phase);
-  const scriptedMove = isReflectionAnswer ? undefined : selectTutorMove(phase, content, bundle.session.state, result.classification);
+  // The final phase's reflect move is the closing question. It is asked when
+  // the phase completes, never selected as an ordinary mid-phase move.
+  const reflectMove = isFinalPhase ? phase.tutorMoves?.find((move) => move.strategy === "reflect") : undefined;
+  const scriptedMove = isReflectionAnswer ? undefined : selectTutorMove(
+    reflectMove ? { ...phase, tutorMoves: phase.tutorMoves?.filter((move) => move.strategy !== "reflect") } : phase,
+    content, bundle.session.state, result.classification);
   const usedTutorMoves = new Set(bundle.session.state.usedTutorMoves ?? []);
   const tutorMove = scriptedMove;
   const misconceptionKey = result.classification === "wrong"
@@ -120,7 +125,24 @@ async function performStudentAnswer(
       : result.misconceptionKey
     : null;
   const progress = isReflectionAnswer ? null : progressPhase(phase, bundle.session.state.phaseProgress?.[phaseKey], result, attempt,
-    Boolean(tutorMove?.blockAdvancement && !(isFinalPhase && tutorMove.strategy === "reflect")));
+    Boolean(tutorMove?.blockAdvancement));
+  // The step up is decided only after the answer is graded, so the model
+  // writes the level 1 plan or level 2 reveal in a second call that carries
+  // the new level and the target criterion. Any failure uses the fixed text.
+  const target = progress?.escalated ? supportTarget(phase, progress.state) : undefined;
+  let supportReply: string | undefined;
+  if (progress?.escalated && target && progress.state.supportLevel !== 0 && getTutorMode() !== "deterministic") {
+    try {
+      const written = await evaluateWithFallback({
+        ...tutorInput,
+        state: { ...bundle.session.state, phaseProgress: { ...bundle.session.state.phaseProgress, [phaseKey]: progress.state } },
+        support: { level: progress.state.supportLevel, targetCriterion: target },
+      });
+      if (written.source !== "deterministic") supportReply = written.nextQuestion;
+    } catch {
+      supportReply = undefined;
+    }
+  }
   const phaseComplete = progress?.complete ?? false;
   const supported = progress?.state.completedWithSupport ?? false;
   const askReflection = phaseComplete && isFinalPhase;
@@ -209,11 +231,11 @@ async function performStudentAnswer(
   const proposedQuestion = sessionComplete
     ? `You have completed all ${orderedPhases.length} ${orderedPhases.length === 1 ? "phase" : "phases"}. Your learning summary is ready.`
     : askReflection
-      ? (scriptedMove?.strategy === "reflect" ? scriptedMove.question : "Looking back, which finding or uncertainty had the greatest influence on your decision?")
+      ? reflectMove?.question ?? "Looking back, which finding or uncertainty had the greatest influence on your decision?"
       : phaseComplete
       ? nextPhaseRecord.starterQuestion
       : progress?.escalated
-        ? supportQuestion(phase, progress.state)
+        ? supportReply ?? supportQuestion(phase, progress.state)
       : tutorMove?.question ?? result.nextQuestion;
   // Acknowledgements and correction verdicts are stored in content for the
   // legacy UI. Compare the actual question, including when it is scripted.
@@ -222,13 +244,11 @@ async function performStudentAnswer(
       ? message.content.slice(message.acknowledgement.length + 1) : message.content;
     return question.replace(/^That statement is incorrect\.\s*/, "");
   });
-  const baseQuestion = phaseComplete || sessionComplete ? proposedQuestion
+  const baseQuestion = phaseComplete || sessionComplete || progress?.escalated ? proposedQuestion
     : avoidRepeatedQuestion(proposedQuestion, earlierQuestions, phase, attempt);
   // Log the actual displayed target, not a discarded model/script proposal.
   if (phaseComplete || isReflectionAnswer || baseQuestion !== proposedQuestion) evaluation.targetCriterionId = undefined;
-  else if (progress?.escalated) evaluation.targetCriterionId = progress.state.supportLevel === 2
-    ? (phaseCriteria(phase).find((item) => !progress.state.criteriaMet.includes(item.id)) ?? phaseCriteria(phase)[0])?.id
-    : undefined;
+  else if (progress?.escalated) evaluation.targetCriterionId = progress.state.supportLevel === 2 || supportReply ? target?.id : undefined;
   // Correction is independent of scaffolding: escalating must not suppress
   // the promised explicit verdict on a repeated high-confidence wrong answer.
   const nextQuestion = sessionComplete ? baseQuestion : buildStudentVisibleTutorReply(

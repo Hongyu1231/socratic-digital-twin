@@ -67,14 +67,16 @@ export class DeterministicTutor {
     const strategy = strategyFor(classification, attempt);
     const nextQuestion = questionFor(strategy, phase, attempt);
 
+    // These notes can reach the learner through the summary's weakness list,
+    // so they stay generic: no phase goal, criterion or rubric text.
     const gap =
       classification === "correct"
         ? "The answer is well supported; the remaining opportunity is to make the key assumption explicit."
         : classification === "partial"
-          ? `The answer identifies a relevant feature but does not yet connect enough evidence to the goal: ${phase.goal}`
+          ? "The answer names a relevant feature but does not yet link enough evidence to it."
           : classification === "vague"
             ? "The answer does not commit to a specific finding or explain why it matters."
-            : `The reasoning is not yet anchored to the phase rubric: ${phase.rubric.slice(0, 3).map(rubricText).join(", ")}.`;
+            : "The reasoning is not yet tied to the findings in this case.";
 
     return {
       classification,

@@ -10,7 +10,7 @@ export type Summary = {
 };
 
 export const SUMMARY_INSTRUCTIONS =
-  "Create concise formative feedback for a dentistry learner. Use session.context.summary as the authoritative deterministic summary. Polish only its headline and narrative. Preserve its overallScore, completedAllPhases, strengths, weaknesses, and nextSteps exactly; earlier evaluations are historical context, not current deficits. Do not add, remove, or invent facts, clinical information, diagnoses, deficits, strengths, or next steps. Do not reveal hidden chain-of-thought. Return the requested structured summary.";
+  "Create concise formative feedback for a dentistry learner. Use session.context.summary as the authoritative deterministic summary. Polish only its headline and narrative. Preserve its overallScore, completedAllPhases, strengths, weaknesses, and nextSteps exactly; earlier evaluations are historical context, not current deficits. Do not add, remove, or invent facts, clinical information, diagnoses, deficits, strengths, or next steps. Write the headline and narrative in plain words and short sentences a dental student would use. Never copy a phase goal, criterion, rubric or any other internal wording into them. Do not reveal hidden chain-of-thought. Return the requested structured summary.";
 
 export type SummaryProvider = "deterministic" | "openai" | "claude";
 

@@ -8,6 +8,7 @@ import {
   parseJson,
   parseSummaryProvider,
   reconcileGeneratedSummary,
+  SUMMARY_INSTRUCTIONS,
   validateSummary,
 } from "../../functions/session-summary-worker/summary-worker-core";
 
@@ -27,6 +28,11 @@ afterEach(() => {
 });
 
 describe("session summary worker core", () => {
+  it("asks for plain wording that never echoes internal text", () => {
+    expect(SUMMARY_INSTRUCTIONS).toContain("plain words and short sentences");
+    expect(SUMMARY_INSTRUCTIONS).toContain("Never copy a phase goal, criterion, rubric or any other internal wording");
+  });
+
   it("builds a strict Responses API request for a non-empty summary", () => {
     const body = buildOpenAiResponsesBody({ session: { id: "session-1" } }, "gpt-5.6-luna");
 

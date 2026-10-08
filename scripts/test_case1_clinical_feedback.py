@@ -116,6 +116,123 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
         self.assertNotIn("not rotated", initial)
         self.assertNotIn("no #22/#24 root resorption", initial)
 
+    def test_titles_goals_and_opening_questions_match_the_approved_wording(self):
+        self.assertEqual(MODULE.CASE1_TITLE, "Case 1")
+        approved = [
+            ("Observe the records", "Describe what you see in the records, then say what you think the main problem is and how sure you can be from these records alone.", "Looking through the records, what do you notice about this patient's malocclusion?"),
+            ("Localise the problem", "Use the CBCT to confirm where the unerupted tooth is located, and what each record can and can't show you.", "How would you work out exactly where #23 is located, and what can each of the records tell you about that?"),
+            ("Assess the prognosis", "Weigh what makes it more or less likely that the tooth can be brought safely into the arch.", "How likely is it that #23 can be brought into the arch, and what makes it more or less likely?"),
+            ("Build the problem list", "Pull everything together into a list of the problems a treatment plan would need to address, not just the unerupted tooth.", "Putting everything together, what problems does this patient have that a treatment plan would need to address?"),
+            ("Compare management options", "Put forward a treatment plan for both arches, justify it, and weigh it against the alternatives.", "What treatment plan would you propose for both arches, and why?"),
+            ("Review the plan", "Picture where treatment should end up, and what would make you change course along the way.", "Picture the end of treatment under your plan. Where does each tooth that matters end up?"),
+        ]
+        self.assertEqual(
+            [(phase["title"], phase["goal"], phase["starterQuestion"]) for phase in self.phases],
+            approved,
+        )
+
+    def test_closing_reflection_and_palatal_exposure_guidance(self):
+        self.assertEqual([phase["tutorMoves"] for phase in self.phases[:5]], [[]] * 5)
+        self.assertEqual(self.phases[5]["tutorMoves"], [{
+            "id": "p6-closing-reflection",
+            "strategy": "reflect",
+            "question": "Looking back over the whole case, which prognostic factor had the biggest impact on the management of the impacted maxillary canine, and why?",
+        }])
+        guidance = self.phases[4]["tutorGuidance"]
+        self.assertIn("The crown is palatal, superficial and reachable from the palatal side, so an open palatal exposure is appropriate.", guidance)
+        self.assertNotIn("surgical route conditional", " ".join(guidance))
+
+    def test_reveal_texts_match_the_approved_wording_exactly(self):
+        approved = {
+            "p1-patient-context": "She's 22, her concern is crooked teeth, and she has no relevant medical history.",
+            "p1-23-crowding": "The upper left canine, #23, is missing from the arch. There's severe crowding in the upper arch and moderate crowding in the lower.",
+            "p1-occlusion-two-findings": "She has a Class III incisor relationship, Class I molars on both sides, a crossbite at #22/#33, and lateral open bites at #13/#43 and #24/#34.",
+            "p1-provisional-buccopalatal": "A canine bulge can be felt on the palatal side at #23. On the occlusal film the crown moves in the same direction as the beam compared with the OPG. Both point to a palatal position.",
+            "p1-opg-limit": "An OPG is a 2D image, so on its own it can't show whether the canine is buccal or palatal. Palpation and the shift between the two films support a palatal position, but only 3D imaging can confirm it.",
+            "p2-cbct-palatal-location": "The CBCT shows #23 in the mid-alveolus and confirms the palatal position suggested by palpation and the 2D films.",
+            "p2-crown-buccal-surface": "The crown's buccal surface faces buccally.",
+            "p2-not-rotated": "So the crown isn't rotated. Where a tooth sits and which way it faces are separate things: #23 sits palatally but faces the normal way.",
+            "p2-no-22-24-resorption": "There's no root resorption on #22 or #24.",
+            "p3-local-prognosis": "The crown is superficial, the root shape is uncomplicated, and the neighbouring roots show no resorption, so the local prognosis for bringing #23 into the arch is favourable.",
+            "p3-adult-ankylosis": "At 22 the eruptive potential is lower than in an adolescent, and the tooth could be ankylosed, so whether it can move needs testing early.",
+            "p3-test-movement": "Before extracting #24, expose #23 and apply an orthodontic force to check it moves. If it doesn't move, remove #23 and keep #24 instead.",
+            "p3-crowding-final-space": "The severe upper crowding means space will be needed to bring #23 into its final position, but only after you've confirmed it can move.",
+            "p4-skeletal-classiii-lowangle": "Skeletally, she's Class III on a low-angle base because of a retrusive maxilla.",
+            "p4-incisor-compensation": "Her incisors have compensated for the skeletal pattern: the uppers are proclined and the lowers upright.",
+            "p4-both-arch-crowding": "There's severe crowding in the upper arch and moderate crowding in the lower, and each needs addressing.",
+            "p4-occlusion": "The bite problems to address include the Class III incisor relationship, the crossbite at #22/#33 and the lateral open bites.",
+            "p4-patient-concerns": "Her main concern is crooked teeth, so your problem list should connect back to that.",
+            "p5-both-arch-plan": "Given the crowding in both arches, a plan needs two extractions in the upper arch and two premolar extractions in the lower.",
+            "p5-upper-extraction-choice": "In the upper left, either keep #23 and extract #24, or remove #23 and keep #24. #24 already sits where #23 should be and is similar in width and colour to #13, but its gum line won't match #13, so her smile line needs checking.",
+            "p5-remaining-premolar-choice": "The other three extractions are premolars, for example #14, #34 and #44. They can be first or second premolars.",
+            "p5-movement-before-24": "If you keep #23, test that it moves before extracting #24. If it doesn't move, remove #23 and keep #24.",
+            "p6-anticipated-outcome": "If #23 is kept, it ends up in the arch where #24 was, with the crowding resolved. If #23 is removed, #24 takes its place.",
+            "p6-checkpoint-reconsideration": "The key checkpoint is testing whether #23 moves. The premolar hasn't been extracted yet at that point, so if #23 doesn't move you can still switch to removing it and keeping #24.",
+            "p6-evidence-tradeoffs": "The main uncertainty is whether #23 will move, given her age and the risk of ankylosis. For the removal plan, it's how the uneven gum line of #24 looks when she smiles.",
+        }
+        actual = {item["id"]: item["revealText"] for phase in self.phases for item in phase["rubric"]}
+        self.assertEqual(actual, approved)
+
+    def test_example_questions_match_the_approved_wording_exactly(self):
+        approved = [
+            [
+                "Looking at the arch, which teeth would you expect to see that you can't?",
+                "How would you describe the bite?",
+                "If a tooth hasn't erupted, how would you work out where it is from these records?",
+                "How much can an OPG alone tell you about where a tooth sits?",
+            ],
+            [
+                "What does the CBCT show about where #23 is?",
+                "Which way does the crown of #23 face?",
+                "How can you tell from the CBCT whether #23 is rotated?",
+                "What do the roots of #22 and #24 look like on the CBCT?",
+            ],
+            [
+                "What about the tooth and its neighbours makes it easier or harder to bring into the arch?",
+                "Would your view change if this patient were 13 instead of 22?",
+                "How would you find out whether #23 can move before committing to the full plan?",
+                "Where would the space for #23 come from in this upper arch?",
+            ],
+            [
+                "What do the ceph findings tell you about her skeletal pattern?",
+                "How have her front teeth compensated for the skeletal pattern?",
+                "Beyond the canine, what else would your plan have to deal with?",
+                "Of these problems, which matters most to her?",
+                "How would her soft-tissue profile affect your treatment considerations?",
+            ],
+            [
+                "Which teeth would you extract, and why?",
+                "What would you want to know about #23 before deciding which tooth to extract?",
+                "What's your Plan B, and why isn't it your Plan A?",
+                "Would the final result look very different if you kept #23 rather than removed it?",
+                "If she wanted the quickest, most predictable option, how would that change your plan?",
+            ],
+            [
+                "Working backwards from that end result, is there anything in your plan you'd change?",
+                "What would tell you partway through that the plan isn't working?",
+                "If #23 doesn't move when you test it, what would you do next?",
+                "What's the main uncertainty in your plan?",
+            ],
+        ]
+        self.assertEqual([phase["exampleQuestions"] for phase in self.phases], approved)
+        for phase in self.phases:
+            for question in phase["exampleQuestions"]:
+                self.assertEqual(question.count("?"), 1)
+                self.assertNotIn("\u2014", question)
+
+    def test_student_visible_text_is_plain_and_carries_no_internal_label(self):
+        for phase in self.phases:
+            visible = [phase["title"], phase["goal"], phase["starterQuestion"]]
+            visible += [item["revealText"] for item in phase["rubric"]]
+            visible += [move["question"] for move in phase["tutorMoves"]]
+            visible += phase["exampleQuestions"]
+            for text in visible:
+                self.assertFalse(text.startswith("Review point:"))
+                self.assertNotIn("Suppose a colleague", text)
+                self.assertNotIn("\u2014", text)
+            for text in visible[2:]:
+                self.assertNotIn(phase["goal"], text)
+
 
 if __name__ == "__main__":
     unittest.main()

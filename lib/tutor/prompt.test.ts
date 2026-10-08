@@ -28,6 +28,35 @@ describe("human tutor prompt contract", () => {
     expect(TUTOR_INSTRUCTIONS).toContain("evaluate the final position");
   });
 
+  it("asks for plain wording and never echoes internal text or a meta setup", () => {
+    expect(TUTOR_INSTRUCTIONS).toContain("short sentences and everyday clinical words");
+    expect(TUTOR_INSTRUCTIONS).toContain("The acknowledgement is one short sentence");
+    expect(TUTOR_INSTRUCTIONS).toContain("Never join two asks with 'and' or 'while'");
+    expect(TUTOR_INSTRUCTIONS).toContain("Never copy the phase goal, the criteria, the rubric");
+    expect(TUTOR_INSTRUCTIONS).toContain("Never use a meta setup");
+    expect(TUTOR_INSTRUCTIONS).toContain("How might the position of #23 affect the prognosis of #22?");
+    expect(TUTOR_INSTRUCTIONS).toContain("what would you look for on the available imaging, and what are the limitations of the information provided?");
+    expect(TUTOR_INSTRUCTIONS).toContain("your output must still ask exactly one");
+  });
+
+  it("asks for plain summary notes that never echo internal wording", () => {
+    expect(TUTOR_INSTRUCTIONS).toContain("The learner reads memoryPatch addErrors, addStrengths and addWeaknesses in their session summary");
+    expect(TUTOR_INSTRUCTIONS).toContain("one short sentence in plain, everyday clinical words");
+    expect(TUTOR_INSTRUCTIONS).toContain("Never copy the phase goal, a criterion, the rubric, tutorGuidance or any other internal wording into them");
+  });
+
+  it("carries the support level and target criterion only on a step-up call", () => {
+    const phase = impactedCanineCase.phases[0];
+    const base = { phase, answer: "An answer.", state, attempt: 3 };
+    expect(JSON.parse(buildTutorInput(base))).not.toHaveProperty("support");
+    for (const level of [1, 2] as const) {
+      const targetCriterion = { id: "c1", text: "Names the finding", revealText: "The finding is present." };
+      expect(JSON.parse(buildTutorInput({ ...base, support: { level, targetCriterion } })).support).toEqual({ level, targetCriterion });
+    }
+    expect(TUTOR_INSTRUCTIONS).toContain("At support.level 1, put one concrete plan or interpretation");
+    expect(TUTOR_INSTRUCTIONS).toContain("At support.level 2, tell the learner the point in support.targetCriterion.revealText");
+  });
+
   it("requires grounded acknowledgement, one non-leading question, and attempt-aware scaffolding", () => {
     expect(TUTOR_INSTRUCTIONS).toContain("acknowledge one specific idea or uncertainty");
     expect(TUTOR_INSTRUCTIONS).toContain("exactly one open-ended, non-leading question");

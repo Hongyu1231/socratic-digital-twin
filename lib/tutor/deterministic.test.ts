@@ -21,6 +21,26 @@ describe("deterministic tutor", () => {
     expect(result.classification).toBe(expected);
     expect(result.nextQuestion.endsWith("?")).toBe(true);
   });
+  it("never puts the phase goal, criterion or rubric text into notes a learner can see", async () => {
+    const structured = { ...phase, goal: "PRIVATE_GOAL describes the hidden target.", rubric: [{ id: "c1", text: "PRIVATE_CRITERION unerupted canine", revealText: "PRIVATE_REVEAL" }] };
+    const answers = [
+      "The unerupted canine and eruption asymmetry are concerning because the timing at this age raises the possibility of impaction.",
+      "The canine is unerupted, which may represent delayed eruption.",
+      "I am not sure.",
+      "The patient needs antibiotics because pain always means infection in this situation.",
+    ];
+    for (const candidate of [phase, structured]) {
+      const internal = [candidate.goal, ...candidate.rubric.map((item) => typeof item === "string" ? item : item.text)];
+      for (const answer of answers) {
+        const result = await tutor.evaluate({ phase: candidate, answer, state, attempt: 1 });
+        const visible = [result.reasoningGap, result.feedback, result.acknowledgement ?? "", result.nextQuestion,
+          ...result.memoryPatch.addErrors, ...result.memoryPatch.addStrengths, ...result.memoryPatch.addWeaknesses].join(" | ");
+        for (const text of internal) expect(visible).not.toContain(text);
+        expect(visible).not.toContain("PRIVATE_");
+      }
+    }
+  });
+
   it("switches to scaffolding on a third attempt", async () => {
     const result = await tutor.evaluate({ phase, answer: "Not sure.", state, attempt: 3 });
     expect(result.strategy).toBe("scaffold");

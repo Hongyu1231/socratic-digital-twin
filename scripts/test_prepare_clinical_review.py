@@ -177,6 +177,7 @@ class ClinicalReviewPreparationTests(unittest.TestCase):
             self.assertEqual(len(revised["cases"]), 1)
             case = revised["cases"][0]["case"]
             self.assertEqual(case["sourceCaseId"], case1_id)
+            self.assertEqual(case["title"], "Case 1")
             self.assertEqual([item["unlockPhase"] for item in case["attachments"]], [1, 2])
             self.assertEqual(case["findings"][0]["unlockPhase"], 1)
             self.assertIn("palatal", case["findings"][0]["text"])
