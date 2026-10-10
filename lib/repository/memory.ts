@@ -14,6 +14,7 @@ import type {
   StaffSessionQuery,
   StudentCaseOffering,
   TeachingClass,
+  TutorMessage,
   TutorTurnReview,
 } from "@/lib/domain";
 import { demoAssignment, demoAssignments, demoCases, demoClass, demoUsers, getDemoUser } from "@/lib/seed";
@@ -28,6 +29,7 @@ import { assertCaseStatusTransition } from "@/lib/repository/case-status";
 import { reconcileLearnerStateEvidence } from "@/lib/tutor/learner-model";
 import { getMaterialPack } from "@/lib/materials/pack";
 import { getConfiguredTutorProvider } from "@/lib/tutor/provider-config";
+import { latestTutorRuntime } from "@/lib/tutor/runtime";
 import {
   accumulateStaffSessionStats,
   addAssignmentProgress,
@@ -43,7 +45,13 @@ import {
 interface MemoryStore {
   sessions: Map<string, LearningSession>;
   /** Turn request keys are kept separately so they never leak into student-visible messages. */
-  turnRequests: Map<string, { sessionId: string; studentId: string; content: string }>;
+  turnRequests: Map<string, {
+    sessionId: string;
+    studentId: string;
+    content: string;
+    /** Legacy stores predate the operation discriminator; missing means answer. */
+    turnKind?: "answer" | "help";
+  }>;
   answerReviews: Map<string, AnswerReview>;
   tutorTurnReviews: Map<string, TutorTurnReview>;
   sessionReviews: Map<string, SessionReview>;
@@ -105,6 +113,66 @@ function sameAssignmentRequest(
     && current.status === input.status
     && normalizeAssignmentTime(current.opensAt) === normalizeAssignmentTime(input.opensAt)
     && normalizeAssignmentTime(current.dueAt) === normalizeAssignmentTime(input.dueAt);
+}
+
+/**
+ * Message provenance is deliberately kept local to the repository layer. The
+ * domain type is shared with the student transcript and can lag a persisted
+ * row while a deploy is rolling out; replay must still understand both
+ * tagged Help turns and historical untagged answers.
+ */
+type PersistedTutorMessage = TutorMessage & {
+  turnKind?: "answer" | "help";
+  helpRequested?: boolean;
+  phaseOrder?: number;
+  supportLevel?: 0 | 1 | 2;
+  completedWithSupport?: boolean;
+  clientRequestId?: string;
+};
+
+const HELP_MARKER_CONTENT = "Requested more help";
+
+function messageTurnKind(message: TutorMessage): "answer" | "help" {
+  const value = (message as PersistedTutorMessage).turnKind;
+  return value === "help" ? "help" : "answer";
+}
+
+function assertTurnShape(input: CommitTurnInput) {
+  const studentMessage = input.studentMessage as PersistedTutorMessage;
+  const aiMessage = input.aiMessage as PersistedTutorMessage;
+  const turnKind = messageTurnKind(studentMessage);
+  const aiTurnKind = messageTurnKind(aiMessage);
+  if (turnKind !== aiTurnKind) throw new Error("Student and tutor turn kinds must match.");
+  const studentHelp = studentMessage.helpRequested;
+  const aiHelp = aiMessage.helpRequested;
+  if (turnKind === "help") {
+    if (studentHelp !== true || aiHelp !== true) throw new Error("Help turns must be marked as requested.");
+    if (input.evaluation !== null) throw new Error("Help turns cannot include an evaluation.");
+    if (studentMessage.content !== HELP_MARKER_CONTENT) throw new Error("Help marker content is server-generated.");
+    if (aiMessage.replyToMessageId !== studentMessage.id) throw new Error("Help reply must reference its marker.");
+  } else {
+    if (studentHelp === true || aiHelp === true) throw new Error("Answer turns cannot be marked as Help.");
+    if (input.evaluation === null) throw new Error("Answer turns require an evaluation.");
+  }
+  if (turnKind === "help" && input.nextState.version !== input.expectedVersion + 1) {
+    throw new Error("Help turns must increment session state version exactly once.");
+  }
+  if (turnKind === "help" && input.status !== "active") {
+    throw new Error("Help turns cannot complete a session.");
+  }
+  return turnKind;
+}
+
+function normalizeTurnMessages(messages: TutorMessage[]): TutorMessage[] {
+  return messages.map((message, index) => {
+    const persisted = message as PersistedTutorMessage;
+    if (persisted.turnKind === "help" || persisted.turnKind === "answer") return message;
+    if (message.sender === "student"
+      || (message.sender === "ai" && messages[index - 1]?.sender === "student")) {
+      return { ...message, turnKind: "answer", helpRequested: false } as TutorMessage;
+    }
+    return message;
+  });
 }
 
 export class InMemoryTutorRepository implements TutorRepository {
@@ -229,27 +297,37 @@ export class InMemoryTutorRepository implements TutorRepository {
     studentId: string,
     clientRequestId: string,
     content: string,
+    turnKind: "answer" | "help" = "answer",
   ) {
     const current = this.store.sessions.get(sessionId);
     if (!current) return null;
     if (current.studentId !== studentId) throw new Error("This session belongs to another learner.");
     const request = this.store.turnRequests.get(this.turnRequestKey(sessionId, clientRequestId));
     if (!request) return null;
-    if (request.studentId !== studentId || request.content !== content) {
+    if (request.studentId !== studentId
+      || request.content !== content
+      || (request.turnKind ?? "answer") !== turnKind) {
       throw new IdempotencyConflictError();
     }
     return this.bundle(current);
   }
 
-  async findCommittedTurn(sessionId: string, studentId: string, clientRequestId: string, content: string) {
+  async findCommittedTurn(
+    sessionId: string,
+    studentId: string,
+    clientRequestId: string,
+    content: string,
+    turnKind: "answer" | "help" = "answer",
+  ) {
     const normalizedRequestId = clientRequestId.trim();
     if (!normalizedRequestId) return null;
-    return this.findCommittedTurnSync(sessionId, studentId, normalizedRequestId, content);
+    return this.findCommittedTurnSync(sessionId, studentId, normalizedRequestId, content, turnKind);
   }
 
   async commitTurn(input: CommitTurnInput) {
     const current = this.store.sessions.get(input.sessionId);
     if (!current) throw new Error("Session not found.");
+    const turnKind = messageTurnKind(input.studentMessage);
     // Keep this lookup synchronous and before status/version checks. An async
     // lookup here would allow two same-key calls to interleave in memory.
     const normalizedRequestId = input.clientRequestId?.trim();
@@ -262,15 +340,29 @@ export class InMemoryTutorRepository implements TutorRepository {
         current.studentId,
         normalizedRequestId,
         input.studentMessage.content,
+        turnKind,
       );
       if (existing) return existing;
+    }
+    assertTurnShape(input);
+    if (turnKind === "help" && !normalizedRequestId) {
+      throw new Error("Help turns require a client request ID.");
     }
     if (current.status !== "active") throw new Error("Session is already complete.");
     if (current.pausedAt) throw new Error("Resume this session before submitting another answer.");
     if (current.state.version !== input.expectedVersion) {
       throw new Error("Session changed. Refresh before submitting another answer.");
     }
+    if (turnKind === "help" && input.nextPhase !== current.currentPhase) {
+      throw new Error("Help turns cannot advance the session phase.");
+    }
 
+    const persistedStudentMessage = turnKind === "help" && normalizedRequestId
+      ? { ...input.studentMessage, clientRequestId: normalizedRequestId } as TutorMessage
+      : input.studentMessage;
+    const persistedAiMessage = turnKind === "help" && normalizedRequestId
+      ? { ...input.aiMessage, clientRequestId: normalizedRequestId } as TutorMessage
+      : input.aiMessage;
     const next: LearningSession = {
       ...current,
       currentPhase: input.nextPhase,
@@ -279,8 +371,8 @@ export class InMemoryTutorRepository implements TutorRepository {
       summary: input.summary,
       completedAt: input.completedAt,
       pausedAt: null,
-      messages: [...current.messages, input.studentMessage, input.aiMessage],
-      evaluations: [...current.evaluations, input.evaluation],
+      messages: [...current.messages, persistedStudentMessage, persistedAiMessage],
+      evaluations: input.evaluation ? [...current.evaluations, input.evaluation] : [...current.evaluations],
       state: clone(input.nextState),
     };
     this.store.sessions.set(next.id, clone(next));
@@ -289,6 +381,7 @@ export class InMemoryTutorRepository implements TutorRepository {
         sessionId: input.sessionId,
         studentId: current.studentId,
         content: input.studentMessage.content,
+        turnKind,
       });
     }
     return this.bundle(next);
@@ -707,7 +800,11 @@ export class InMemoryTutorRepository implements TutorRepository {
     const clinicalCase = storedCase ? this.readableCase(storedCase) : undefined;
     const student = this.store.users.get(session.studentId) ?? getDemoUser(session.studentId);
     if (!clinicalCase || !student) throw new Error("Seed relationship is invalid.");
-    const reconciledSession = { ...session, state: reconcileLearnerStateEvidence(session.state) };
+    const reconciledSession = {
+      ...session,
+      messages: normalizeTurnMessages(session.messages),
+      state: reconcileLearnerStateEvidence(session.state),
+    };
     return clone({
       session: reconciledSession,
       case: clinicalCase,
@@ -721,8 +818,7 @@ export class InMemoryTutorRepository implements TutorRepository {
       sessionReview: this.store.sessionReviews.get(session.id) ?? null,
       runtime: {
         storage: "memory",
-        tutor: session.evaluations.at(-1)?.provider ?? getConfiguredTutorProvider(),
-        fallbackFrom: session.evaluations.at(-1)?.fallbackFrom,
+        ...latestTutorRuntime(session, getConfiguredTutorProvider()),
       },
       summaryGenerationStatus: session.status === "completed" && !session.summary ? "pending" as const : "ready" as const,
       assignment: session.assignmentId ? this.store.assignments.get(session.assignmentId) ?? null : null,

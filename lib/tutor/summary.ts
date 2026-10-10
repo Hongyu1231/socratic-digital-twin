@@ -19,7 +19,10 @@ export function buildSessionSummary(
   const strengths = reconciled.strengths;
   const weaknesses = reconciled.weaknesses;
   const supportedPhases = Object.entries(state.phaseProgress ?? {})
-    .filter(([, progress]) => progress.completedWithSupport)
+    // Help marks the reveal as supported before the application answer is
+    // submitted. An early stop must not describe that unfinished phase as
+    // completed merely because the reveal was shown.
+    .filter(([, progress]) => progress.completed && progress.completedWithSupport)
     .map(([order]) => Number(order)).sort((a, b) => a - b);
   return {
     overallScore: score,

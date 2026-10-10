@@ -63,9 +63,29 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
         self.assertIn("both the upper and lower arches", rubric)
         self.assertIn("one coherent plan is sufficient", rubric)
         self.assertIn("do not require two alternative plans", guidance)
-        self.assertIn("retention movement test is not applicable", guidance)
+        self.assertIn("not applicable when the learner directly chooses remove-#23/retain-#24", guidance)
         self.assertIn("directly choosing remove-#23/retain-#24", rubric)
         self.assertIn("second alternative extraction plan", " ".join(item["text"] for item in phase["acceptedExtras"]).lower())
+
+    def test_phase_five_branch_applicability_and_bonus_are_explicit(self):
+        phase = self.phases[4]
+        required = {item["id"]: item["text"].lower() for item in phase["rubric"]}
+        guidance = " ".join(phase["tutorGuidance"]).lower()
+        extras = {item["id"]: item["text"].lower() for item in phase["acceptedExtras"]}
+
+        # Retention branch: the movement checkpoint applies before #24 extraction.
+        self.assertIn("if retaining #23", required["p5-movement-before-24"])
+        self.assertIn("test movement before", required["p5-movement-before-24"])
+        self.assertIn("retain #23 and extract #24", guidance)
+        self.assertIn("movement must be tested first", guidance)
+
+        # Direct branch: movement is N/A, and a second plan/comparison is not required.
+        self.assertIn("directly choosing remove-#23/retain-#24 does not require", required["p5-movement-before-24"])
+        self.assertIn("not applicable when the learner directly chooses remove-#23/retain-#24", guidance)
+        self.assertIn("treat it as satisfied for completion in that branch", guidance)
+        self.assertIn("does not require a second plan", guidance)
+        self.assertIn("p5-extra-second-plan", extras)
+        self.assertIn("bonus", extras["p5-extra-second-plan"])
 
     def test_optional_extras_are_separate_from_required_criteria(self):
         phase_by_order = {phase["order"]: phase for phase in self.phases}

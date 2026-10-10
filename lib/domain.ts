@@ -246,6 +246,21 @@ export interface TutorMessage {
   replyToMessageId?: string;
   acknowledgement?: string;
   moveType?: "question" | "hypothetical" | "reveal" | "correction" | "transition" | "reflection";
+  /**
+   * Turn provenance is optional for compatibility with historical messages.
+   * Help turns are deliberately ungraded and carry no Evaluation row.
+   */
+  turnKind?: "answer" | "help";
+  helpRequested?: boolean;
+  /** Historical phase/support snapshot for professor chronology. */
+  phaseOrder?: number;
+  supportLevel?: 0 | 1 | 2;
+  completedWithSupport?: boolean;
+  /** Actual generator for an ungraded Help reply, persisted for reload/replay. */
+  supportProvider?: "openai" | "claude" | "deterministic";
+  supportFallbackFrom?: "openai" | "claude";
+  /** Retrieval audit for a support turn; never exposed in the student DTO. */
+  retrieval?: Evaluation["retrieval"];
 }
 
 export interface Evaluation {
@@ -434,6 +449,8 @@ export interface TutorEvaluateInput {
   recentEvaluations?: Array<Pick<Evaluation, "classification" | "misconceptionKey" | "reasoningGap" | "phaseOrder">>;
   /** Set only on the second, step-up call: the level just reached and the criterion to write about. */
   support?: { level: 1 | 2; targetCriterion: RubricCriterion };
+  /** Remaining provider budget for this call; omitted for legacy callers. */
+  timeoutMs?: number;
 }
 
 export interface TutorEvaluationResult {

@@ -66,7 +66,8 @@ export interface CommitTurnInput {
   /** Stable client-generated key used to make retries return the original turn. */
   clientRequestId?: string;
   studentMessage: TutorMessage;
-  evaluation: Evaluation;
+  /** Help turns are deliberately ungraded and therefore have no evaluation row. */
+  evaluation: Evaluation | null;
   aiMessage: TutorMessage;
   nextState: LearnerState;
   nextPhase: number;
@@ -94,14 +95,16 @@ export interface TutorRepository {
   createSessionForAssignment(studentId: string, assignmentId: string): Promise<SessionBundle>;
   getSession(sessionId: string): Promise<SessionBundle | null>;
   /**
-   * Find an already committed student turn for a retry key. Implementations
-   * must verify session ownership and reject the same key with different text.
+   * Find an already committed turn for a retry key. Implementations must
+   * verify session ownership and reject the same key with different text or
+   * operation kind. Historical untagged turns are answers.
    */
   findCommittedTurn(
     sessionId: string,
     studentId: string,
     clientRequestId: string,
     content: string,
+    turnKind?: "answer" | "help",
   ): Promise<SessionBundle | null>;
   commitTurn(input: CommitTurnInput): Promise<SessionBundle>;
   completeSession(

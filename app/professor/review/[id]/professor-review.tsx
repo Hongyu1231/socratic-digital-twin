@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Check, Eye, LoaderCircle, LockKeyhole, Save, ShieldCheck } from "lucide-react";
 import type { Classification, SessionBundle, TutorQualityFailureTag } from "@/lib/domain";
+import { projectProfessorTranscript } from "@/lib/professor/transcript";
 import styles from "./review.module.css";
 
 const labels: Classification[] = ["correct", "partial", "vague", "wrong"];
@@ -58,9 +59,10 @@ export function ProfessorReview({ sessionId }: { sessionId: string }) {
           const existing = data.answerReviews.find((review) => review.evaluationId === evaluation.id);
           return [evaluation.id, { label: existing?.label ?? evaluation.classification, comments: existing?.comments ?? "" }];
         })));
+        const transcript = projectProfessorTranscript(data.session);
         setTutorDrafts(Object.fromEntries(data.session.evaluations.flatMap((evaluation) => {
-          const answerIndex = data.session.messages.findIndex((message) => message.id === evaluation.messageId);
-          const tutorMessage = data.session.messages.slice(answerIndex + 1).find((message) => message.sender === "ai");
+          const turn = transcript.find((item) => item.kind !== "context" && item.kind !== "help" && item.evaluation?.id === evaluation.id);
+          const tutorMessage = turn && "tutorReply" in turn ? turn.tutorReply : undefined;
           if (!tutorMessage) return [];
           const existing = data.tutorTurnReviews.find((review) => review.evaluationId === evaluation.id);
           return [[evaluation.id, existing ? {
@@ -91,16 +93,7 @@ export function ProfessorReview({ sessionId }: { sessionId: string }) {
   }, [sessionId]);
 
   const turns = useMemo(() => {
-    if (!bundle) return [];
-    return bundle.session.evaluations.map((evaluation) => {
-      const answerIndex = bundle.session.messages.findIndex((message) => message.id === evaluation.messageId);
-      return {
-        evaluation,
-        answer: bundle.session.messages[answerIndex],
-        question: bundle.session.messages.slice(0, answerIndex).toReversed().find((message) => message.sender === "ai"),
-        tutorReply: bundle.session.messages.slice(answerIndex + 1).find((message) => message.sender === "ai"),
-      };
-    });
+    return bundle ? projectProfessorTranscript(bundle.session) : [];
   }, [bundle]);
 
   async function save(status: "draft" | "completed") {
@@ -163,23 +156,47 @@ export function ProfessorReview({ sessionId }: { sessionId: string }) {
       </div>
       <div className="review-layout">
         <section className="transcript-card"><span className="section-kicker">Conversation transcript</span>
-          {turns.length === 0 ? <div className="empty-state"><p>No student answers have been submitted yet.</p></div> : turns.map(({ evaluation, answer, question, tutorReply }, index) => {
-            const isReflection = evaluation.isReflection === true;
-            const draft = drafts[evaluation.id] ?? { label: evaluation.classification, comments: "" };
-            const tutorDraft = tutorDrafts[evaluation.id];
-            return <article className="review-turn" key={evaluation.id}>
-              <span className="sidebar-label">Answer {index + 1}</span>
-              <p className="review-question">{question?.content}</p>
-              <div className="review-answer">{answer?.content}</div>
-              {isReflection ? <div className="ai-evaluation" role="status"><span><strong>Final reflection:</strong> Not graded for the learner score or professor answer label.</span><span>This reflection remains in the transcript and can still inform tutor intervention review.</span></div> : <><div className="ai-evaluation"><span><strong>AI evaluation:</strong> {evaluation.classification} · {Math.round(evaluation.confidence * 100)}% confidence</span><span><strong>Reasoning gap:</strong> {evaluation.reasoningGap}</span><span><strong>Strategy:</strong> {evaluation.strategy}</span>{evaluation.promptVersion ? <span><strong>Experiment:</strong> {evaluation.provider} · {evaluation.model} · {evaluation.promptVersion} · phase {evaluation.phaseOrder} attempt {evaluation.attempt}</span> : null}</div>
-                <div className="label-buttons" aria-label={`Professor label for answer ${index + 1}`}>{labels.map((label) => <button type="button" disabled={readOnly} aria-pressed={draft.label === label} className={draft.label === label ? "selected" : ""} key={label} onClick={() => setDrafts((current) => ({ ...current, [evaluation.id]: { ...draft, label } }))}>{label}</button>)}</div>
-                <textarea readOnly={readOnly} aria-label={`Comments for answer ${index + 1}`} placeholder="Add an expert calibration note…" value={draft.comments} onChange={(event) => setDrafts((current) => ({ ...current, [evaluation.id]: { ...draft, comments: event.target.value } }))} /></>}
-              {tutorDraft && tutorReply ? <section className={styles.tutorQuality} aria-label={`Tutor quality for turn ${index + 1}`}>
+          {turns.length === 0 ? <div className="empty-state"><p>No student answers have been submitted yet.</p></div> : turns.map((turn) => {
+            if (turn.kind === "context") {
+              return <article className={`review-turn ${styles.contextTurn}`} key={turn.id}>
+                <span className="sidebar-label">Opening tutor context</span>
+                <div className={styles.contextMessage}>{turn.tutorMessage.content}</div>
+              </article>;
+            }
+
+            if (turn.kind === "help") {
+              return <article className={`review-turn ${styles.helpTurn}`} key={turn.id}>
+                <span className="sidebar-label">Help requested</span>
+                {turn.question ? <p className="review-question">{turn.question.content}</p> : null}
+                <div className={styles.helpMarker}>{turn.marker.content}</div>
+                <div className="ai-evaluation" role="status">
+                  <span><strong>Ungraded Help:</strong> {turn.tutorReply?.content ?? "No tutor reply recorded."}</span>
+                  {turn.phaseOrder !== undefined ? <span><strong>Phase:</strong> {turn.phaseOrder}</span> : null}
+                  {turn.supportLevel !== undefined ? <span><strong>Support level:</strong> {turn.supportLevel}</span> : null}
+                  {turn.completedWithSupport !== undefined ? <span><strong>Tutor support recorded:</strong> {turn.completedWithSupport ? "Yes" : "No"} · Help does not itself complete the phase.</span> : null}
+                </div>
+              </article>;
+            }
+
+            const { answer, evaluation, question, tutorReply } = turn;
+            const isReflection = turn.kind === "reflection";
+            const draft = evaluation ? drafts[evaluation.id] ?? { label: evaluation.classification, comments: "" } : null;
+            const tutorDraft = evaluation ? tutorDrafts[evaluation.id] : undefined;
+            const answerLabel = turn.kind === "reflection" ? "Final reflection" : `Answer ${turn.answerNumber}`;
+            const turnLabel = turn.kind === "reflection" ? "final reflection" : `answer ${turn.answerNumber}`;
+            return <article className="review-turn" key={turn.id}>
+              <span className="sidebar-label">{answerLabel}</span>
+              {question ? <p className="review-question">{question.content}</p> : null}
+              <div className="review-answer">{answer.content}</div>
+              {isReflection ? <div className="ai-evaluation" role="status"><span><strong>Final reflection:</strong> Not graded for the learner score or professor answer label.</span><span>This reflection remains in the transcript and can still inform tutor intervention review.</span></div> : evaluation && draft ? <><div className="ai-evaluation"><span><strong>AI evaluation:</strong> {evaluation.classification} · {Math.round(evaluation.confidence * 100)}% confidence</span><span><strong>Reasoning gap:</strong> {evaluation.reasoningGap}</span><span><strong>Strategy:</strong> {evaluation.strategy}</span>{evaluation.promptVersion ? <span><strong>Experiment:</strong> {evaluation.provider} · {evaluation.model} · {evaluation.promptVersion} · phase {evaluation.phaseOrder} attempt {evaluation.attempt}</span> : null}</div>
+                <div className="label-buttons" aria-label={`Professor label for ${turnLabel}`}>{labels.map((label) => <button type="button" disabled={readOnly} aria-pressed={draft.label === label} className={draft.label === label ? "selected" : ""} key={label} onClick={() => setDrafts((current) => ({ ...current, [evaluation.id]: { ...draft, label } }))}>{label}</button>)}</div>
+                <textarea readOnly={readOnly} aria-label={`Comments for ${turnLabel}`} placeholder="Add an expert calibration note…" value={draft.comments} onChange={(event) => setDrafts((current) => ({ ...current, [evaluation.id]: { ...draft, comments: event.target.value } }))} /></> : <div className="ai-evaluation" role="status"><span><strong>No evaluation recorded:</strong> This answer remains in the chronological transcript without an answer-review control.</span></div>}
+              {tutorDraft && tutorReply && evaluation ? <section className={styles.tutorQuality} aria-label={`Tutor quality for ${turnLabel}`}>
                 <div className={styles.qualityHeading}><span className="sidebar-label">Tutor intervention quality</span><strong>{tutorReply.content}</strong></div>
-                <div className={styles.qualityGrid}>{qualityDimensions.map(([key, label]) => <div className={styles.ratingRow} key={key}><span>{label}</span><div aria-label={`${label} rating for turn ${index + 1}`}>{[1, 2, 3, 4, 5].map((rating) => <button type="button" disabled={readOnly} aria-pressed={tutorDraft[key] === rating} className={tutorDraft[key] === rating ? styles.ratingSelected : ""} key={rating} onClick={() => setTutorDrafts((current) => ({ ...current, [evaluation.id]: { ...tutorDraft, [key]: rating } }))}>{rating}</button>)}</div></div>)}</div>
-                <div className={styles.tagList} aria-label={`Tutor failure tags for turn ${index + 1}`}>{failureTags.map(([tag, label]) => { const selected = tutorDraft.failureTags.includes(tag); return <button type="button" disabled={readOnly} aria-pressed={selected} className={selected ? styles.tagSelected : ""} key={tag} onClick={() => setTutorDrafts((current) => ({ ...current, [evaluation.id]: { ...tutorDraft, failureTags: selected ? tutorDraft.failureTags.filter((item) => item !== tag) : [...tutorDraft.failureTags, tag] } }))}>{label}</button>; })}</div>
-                <textarea readOnly={readOnly} aria-label={`Preferred tutor rewrite for turn ${index + 1}`} placeholder="Optional: rewrite the tutor response as you would say it…" value={tutorDraft.preferredRewrite} onChange={(event) => setTutorDrafts((current) => ({ ...current, [evaluation.id]: { ...tutorDraft, preferredRewrite: event.target.value } }))} />
-                <textarea readOnly={readOnly} aria-label={`Tutor quality comments for turn ${index + 1}`} placeholder="Why was this tutor move helpful or unhelpful?" value={tutorDraft.comments} onChange={(event) => setTutorDrafts((current) => ({ ...current, [evaluation.id]: { ...tutorDraft, comments: event.target.value } }))} />
+                <div className={styles.qualityGrid}>{qualityDimensions.map(([key, label]) => <div className={styles.ratingRow} key={key}><span>{label}</span><div aria-label={`${label} rating for ${turnLabel}`}>{[1, 2, 3, 4, 5].map((rating) => <button type="button" disabled={readOnly} aria-pressed={tutorDraft[key] === rating} className={tutorDraft[key] === rating ? styles.ratingSelected : ""} key={rating} onClick={() => setTutorDrafts((current) => ({ ...current, [evaluation.id]: { ...tutorDraft, [key]: rating } }))}>{rating}</button>)}</div></div>)}</div>
+                <div className={styles.tagList} aria-label={`Tutor failure tags for ${turnLabel}`}>{failureTags.map(([tag, label]) => { const selected = tutorDraft.failureTags.includes(tag); return <button type="button" disabled={readOnly} aria-pressed={selected} className={selected ? styles.tagSelected : ""} key={tag} onClick={() => setTutorDrafts((current) => ({ ...current, [evaluation.id]: { ...tutorDraft, failureTags: selected ? tutorDraft.failureTags.filter((item) => item !== tag) : [...tutorDraft.failureTags, tag] } }))}>{label}</button>; })}</div>
+                <textarea readOnly={readOnly} aria-label={`Preferred tutor rewrite for ${turnLabel}`} placeholder="Optional: rewrite the tutor response as you would say it…" value={tutorDraft.preferredRewrite} onChange={(event) => setTutorDrafts((current) => ({ ...current, [evaluation.id]: { ...tutorDraft, preferredRewrite: event.target.value } }))} />
+                <textarea readOnly={readOnly} aria-label={`Tutor quality comments for ${turnLabel}`} placeholder="Why was this tutor move helpful or unhelpful?" value={tutorDraft.comments} onChange={(event) => setTutorDrafts((current) => ({ ...current, [evaluation.id]: { ...tutorDraft, comments: event.target.value } }))} />
               </section> : null}
             </article>;
           })}

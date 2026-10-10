@@ -2,7 +2,7 @@ import { requireStudent } from "@/lib/auth";
 import { errorResponse } from "@/lib/http";
 import { studentResponse } from "@/lib/student-response";
 import { sessionMessageSchema } from "@/lib/schemas";
-import { submitStudentAnswer } from "@/lib/tutor/state-machine";
+import { submitStudentAnswer, submitTutorHelp } from "@/lib/tutor/state-machine";
 
 export const runtime = "nodejs";
 
@@ -13,7 +13,9 @@ export async function POST(request: Request) {
     if (!parsed.success) {
       return Response.json({ error: parsed.error.issues[0]?.message ?? "Invalid answer." }, { status: 400 });
     }
-    const bundle = await submitStudentAnswer(parsed.data.sessionId, identity.id, parsed.data.message, parsed.data.clientRequestId);
+    const bundle = parsed.data.helpRequested
+      ? await submitTutorHelp(parsed.data.sessionId, identity.id, parsed.data.clientRequestId!)
+      : await submitStudentAnswer(parsed.data.sessionId, identity.id, parsed.data.message!, parsed.data.clientRequestId);
     return await studentResponse(bundle);
   } catch (error) {
     return errorResponse(error);

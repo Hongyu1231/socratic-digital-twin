@@ -37,6 +37,11 @@ export function buildFrozenSamples(sessions: readonly SessionBundle[], pseudonym
     for (const evaluation of bundle.session.evaluations) {
       const review = answerReviews.get(evaluation.id);
       if (!review) continue;
+      const answerMessage = bundle.session.messages.find((message) => message.id === evaluation.messageId);
+      // Help markers are ungraded transcript events and must never become
+      // answer-based experiment samples, even when an older adapter attached
+      // a synthetic evaluation row to one.
+      if (answerMessage?.turnKind === "help" || answerMessage?.helpRequested === true) continue;
       const phase = bundle.case.phases.find((item) => item.order === (evaluation.phaseOrder ?? bundle.session.currentPhase)) ?? bundle.case.phases[0];
       if (!phase) continue;
       const tutorReview = tutorReviews.get(evaluation.id);

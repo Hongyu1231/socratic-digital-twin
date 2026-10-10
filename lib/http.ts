@@ -4,6 +4,7 @@ import type { ClinicalCase, SessionBundle, SessionSummary, StudentCaseOffering }
 import type { StudentCase, StudentOffering, StudentSessionBundle } from "@/lib/student-contract";
 import { ArchivedCaseError, AssignmentIdempotencyConflictError, SupersededCaseError } from "@/lib/repository/types";
 import { StaffSessionCursorError } from "@/lib/repository/staff-session";
+import { canRequestHelp } from "@/lib/tutor/state-machine";
 
 export function errorResponse(error: unknown) {
   if (error instanceof AssignmentIdempotencyConflictError) {
@@ -20,6 +21,13 @@ export function errorResponse(error: unknown) {
   }
   if (error instanceof SupersededCaseError) {
     return NextResponse.json({ error: error.message, code: error.code }, { status: 410 });
+  }
+  if (error && typeof error === "object" && "retryable" in error && (error as { retryable?: unknown }).retryable === true) {
+    const message = error instanceof Error ? error.message : "This request can be retried.";
+    const code = "code" in error && typeof (error as { code?: unknown }).code === "string"
+      ? (error as { code: string }).code
+      : "RETRYABLE_ERROR";
+    return NextResponse.json({ error: message, code }, { status: 503 });
   }
   const message = error instanceof Error ? error.message : "Unexpected server error.";
   const status = /not found/i.test(message) ? 404 : /belongs|role|required|outside|not available|not a member/i.test(message) ? 403 : /already|changed|conflict|claimed|immutable|published|completed review/i.test(message) ? 409 : 400;
@@ -98,12 +106,22 @@ export function studentView(bundle: SessionBundle): StudentSessionBundle {
       currentPhase: bundle.session.currentPhase,
       status: bundle.session.status,
       pausedAt: bundle.session.pausedAt,
-      messages: bundle.session.messages.map((message) => ({
-        id: message.id, sessionId: message.sessionId, sender: message.sender,
-        content: message.content, timestamp: message.timestamp,
-        replyToMessageId: message.replyToMessageId, acknowledgement: message.acknowledgement,
-        moveType: message.moveType,
-      })),
+      canRequestHelp: canRequestHelp(bundle),
+      messages: bundle.session.messages.map((message) => {
+        // Legacy opening/system tutor rows are standalone transcript entries;
+        // only paired turns receive answer/false compatibility defaults.
+        const paired = message.sender === "student" || message.replyToMessageId !== undefined;
+        const turnKind = message.turnKind ?? (paired ? "answer" : undefined);
+        const helpRequested = message.helpRequested ?? (turnKind ? false : undefined);
+        return {
+          id: message.id, sessionId: message.sessionId, sender: message.sender,
+          content: message.content, timestamp: message.timestamp,
+          replyToMessageId: message.replyToMessageId, acknowledgement: message.acknowledgement,
+          moveType: message.moveType,
+          turnKind,
+          helpRequested,
+        };
+      }),
       summary: summaryView(bundle.session.summary),
     },
     runtime: { tutor: bundle.runtime.tutor, fallbackFrom: bundle.runtime.fallbackFrom },

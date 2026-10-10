@@ -229,6 +229,7 @@ button { color: inherit; }
 .message.student .message-bubble { grid-row: 1; background: var(--plum); color: white; border-radius: 18px 3px 18px 18px; font-family: inherit; font-size: 13px; }
 .message-meta { display: block; margin-top: 7px; color: var(--muted); font: 9px ui-monospace, monospace; text-transform: uppercase; letter-spacing: .1em; }
 .message.student .message-meta { text-align: right; color: #b9a9b3; }
+.message-help .message-bubble { border-color: #b9d4cc; }
 .message-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .message-footer button { display: inline-flex; align-items: center; gap: 4px; margin-top: 7px; border: 0; background: transparent; color: var(--muted); font-size: 9px; cursor: pointer; }
 .message.failed .message-bubble { background: #fae9e7; color: #842f2b; border: 1px solid #e7bdb8; }
@@ -248,7 +249,11 @@ button { color: inherit; }
 .composer-actions small { color: var(--muted); font-size: 10px; }
 .composer-help { display: grid; gap: 3px; }
 .composer-help small:last-child { font-size: 8px; }
+.composer-help-status { color: var(--plum) !important; font-size: 9px !important; line-height: 1.35; }
 .composer-buttons { display: flex; align-items: center; gap: 8px; }
+.more-help-button { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; padding: 0 11px; background: var(--paper-deep); color: var(--plum); font-size: 10px; font-weight: 800; cursor: pointer; }
+.more-help-button:hover { border-color: var(--plum); background: var(--white); }
+.more-help-button:disabled { opacity: .5; cursor: not-allowed; }
 .voice-input-button { width: 39px; height: 39px; border: 1px solid var(--line); border-radius: 50%; display: grid; place-items: center; color: var(--plum); background: white; cursor: pointer; }
 .voice-input-button.listening { color: white; border-color: var(--coral); background: var(--coral); animation: voice-ring 1.2s ease-in-out infinite; }
 .voice-input-button:disabled { opacity: .35; cursor: not-allowed; }

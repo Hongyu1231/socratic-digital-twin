@@ -5,6 +5,14 @@ import { InMemoryTutorRepository } from "@/lib/repository/memory";
 import { IdempotencyConflictError } from "@/lib/repository/types";
 import { DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID, DEMO_ASSIGNMENT_ID } from "@/lib/seed";
 
+type PersistedTutorMessage = TutorMessage & {
+  turnKind?: "answer" | "help";
+  helpRequested?: boolean;
+  phaseOrder?: number;
+  supportLevel?: 0 | 1 | 2;
+  completedWithSupport?: boolean;
+};
+
 describe("turn idempotency", () => {
   let repository: InMemoryTutorRepository;
 
@@ -101,5 +109,175 @@ describe("turn idempotency", () => {
 
     await expect(repository.findCommittedTurn(started.session.id, "not-the-student", input.clientRequestId!, input.studentMessage.content))
       .rejects.toThrow("belongs to another learner");
+  });
+
+  it("commits and replays a Help pair without an evaluation", async () => {
+    const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID, DEMO_ASSIGNMENT_ID);
+    const now = new Date().toISOString();
+    const marker = {
+      id: crypto.randomUUID(),
+      sessionId: started.session.id,
+      sender: "student" as const,
+      content: "Requested more help",
+      timestamp: now,
+      turnKind: "help" as const,
+      helpRequested: true,
+      phaseOrder: 1,
+      supportLevel: 1 as const,
+      completedWithSupport: false,
+    } satisfies PersistedTutorMessage;
+    const reply = {
+      id: crypto.randomUUID(),
+      sessionId: started.session.id,
+      sender: "ai" as const,
+      content: "Here is a plan to critique. What evidence would change your view?",
+      timestamp: new Date(Date.now() + 1).toISOString(),
+      replyToMessageId: marker.id,
+      moveType: "hypothetical" as const,
+      turnKind: "help" as const,
+      helpRequested: true,
+      phaseOrder: 1,
+      supportLevel: 1 as const,
+      completedWithSupport: false,
+    } satisfies PersistedTutorMessage;
+    const input = {
+      sessionId: started.session.id,
+      expectedVersion: started.session.state.version,
+      clientRequestId: "help-retry-1",
+      studentMessage: marker,
+      evaluation: null,
+      aiMessage: reply,
+      nextState: {
+        ...started.session.state,
+        version: started.session.state.version + 1,
+        updatedAt: now,
+        phaseProgress: {
+          ...started.session.state.phaseProgress,
+          "1": {
+            criteriaMet: [],
+            bestClassification: "wrong" as const,
+            noProgressCount: 0,
+            supportLevel: 1 as const,
+            awaitingApplication: false,
+            completedWithSupport: false,
+            completed: false,
+          },
+        },
+      },
+      nextPhase: started.session.currentPhase,
+      status: "active" as const,
+      score: null,
+      summary: null,
+      completedAt: null,
+    };
+
+    await expect(repository.commitTurn({ ...input, clientRequestId: undefined }))
+      .rejects.toThrow("Help turns require a client request ID.");
+    const invalidPhaseInput = {
+      ...input,
+      clientRequestId: "help-invalid-phase",
+      nextPhase: input.nextPhase + 1,
+    };
+    await expect(repository.commitTurn(invalidPhaseInput))
+      .rejects.toThrow("Help turns cannot advance the session phase.");
+    const afterInvalidPhase = await repository.getSession(started.session.id);
+    expect(afterInvalidPhase?.session.messages).toHaveLength(started.session.messages.length);
+    expect(afterInvalidPhase?.session.evaluations).toHaveLength(0);
+    expect(afterInvalidPhase?.session.currentPhase).toBe(started.session.currentPhase);
+    expect(afterInvalidPhase?.session.state.version).toBe(started.session.state.version);
+
+    const first = await repository.commitTurn(input);
+    const replay = await repository.commitTurn(input);
+    expect(first.session.messages).toHaveLength(started.session.messages.length + 2);
+    expect(first.session.evaluations).toHaveLength(0);
+    expect(first.session.state.version).toBe(started.session.state.version + 1);
+    expect(first.session.messages.at(-2)).toMatchObject({
+      content: "Requested more help",
+      turnKind: "help",
+      helpRequested: true,
+      supportLevel: 1,
+    });
+    expect(first.session.messages.at(-1)).toMatchObject({
+      turnKind: "help",
+      helpRequested: true,
+      replyToMessageId: marker.id,
+      supportLevel: 1,
+    });
+    expect(replay.session.messages).toHaveLength(first.session.messages.length);
+    expect(replay.session.evaluations).toHaveLength(0);
+
+    const advancingAnswer = inputFor(first, "active");
+    advancingAnswer.nextPhase = first.session.currentPhase + 1;
+    const advanced = await repository.commitTurn(advancingAnswer);
+    const lateReplay = await repository.commitTurn(input);
+    expect(advanced.session.currentPhase).toBe(first.session.currentPhase + 1);
+    expect(lateReplay.session.currentPhase).toBe(advanced.session.currentPhase);
+    expect(lateReplay.session.messages).toHaveLength(advanced.session.messages.length);
+    expect(lateReplay.session.evaluations).toHaveLength(1);
+  });
+
+  it("serializes concurrent duplicate Help requests as one support step", async () => {
+    const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID, DEMO_ASSIGNMENT_ID);
+    const now = new Date().toISOString();
+    const marker = {
+      id: crypto.randomUUID(), sessionId: started.session.id, sender: "student" as const,
+      content: "Requested more help", timestamp: now, turnKind: "help" as const,
+      helpRequested: true, phaseOrder: 1, supportLevel: 1 as const, completedWithSupport: false,
+    } satisfies PersistedTutorMessage;
+    const reply = {
+      id: crypto.randomUUID(), sessionId: started.session.id, sender: "ai" as const,
+      content: "What evidence would change your view?", timestamp: now,
+      replyToMessageId: marker.id, moveType: "hypothetical" as const, turnKind: "help" as const,
+      helpRequested: true, phaseOrder: 1, supportLevel: 1 as const, completedWithSupport: false,
+    } satisfies PersistedTutorMessage;
+    const input = {
+      sessionId: started.session.id, expectedVersion: started.session.state.version,
+      clientRequestId: "help-concurrent-1", studentMessage: marker, evaluation: null, aiMessage: reply,
+      nextState: { ...started.session.state, version: started.session.state.version + 1, updatedAt: now },
+      nextPhase: started.session.currentPhase, status: "active" as const, score: null, summary: null, completedAt: null,
+    };
+    const [first, second] = await Promise.all([repository.commitTurn(input), repository.commitTurn(input)]);
+    expect(first.session.messages).toHaveLength(started.session.messages.length + 2);
+    expect(second.session.messages).toHaveLength(started.session.messages.length + 2);
+    expect(first.session.evaluations).toHaveLength(0);
+    expect(second.session.evaluations).toHaveLength(0);
+    expect(first.session.state.version).toBe(started.session.state.version + 1);
+    expect(second.session.state.version).toBe(started.session.state.version + 1);
+  });
+
+  it("rejects reuse of a request key across answer and Help operations", async () => {
+    const started = await repository.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID, DEMO_ASSIGNMENT_ID);
+    const answer = inputFor(started);
+    await repository.commitTurn(answer);
+    const helpMarker = {
+      ...answer.studentMessage,
+      id: crypto.randomUUID(),
+      content: "Requested more help",
+      turnKind: "help" as const,
+      helpRequested: true,
+    } as PersistedTutorMessage;
+    const helpReply = {
+      ...answer.aiMessage,
+      id: crypto.randomUUID(),
+      content: "What evidence would change your view?",
+      replyToMessageId: helpMarker.id,
+      turnKind: "help" as const,
+      helpRequested: true,
+    } as PersistedTutorMessage;
+    await expect(repository.commitTurn({
+      ...answer,
+      studentMessage: helpMarker,
+      aiMessage: helpReply,
+      evaluation: null,
+      expectedVersion: answer.nextState.version,
+      nextState: { ...answer.nextState, version: answer.nextState.version + 1 },
+    })).rejects.toBeInstanceOf(IdempotencyConflictError);
+    await expect(repository.findCommittedTurn(
+      started.session.id,
+      DEMO_STUDENT_ID,
+      answer.clientRequestId!,
+      answer.studentMessage.content,
+      "help",
+    )).rejects.toBeInstanceOf(IdempotencyConflictError);
   });
 });

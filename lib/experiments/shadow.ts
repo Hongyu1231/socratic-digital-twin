@@ -16,6 +16,9 @@ interface ShadowInput {
   recentDialogue?: Array<{ sender: "student" | "ai"; content: string }>;
   recentEvaluations?: TutorEvaluateInput["recentEvaluations"];
   baseline: TutorEvaluationResult;
+  /** Candidate work shares the learner request's remaining time budget. */
+  timeoutMs?: number;
+  deadlineMs?: number;
 }
 
 export interface ExperimentDecision {
@@ -33,15 +36,21 @@ function candidateEngine(provider: string, model: string, instructions: string, 
 }
 
 /**
- * Run a candidate out-of-band. Shadow results are recorded but can never alter
- * the learner response. A/B only serves a candidate after an approved release,
- * and safety failure always returns the baseline result.
+ * Await candidate generation within the learner request's remaining budget.
+ * Shadow results are recorded asynchronously but cannot alter the response.
+ * A/B only serves a candidate after an approved release, and safety failure
+ * always returns the baseline result.
  */
 export async function applyHumanizationExperiment(input: ShadowInput): Promise<ExperimentDecision> {
   const store = getHumanizationStore();
   let active: Awaited<ReturnType<typeof store.activeExperiment>>;
   try { active = await store.activeExperiment(input.sessionId); } catch { return { studentResult: input.baseline, experimentId: null, arm: "baseline" }; }
   if (!active) return { studentResult: input.baseline, experimentId: null, arm: "baseline" };
+  const timeoutMs = input.deadlineMs === undefined ? input.timeoutMs
+    : Math.min(input.timeoutMs ?? 25_000, input.deadlineMs - Date.now());
+  if (timeoutMs !== undefined && timeoutMs < 1_000) {
+    return { studentResult: input.baseline, experimentId: active.experiment.id, arm: "baseline" };
+  }
   const engine = candidateEngine(active.candidate.provider, active.candidate.model, active.candidate.instructions, active.candidate.promptVersion);
   if (!engine) return { studentResult: input.baseline, experimentId: active.experiment.id, arm: "baseline" };
   let candidate: TutorEvaluationResult;
@@ -54,6 +63,7 @@ export async function applyHumanizationExperiment(input: ShadowInput): Promise<E
     currentQuestion: input.currentQuestion,
     recentDialogue: input.recentDialogue,
     recentEvaluations: input.recentEvaluations,
+    timeoutMs,
   }); }
   catch { return { studentResult: input.baseline, experimentId: active.experiment.id, arm: "baseline" }; }
   const safety = outputSafetyCheck(candidate.nextQuestion);

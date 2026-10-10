@@ -14,9 +14,13 @@ export type StudentCase = Pick<ClinicalCase,
     attachments: StudentAttachment[];
     findings: Pick<ClinicalFinding, "id" | "title" | "text" | "unlockPhase">[];
   };
+export type StudentMessage = Pick<TutorMessage,
+  "id" | "sessionId" | "sender" | "content" | "timestamp" | "replyToMessageId" |
+  "acknowledgement" | "moveType" | "turnKind" | "helpRequested">;
 export interface StudentSessionBundle {
   session: Pick<LearningSession, "id" | "caseId" | "currentPhase" | "status" | "pausedAt"> & {
-    messages: TutorMessage[];
+    canRequestHelp: boolean;
+    messages: StudentMessage[];
     summary: SessionSummary | null;
   };
   case: StudentCase;

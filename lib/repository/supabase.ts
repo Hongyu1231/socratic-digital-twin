@@ -34,6 +34,7 @@ import {
 } from "@/lib/repository/case-attachments";
 import { assertCaseStatusTransition } from "@/lib/repository/case-status";
 import { getTutorMode } from "@/lib/tutor";
+import { latestTutorRuntime } from "@/lib/tutor/runtime";
 import { reconcileLearnerStateEvidence } from "@/lib/tutor/learner-model";
 import { rubricCriterionSchema } from "@/lib/schemas";
 import {
@@ -46,6 +47,22 @@ import {
 type Row = Record<string, any>;
 const HOSTED_PACKAGE_ID = /^[a-f0-9]{64}$/i;
 const CRITERION_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
+const HELP_MARKER_CONTENT = "Requested more help";
+
+/** Persisted message metadata introduced by the Help-turn contract. */
+type PersistedTutorMessage = TutorMessage & {
+  turnKind?: "answer" | "help";
+  helpRequested?: boolean;
+  phaseOrder?: number;
+  supportLevel?: 0 | 1 | 2;
+  completedWithSupport?: boolean;
+  retrieval?: Evaluation["retrieval"];
+  clientRequestId?: string;
+};
+
+function messageTurnKind(message: TutorMessage): "answer" | "help" {
+  return (message as PersistedTutorMessage).turnKind === "help" ? "help" : "answer";
+}
 
 function must<T>(data: T | null, error: { message: string } | null, context: string): T {
   if (error || data === null) throw new Error(`${context}: ${error?.message ?? "no data"}`);
@@ -287,7 +304,7 @@ function summaryGenerationStatus(sessionRow: Row, context: Row, jobRow: Row | nu
   }
 }
 
-function mapMessage(row: Row): TutorMessage {
+export function mapMessage(row: Row): TutorMessage {
   const metadata = row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
     ? row.metadata as Record<string, unknown>
     : {};
@@ -295,6 +312,35 @@ function mapMessage(row: Row): TutorMessage {
   const moveType = ["question", "hypothetical", "reveal", "correction", "transition", "reflection"].includes(String(metadata.moveType))
     ? metadata.moveType as TutorMessage["moveType"]
     : undefined;
+  const hasTurnKind = metadata.turnKind === "answer" || metadata.turnKind === "help";
+  // Existing paired turns were written before the discriminator existed. A
+  // student row is always an answer unless it carries the explicit Help tag;
+  // a tutor row is inferred as paired only when it links back to a message.
+  const turnKind = hasTurnKind
+    ? metadata.turnKind as "answer" | "help"
+    : row.role === "student" || typeof metadata.replyToMessageId === "string"
+      ? "answer"
+      : undefined;
+  const helpRequested = hasTurnKind
+    ? metadata.helpRequested === true
+    : turnKind === "answer"
+      ? false
+      : undefined;
+  const supportLevel = metadata.supportLevel === 0 || metadata.supportLevel === 1 || metadata.supportLevel === 2
+    ? metadata.supportLevel
+    : undefined;
+  const phaseOrder = typeof metadata.phaseOrder === "number" && Number.isInteger(metadata.phaseOrder)
+    ? metadata.phaseOrder
+    : undefined;
+  const completedWithSupport = typeof metadata.completedWithSupport === "boolean"
+    ? metadata.completedWithSupport
+    : undefined;
+  const retrieval = mapRetrieval(metadata.retrieval);
+  const clientRequestId = typeof metadata.clientRequestId === "string" && metadata.clientRequestId.trim()
+    ? metadata.clientRequestId
+    : row.role === "student" && typeof row.client_request_id === "string" && row.client_request_id.trim()
+      ? row.client_request_id
+      : undefined;
   return {
     id: row.id,
     sessionId: row.session_id,
@@ -304,7 +350,18 @@ function mapMessage(row: Row): TutorMessage {
     replyToMessageId: typeof metadata.replyToMessageId === "string" ? metadata.replyToMessageId : undefined,
     ...(acknowledgement ? { acknowledgement } : {}),
     ...(moveType ? { moveType } : {}),
-  };
+    ...(turnKind ? { turnKind } : {}),
+    ...(helpRequested !== undefined ? { helpRequested } : {}),
+    ...(phaseOrder !== undefined ? { phaseOrder } : {}),
+    ...(supportLevel !== undefined ? { supportLevel } : {}),
+    ...(completedWithSupport !== undefined ? { completedWithSupport } : {}),
+    ...(["openai", "claude", "deterministic"].includes(String(metadata.supportProvider))
+      ? { supportProvider: metadata.supportProvider as TutorMessage["supportProvider"] } : {}),
+    ...(metadata.supportFallbackFrom === "openai" || metadata.supportFallbackFrom === "claude"
+      ? { supportFallbackFrom: metadata.supportFallbackFrom } : {}),
+    ...(retrieval ? { retrieval } : {}),
+    ...(turnKind === "help" && clientRequestId ? { clientRequestId } : {}),
+  } as TutorMessage;
 }
 
 export function mapEvaluation(row: Row): Evaluation {
@@ -361,13 +418,41 @@ function mapRetrieval(value: unknown): Evaluation["retrieval"] | undefined {
   return { query: raw.query, passages };
 }
 
-function buildMessageMetadata(message: TutorMessage, source: "student" | "socratic_tutor") {
+function buildMessageMetadata(message: TutorMessage, source: "student" | "socratic_tutor", clientRequestId?: string) {
+  const persisted = message as PersistedTutorMessage;
+  const turnKind = messageTurnKind(message);
+  const helpRequested = persisted.helpRequested ?? turnKind === "help";
   return {
     source,
+    // The RPC historically generated message ids server-side. Help replies
+    // must link to the marker id that the engine already placed in the paired
+    // TutorMessage objects, so the Help branch consumes this optional value.
+    messageId: message.id,
     ...(message.replyToMessageId ? { replyToMessageId: message.replyToMessageId } : {}),
     ...(message.acknowledgement ? { acknowledgement: message.acknowledgement } : {}),
     ...(message.moveType ? { moveType: message.moveType } : {}),
+    turnKind,
+    helpRequested,
+    ...(persisted.phaseOrder !== undefined ? { phaseOrder: persisted.phaseOrder } : {}),
+    ...(persisted.supportLevel !== undefined ? { supportLevel: persisted.supportLevel } : {}),
+    ...(persisted.completedWithSupport !== undefined ? { completedWithSupport: persisted.completedWithSupport } : {}),
+    ...(message.supportProvider ? { supportProvider: message.supportProvider } : {}),
+    ...(message.supportFallbackFrom ? { supportFallbackFrom: message.supportFallbackFrom } : {}),
+    ...(persisted.retrieval ? { retrieval: persisted.retrieval } : {}),
+    ...(clientRequestId ? { clientRequestId } : {}),
   };
+}
+
+function normalizeTurnMessages(messages: TutorMessage[]): TutorMessage[] {
+  return messages.map((message, index) => {
+    const persisted = message as PersistedTutorMessage;
+    if (persisted.turnKind === "help" || persisted.turnKind === "answer") return message;
+    if (message.sender === "student"
+      || (message.sender === "ai" && messages[index - 1]?.sender === "student")) {
+      return { ...message, turnKind: "answer", helpRequested: false } as TutorMessage;
+    }
+    return message;
+  });
 }
 
 export class SupabaseTutorRepository implements TutorRepository {
@@ -557,7 +642,7 @@ export class SupabaseTutorRepository implements TutorRepository {
       pausedAt: context.pausedAt ?? null,
       assignmentId: sessionRow.class_case_assignment_id ?? null,
       reviewerId: sessionRow.professor_id ?? null,
-      messages: messageRows.map(mapMessage),
+      messages: normalizeTurnMessages(messageRows.map(mapMessage)),
       evaluations,
       state: reconcileLearnerStateEvidence(stateRow.state as LearnerState),
     };
@@ -622,8 +707,7 @@ export class SupabaseTutorRepository implements TutorRepository {
       sessionReview,
       runtime: {
         storage: "supabase",
-        tutor: getTutorMode(),
-        fallbackFrom: evaluations.at(-1)?.fallbackFrom,
+        ...latestTutorRuntime(learningSession, getTutorMode()),
       },
       summaryGenerationStatus: summaryGenerationStatus(sessionRow, context, summaryJobResult.data ?? null),
       assignment,
@@ -632,7 +716,13 @@ export class SupabaseTutorRepository implements TutorRepository {
     };
   }
 
-  async findCommittedTurn(sessionId: string, studentId: string, clientRequestId: string, content: string) {
+  async findCommittedTurn(
+    sessionId: string,
+    studentId: string,
+    clientRequestId: string,
+    content: string,
+    turnKind: "answer" | "help" = "answer",
+  ) {
     const normalizedRequestId = clientRequestId.trim();
     if (!normalizedRequestId) return null;
     const { data: sessionRow, error: sessionError } = await this.client
@@ -645,14 +735,20 @@ export class SupabaseTutorRepository implements TutorRepository {
     if (sessionRow.student_id !== studentId) throw new Error("This session belongs to another learner.");
     const { data: messageRow, error: messageError } = await this.client
       .from("messages")
-      .select("id, content, sender_id")
+      .select("id, content, sender_id, metadata")
       .eq("session_id", sessionId)
       .eq("role", "student")
       .eq("client_request_id", normalizedRequestId)
       .maybeSingle();
     if (messageError) throw new Error(`Find committed turn message: ${messageError.message}`);
     if (!messageRow) return null;
-    if (messageRow.sender_id !== studentId || messageRow.content !== content) {
+    const metadata = messageRow.metadata && typeof messageRow.metadata === "object" && !Array.isArray(messageRow.metadata)
+      ? messageRow.metadata as Record<string, unknown>
+      : {};
+    const storedTurnKind = metadata.turnKind === "help" ? "help" : "answer";
+    if (messageRow.sender_id !== studentId
+      || messageRow.content !== content
+      || storedTurnKind !== turnKind) {
       throw new IdempotencyConflictError();
     }
     // The session ownership check above is deliberately separate from this
@@ -665,15 +761,32 @@ export class SupabaseTutorRepository implements TutorRepository {
     if (input.clientRequestId !== undefined && !input.clientRequestId.trim()) {
       throw new Error("Client request ID cannot be blank.");
     }
+    const turnKind = messageTurnKind(input.studentMessage);
+    const studentMessage = input.studentMessage as PersistedTutorMessage;
+    const aiMessage = input.aiMessage as PersistedTutorMessage;
+    const helpRequested = studentMessage.helpRequested ?? turnKind === "help";
+    if (messageTurnKind(input.aiMessage) !== turnKind) throw new Error("Student and tutor turn kinds must match.");
+    if (turnKind === "help") {
+      if (studentMessage.helpRequested !== true || aiMessage.helpRequested !== true) throw new Error("Help turns must be marked as requested.");
+      if (input.evaluation !== null) throw new Error("Help turns cannot include an evaluation.");
+      if (input.studentMessage.content !== HELP_MARKER_CONTENT) throw new Error("Help marker content is server-generated.");
+      if (input.aiMessage.replyToMessageId !== input.studentMessage.id) throw new Error("Help reply must reference its marker.");
+      if (input.nextState.version !== input.expectedVersion + 1) throw new Error("Help turns must increment session state version exactly once.");
+    } else {
+      if (helpRequested || aiMessage.helpRequested === true) throw new Error("Answer turns cannot be marked as Help.");
+      if (input.evaluation === null) throw new Error("Answer turns require an evaluation.");
+    }
     const bundle = await this.getSession(input.sessionId);
     if (!bundle) throw new Error("Session not found.");
     const phase = bundle.case.phases.find((item) => item.order === bundle.session.currentPhase)!;
     const nextPhase = bundle.case.phases.find((item) => item.order === input.nextPhase)!;
     // Reflection turns are formative prompts, not graded answers. Keep their
     // database score null so analytics cannot count them as partial/correct.
-    const evaluationScore = input.evaluation.isReflection
+    const evaluationScore = input.evaluation && input.evaluation.isReflection
       ? null
-      : CLASSIFICATION_SCORES[input.evaluation.classification];
+      : input.evaluation
+        ? CLASSIFICATION_SCORES[input.evaluation.classification]
+        : null;
     const context = { score: input.score, summary: input.summary, reviewStatus: bundle.session.reviewStatus, pausedAt: null };
     const { error } = await this.client.rpc("commit_tutor_turn", {
       p_session_id: input.sessionId,
@@ -682,11 +795,11 @@ export class SupabaseTutorRepository implements TutorRepository {
       p_student_phase_id: phase.id,
       p_ai_content: input.aiMessage.content,
       p_ai_phase_id: nextPhase.id,
-      p_evaluation_type: "formative",
+      p_evaluation_type: input.evaluation ? "formative" : null,
       p_evaluation_score: evaluationScore,
-      p_evaluation_criteria: buildEvaluationCriteria(input.evaluation),
-      p_evaluation_feedback: input.evaluation.feedback,
-      p_evaluator_id: null,
+      p_evaluation_criteria: input.evaluation ? buildEvaluationCriteria(input.evaluation) : null,
+      p_evaluation_feedback: input.evaluation?.feedback ?? null,
+      p_evaluator_id: input.evaluation ? null : null,
       p_state: input.nextState,
       p_expected_version: input.expectedVersion,
       p_session_context: context,
@@ -695,8 +808,8 @@ export class SupabaseTutorRepository implements TutorRepository {
       p_current_phase_id: nextPhase.id,
       p_session_status: input.status,
       p_client_request_id: input.clientRequestId?.trim() || null,
-      p_student_metadata: buildMessageMetadata(input.studentMessage, "student"),
-      p_ai_metadata: buildMessageMetadata(input.aiMessage, "socratic_tutor"),
+      p_student_metadata: buildMessageMetadata(input.studentMessage, "student", input.clientRequestId?.trim()),
+      p_ai_metadata: buildMessageMetadata(input.aiMessage, "socratic_tutor", input.clientRequestId?.trim()),
     });
     if (error) {
       if (error.message.includes("IDEMPOTENCY_CONFLICT")) throw new IdempotencyConflictError();

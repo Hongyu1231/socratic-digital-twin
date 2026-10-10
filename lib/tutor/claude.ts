@@ -4,6 +4,13 @@ import type { TutorEvaluateInput, TutorEvaluationResult } from "@/lib/domain";
 import { tutorProviderOutputSchema } from "@/lib/schemas";
 import { normalizeCriterionTags } from "@/lib/tutor/criteria";
 import { buildTutorInput, TUTOR_INSTRUCTIONS, TUTOR_PROMPT_VERSION } from "@/lib/tutor/prompt";
+import { tutorProviderTimeout } from "@/lib/tutor/request-budget";
+import {
+  ACKNOWLEDGEMENT_RETRY_INSTRUCTIONS,
+  acknowledgementDeadline,
+  normalizeAcknowledgement,
+  retryAcknowledgement,
+} from "@/lib/tutor/acknowledgement";
 export class ClaudeTutor {
   readonly mode = "claude" as const;
   private readonly client: Anthropic;
@@ -19,22 +26,38 @@ export class ClaudeTutor {
   }
 
   async evaluate(input: TutorEvaluateInput): Promise<TutorEvaluationResult> {
-    const response = await this.client.messages.parse({
-      model: this.model,
-      max_tokens: 1200,
-      system: this.instructions,
-      messages: [
-        {
-          role: "user",
-          content: buildTutorInput(input, this.promptVersion),
-        },
-      ],
-      output_config: { format: zodOutputFormat(tutorProviderOutputSchema) },
-    }, { timeout: 25_000, maxRetries: 0 });
+    const inputText = buildTutorInput(input, this.promptVersion);
+    const format = { format: zodOutputFormat(tutorProviderOutputSchema) };
+    const request = async (instructions: string, timeoutMs: number): Promise<TutorEvaluationResult> => {
+      const response = await this.client.messages.parse({
+        model: this.model,
+        max_tokens: 1200,
+        system: instructions,
+        messages: [
+          {
+            role: "user",
+            content: inputText,
+          },
+        ],
+        output_config: format,
+      }, { timeout: timeoutMs, maxRetries: 0 });
 
-    if (response.stop_reason !== "end_turn" || !response.parsed_output) {
-      throw new Error(`Claude returned an unusable stop reason: ${response.stop_reason}`);
-    }
-    return normalizeCriterionTags({ ...response.parsed_output, acknowledgement: response.parsed_output.acknowledgement ?? undefined, source: "claude" }, input.phase);
+      if (response.stop_reason !== "end_turn" || !response.parsed_output) {
+        throw new Error(`Claude returned an unusable stop reason: ${response.stop_reason}`);
+      }
+      return normalizeCriterionTags({
+        ...response.parsed_output,
+        acknowledgement: normalizeAcknowledgement(response.parsed_output.acknowledgement),
+        source: "claude",
+      }, input.phase);
+    };
+
+    const deadline = acknowledgementDeadline(input.timeoutMs);
+    const first = await request(this.instructions, tutorProviderTimeout(input.timeoutMs));
+    return retryAcknowledgement(
+      first,
+      deadline,
+      (timeoutMs) => request(`${this.instructions}\n${ACKNOWLEDGEMENT_RETRY_INSTRUCTIONS}`, timeoutMs),
+    );
   }
 }

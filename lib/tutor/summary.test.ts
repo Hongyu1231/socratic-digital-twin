@@ -42,4 +42,19 @@ describe("buildSessionSummary", () => {
 
     expect(summary.narrative).toContain("You ended the session before finishing all the phases.");
   });
+
+  it("does not claim supported completion after Help reveal but before application", () => {
+    const summary = buildSessionSummary([], learnerState({
+      phaseProgress: {
+        "1": {
+          criteriaMet: [], bestClassification: "vague", noProgressCount: 0,
+          supportLevel: 2, awaitingApplication: true,
+          completedWithSupport: true, completed: false,
+        },
+      },
+    }), false);
+    expect(summary.supportedPhases).toEqual([]);
+    expect(summary.narrative).toContain("You ended the session before finishing all the phases.");
+    expect(summary.narrative).not.toContain("was completed with tutor support");
+  });
 });

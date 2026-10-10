@@ -28,7 +28,7 @@ const state: LearnerState = {
 };
 
 const parsedOutput = {
-  acknowledgement: null,
+  acknowledgement: "You identified the unerupted canine.",
   targetCriterionId: null,
   answerCriterionId: null,
   criteriaMet: [],
@@ -51,6 +51,12 @@ describe("OpenAI tutor adapter", () => {
   beforeEach(() => {
     parseMock.mockReset();
     zodTextFormatMock.mockClear();
+  });
+
+  it("uses only the remaining shared request budget", async () => {
+    parseMock.mockResolvedValue({ status: "completed", output_parsed: parsedOutput });
+    await new OpenAITutor("test-key", "test-model").evaluate({ phase: impactedCanineCase.phases[0], answer: "A learner answer", state, attempt: 1, timeoutMs: 4_500 });
+    expect(parseMock.mock.calls[0][1]).toEqual({ timeout: 4_500, maxRetries: 0 });
   });
 
   it("returns the validated Responses structured output", async () => {
@@ -78,6 +84,90 @@ describe("OpenAI tutor adapter", () => {
     expect(request.input).toContain("studentAnswer");
     expect(request.text.format).toEqual({ type: "json_schema" });
     expect(zodTextFormatMock).toHaveBeenCalledWith(expect.anything(), "tutor_evaluation");
+  });
+
+  it.each([
+    ["missing", null],
+    ["invalid", "Can you explain why?"],
+  ])("repairs a %s acknowledgement once without accepting a retry regrade", async (_label, acknowledgement) => {
+    parseMock
+      .mockResolvedValueOnce({ status: "completed", output_parsed: { ...parsedOutput, acknowledgement, classification: "partial", nextQuestion: "Why does that finding matter?" } })
+      .mockResolvedValueOnce({ status: "completed", output_parsed: {
+        ...parsedOutput,
+        acknowledgement: "You linked the finding to the timing.",
+        classification: "correct",
+        nextQuestion: "A retry question must not be trusted?",
+      } });
+
+    const result = await new OpenAITutor("test-key", "test-model").evaluate({
+      phase: impactedCanineCase.phases[0], answer: "The canine is unerupted.", state, attempt: 1, timeoutMs: 10_000,
+    });
+
+    expect(parseMock).toHaveBeenCalledTimes(2);
+    expect(parseMock.mock.calls[1][0].instructions).toContain("repair only the acknowledgement field");
+    expect(result).toMatchObject({
+      acknowledgement: "You linked the finding to the timing.",
+      classification: "partial",
+      nextQuestion: "Why does that finding matter?",
+    });
+  });
+
+  it("keeps the first valid grading when acknowledgement repair fails", async () => {
+    parseMock
+      .mockResolvedValueOnce({ status: "completed", output_parsed: { ...parsedOutput, acknowledgement: null } })
+      .mockRejectedValueOnce(new Error("repair timed out"));
+
+    const result = await new OpenAITutor("test-key", "test-model").evaluate({
+      phase: impactedCanineCase.phases[0], answer: "The canine is unerupted.", state, attempt: 1, timeoutMs: 10_000,
+    });
+
+    expect(parseMock).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ classification: "partial", nextQuestion: parsedOutput.nextQuestion });
+    expect(result.acknowledgement).toBeUndefined();
+  });
+
+  it("falls back to the question when the repair is still missing", async () => {
+    parseMock
+      .mockResolvedValueOnce({ status: "completed", output_parsed: { ...parsedOutput, acknowledgement: null } })
+      .mockResolvedValueOnce({ status: "completed", output_parsed: { ...parsedOutput, acknowledgement: null } });
+
+    const result = await new OpenAITutor("test-key", "test-model").evaluate({
+      phase: impactedCanineCase.phases[0], answer: "The canine is unerupted.", state, attempt: 1, timeoutMs: 10_000,
+    });
+
+    expect(parseMock).toHaveBeenCalledTimes(2);
+    expect(result.acknowledgement).toBeUndefined();
+    expect(result.nextQuestion).toBe(parsedOutput.nextQuestion);
+  });
+
+  it("skips repair when the remaining budget is exhausted", async () => {
+    parseMock.mockResolvedValueOnce({ status: "completed", output_parsed: { ...parsedOutput, acknowledgement: null } });
+
+    const result = await new OpenAITutor("test-key", "test-model").evaluate({
+      phase: impactedCanineCase.phases[0], answer: "The canine is unerupted.", state, attempt: 1, timeoutMs: 500,
+    });
+
+    expect(parseMock).toHaveBeenCalledOnce();
+    expect(parseMock.mock.calls[0][1]).toEqual({ timeout: 500, maxRetries: 0 });
+    expect(result.acknowledgement).toBeUndefined();
+  });
+
+  it("gives the repair call only the time left in the shared budget", async () => {
+    const now = vi.spyOn(Date, "now")
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(7_000);
+    parseMock
+      .mockResolvedValueOnce({ status: "completed", output_parsed: { ...parsedOutput, acknowledgement: null } })
+      .mockResolvedValueOnce({ status: "completed", output_parsed: { ...parsedOutput, acknowledgement: "You identified the finding." } });
+
+    try {
+      await new OpenAITutor("test-key", "test-model").evaluate({
+        phase: impactedCanineCase.phases[0], answer: "The canine is unerupted.", state, attempt: 1, timeoutMs: 10_000,
+      });
+      expect(parseMock.mock.calls[1][1]).toEqual({ timeout: 4_000, maxRetries: 0 });
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("keeps student text quoted as data instead of an instruction", async () => {

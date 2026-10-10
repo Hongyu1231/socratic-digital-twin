@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapCase, mapCaseWithDiagnostics, mapEvaluation, mapPhase } from "@/lib/repository/supabase";
+import { mapCase, mapCaseWithDiagnostics, mapEvaluation, mapMessage, mapPhase } from "@/lib/repository/supabase";
 
 describe("Supabase case mapping", () => {
   it("does not turn expected_findings JSON keys into student-facing rubric criteria", () => {
@@ -178,5 +178,71 @@ describe("Supabase case mapping", () => {
       created_at: new Date().toISOString(),
       criteria: {},
     }).answerCriterionId).toBeNull();
+  });
+
+  it("round-trips Help provenance from message metadata without inventing an evaluation", () => {
+    const marker = mapMessage({
+      id: "help-marker",
+      session_id: "session-1",
+      role: "student",
+      content: "Requested more help",
+      created_at: "2026-10-09T00:00:00.000Z",
+      metadata: {
+        source: "student",
+        turnKind: "help",
+        helpRequested: true,
+        clientRequestId: "help-1",
+        phaseOrder: 2,
+        supportLevel: 1,
+        completedWithSupport: false,
+      },
+    });
+    const reply = mapMessage({
+      id: "help-reply",
+      session_id: "session-1",
+      role: "tutor",
+      content: "Here is a plan to critique. What evidence would change your view?",
+      created_at: "2026-10-09T00:00:01.000Z",
+      metadata: {
+        source: "socratic_tutor",
+        turnKind: "help",
+        helpRequested: true,
+        clientRequestId: "help-1",
+        replyToMessageId: "help-marker",
+        phaseOrder: 2,
+        supportLevel: 1,
+        completedWithSupport: false,
+        moveType: "hypothetical",
+      },
+    });
+
+    expect(marker).toMatchObject({
+      content: "Requested more help",
+      turnKind: "help",
+      helpRequested: true,
+      clientRequestId: "help-1",
+      phaseOrder: 2,
+      supportLevel: 1,
+      completedWithSupport: false,
+    });
+    expect(reply).toMatchObject({
+      turnKind: "help",
+      helpRequested: true,
+      clientRequestId: "help-1",
+      replyToMessageId: "help-marker",
+      moveType: "hypothetical",
+      supportLevel: 1,
+    });
+  });
+
+  it("treats untagged historical student messages as answer turns", () => {
+    expect(mapMessage({
+      id: "legacy-answer",
+      session_id: "session-legacy",
+      role: "student",
+      content: "The canine is unerupted.",
+      created_at: "2026-01-01T00:00:00.000Z",
+      metadata: { source: "student" },
+    })).toMatchObject({ turnKind: "answer", helpRequested: false });
   });
 });

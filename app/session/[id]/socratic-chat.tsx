@@ -2,12 +2,13 @@
 
 import { FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ArrowUp, BookOpen, Check, Info, LoaderCircle, Mic, MicOff, PauseCircle, Play, RotateCw, Volume2, VolumeX, X } from "lucide-react";
+import { AlertCircle, ArrowUp, BookOpen, Check, CircleHelp, Info, LoaderCircle, Mic, MicOff, PauseCircle, Play, RotateCw, Volume2, VolumeX, X } from "lucide-react";
 import type { TutorMessage } from "@/lib/domain";
 import type { StudentSessionBundle as SessionBundle } from "@/lib/student-contract";
 import { CaseResources } from "@/components/case-resources";
 import { selectPreferredEnglishVoice } from "@/lib/speech";
-import { describeRequestFailure, readJsonBody, requestSignal } from "@/lib/client-request";
+import { describeRequestFailure, isTimeout, readJsonBody, requestSignal } from "@/lib/client-request";
+import { HELP_BUTTON_READY_DESCRIPTION, helpRequestBody, helpUnavailableReason, isHelpMessage } from "./help-ui";
 
 // Ending a session commits a deterministic summary immediately. Keep a
 // deadline for network/server failures while optional model enhancement runs
@@ -40,6 +41,7 @@ interface BrowserSpeechRecognition {
 
 type SpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
 type SessionPendingAction = "message" | "pause" | "resume" | "end";
+type PendingMessageKind = "answer" | "help";
 
 export function SocraticChat({ sessionId }: { sessionId: string }) {
   const router = useRouter();
@@ -47,6 +49,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState("");
   const [pendingAction, setPendingAction] = useState<SessionPendingAction | null>(null);
+  const [pendingMessageKind, setPendingMessageKind] = useState<PendingMessageKind | null>(null);
   const pending = pendingAction !== null;
   const [optimisticMessage, setOptimisticMessage] = useState<TutorMessage | null>(null);
   const [listening, setListening] = useState(false);
@@ -63,6 +66,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
   const mobileCaseHeadingId = useId();
   const [endNotice, setEndNotice] = useState("");
   const [failedSend, setFailedSend] = useState<{ content: string; clientRequestId: string; error: string } | null>(null);
+  const [failedHelp, setFailedHelp] = useState<{ clientRequestId: string; error: string } | null>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
@@ -73,6 +77,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
   const speechRequestRef = useRef<AbortController | null>(null);
   const voiceBaseRef = useRef("");
   const lastAutoReadRef = useRef<string | null>(null);
+  const messageRequestInFlightRef = useRef(false);
 
   const stopTutorSpeech = useCallback(() => {
     speechRequestRef.current?.abort();
@@ -242,7 +247,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
       return;
     }
     bottomRef.current?.scrollIntoView({ block: "end", behavior });
-  }, [bundle?.session.messages.length, optimisticMessage?.id, failedSend, pending]);
+  }, [bundle?.session.messages.length, optimisticMessage?.id, failedSend, failedHelp, pending]);
 
   useEffect(() => {
     if (!autoRead || pending || !bundle || !speechOutputAvailable) return;
@@ -318,7 +323,8 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
   }
 
   async function sendMessage(message: string, clientRequestId: string) {
-    if (pending) return;
+    if (pending || messageRequestInFlightRef.current) return;
+    messageRequestInFlightRef.current = true;
 
     // Resume speech from the student's click/keypress so browsers that suspend
     // synthesis while a tab is idle can play the asynchronous tutor reply.
@@ -326,6 +332,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
 
     setError("");
     setFailedSend(null);
+    setPendingMessageKind("answer");
     setOptimisticMessage({
       id: `optimistic-${clientRequestId}`,
       sessionId,
@@ -358,7 +365,52 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
       });
     } finally {
       setOptimisticMessage(null);
+      setPendingMessageKind(null);
       setPendingAction(null);
+      messageRequestInFlightRef.current = false;
+    }
+  }
+
+  async function requestHelp(clientRequestId?: string) {
+    if (pending || messageRequestInFlightRef.current || !bundle) return;
+    const retryingFailedHelp = Boolean(clientRequestId && failedHelp?.clientRequestId === clientRequestId);
+    const requestId = clientRequestId ?? failedHelp?.clientRequestId ?? crypto.randomUUID();
+    const reason = helpUnavailableReason(bundle.session, false);
+    if (reason && !retryingFailedHelp) return;
+
+    messageRequestInFlightRef.current = true;
+    setError("");
+    setFailedHelp(null);
+    setPendingMessageKind("help");
+    setPendingAction("message");
+
+    try {
+      const response = await fetch("/api/session/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(helpRequestBody(sessionId, requestId)),
+        signal: requestSignal(MESSAGE_TIMEOUT_MS),
+      });
+      const data = await readJsonBody<SessionBundle & { error?: string; code?: string }>(response, "More help could not be loaded.");
+      if (!response.ok) {
+        const message = data.code === "HELP_GENERATION_RETRYABLE"
+          ? "The tutor could not prepare more help right now."
+          : data.error ?? "More help could not be loaded.";
+        throw new Error(message);
+      }
+      setBundle(data);
+    } catch (reason) {
+      const failure = isTimeout(reason)
+        ? "More help took too long to load; its save status is unknown."
+        : describeRequestFailure(reason, "More help could not be loaded.", "More help took too long to load.");
+      setFailedHelp({
+        clientRequestId: requestId,
+        error: `${failure} Your draft is still here — try again.`,
+      });
+    } finally {
+      setPendingMessageKind(null);
+      setPendingAction(null);
+      messageRequestInFlightRef.current = false;
     }
   }
 
@@ -502,6 +554,8 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
     : Math.max(0, currentPhaseIndex);
   const progress = Math.round((completedPhaseCount / clinicalCase.phases.length) * 100);
   const latestFallback = bundle.runtime.fallbackFrom;
+  const helpDisabledReason = helpUnavailableReason(session, pending);
+  const helpDisabled = helpDisabledReason !== null;
   const visibleMessages = optimisticMessage
     ? [...session.messages, optimisticMessage]
     : session.messages;
@@ -555,19 +609,22 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
         <div className="message-list" aria-live="polite" ref={messageListRef}>
           {voiceNotice ? <div className="voice-notice" role="status">{voiceNotice}</div> : null}
           {latestFallback ? <div className="voice-notice" role="status">The live {latestFallback === "openai" ? "OpenAI" : "Claude"} tutor was unavailable for the latest turn. A rules-based fallback generated that question, and the event was recorded.</div> : null}
-          {visibleMessages.map((message) => (
-            <article className={`message ${message.sender}`} key={message.id}>
-              {message.sender === "ai" ? <div className="message-avatar">S</div> : null}
-              <div>
-                <div className="message-bubble">
-                  {message.content}
-                  {preparingVoiceMessageId === message.id ? <span className="voice-inline-loading" role="status"><LoaderCircle className="spin" size={12} /> Preparing voice…</span> : null}
+          {visibleMessages.map((message) => {
+            const helpMessage = isHelpMessage(message);
+            return (
+              <article className={`message ${message.sender}${helpMessage ? " message-help" : ""}`} key={message.id}>
+                {message.sender === "ai" ? <div className="message-avatar">S</div> : null}
+                <div>
+                  <div className="message-bubble">
+                    {message.sender === "student" && helpMessage ? "More help requested" : message.content}
+                    {preparingVoiceMessageId === message.id ? <span className="voice-inline-loading" role="status"><LoaderCircle className="spin" size={12} /> Preparing voice…</span> : null}
+                  </div>
+                  <div className="message-footer"><span className="message-meta">{message.sender === "ai" ? "Socratic tutor" : helpMessage ? "More help requested" : "Your reasoning"}</span>{message.sender === "ai" ? <button type="button" onClick={() => readTutorMessage(message)} aria-label={`${speakingMessageId === message.id ? "Stop reading" : "Read aloud"} tutor message`}>{speakingMessageId === message.id ? <VolumeX size={13} /> : <Volume2 size={13} />}{speakingMessageId === message.id ? "Stop" : "Read aloud"}</button> : null}</div>
                 </div>
-                <div className="message-footer"><span className="message-meta">{message.sender === "ai" ? "Socratic tutor" : "Your reasoning"}</span>{message.sender === "ai" ? <button type="button" onClick={() => readTutorMessage(message)} aria-label={`${speakingMessageId === message.id ? "Stop reading" : "Read aloud"} tutor message`}>{speakingMessageId === message.id ? <VolumeX size={13} /> : <Volume2 size={13} />}{speakingMessageId === message.id ? "Stop" : "Read aloud"}</button> : null}</div>
-              </div>
-              {message.sender === "student" ? <div className="message-avatar">A</div> : null}
-            </article>
-          ))}
+                {message.sender === "student" ? <div className="message-avatar">A</div> : null}
+              </article>
+            );
+          })}
           {failedSend ? (
             <article className="message student failed">
               <div>
@@ -583,7 +640,19 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
               <div className="message-avatar">A</div>
             </article>
           ) : null}
-          {pendingAction === "message" ? <article className="message"><div className="message-avatar">S</div><div><div className="message-bubble thinking"><i /><i /><i /></div><span className="message-meta">Examining your reasoning</span></div></article> : null}
+          {failedHelp ? (
+            <article className="message student failed message-help">
+              <div>
+                <div className="message-bubble">More help requested</div>
+                <div className="message-failure" role="alert">
+                  <span><AlertCircle size={13} /> {failedHelp.error}</span>
+                  <button type="button" disabled={pending} onClick={() => void requestHelp(failedHelp.clientRequestId)}><RotateCw size={12} /> Try again</button>
+                </div>
+              </div>
+              <div className="message-avatar">A</div>
+            </article>
+          ) : null}
+          {pendingAction === "message" ? <article className="message"><div className="message-avatar">S</div><div><div className="message-bubble thinking"><i /><i /><i /></div><span className="message-meta">{pendingMessageKind === "help" ? "Preparing more help" : "Examining your reasoning"}</span></div></article> : null}
           <div ref={bottomRef} />
         </div>
         {session.pausedAt ? <div className="paused-session-card"><PauseCircle size={28} /><span className="section-kicker">Session paused</span><h2>Your progress is safely saved</h2><p>Resume when you are ready to continue from this exact phase and conversation.</p><button type="button" className="primary-button" onClick={resumeSession} disabled={pending}>{pendingAction === "resume" ? <LoaderCircle className="spin" size={16} /> : <Play size={16} />} {pendingAction === "resume" ? "Resuming…" : "Resume session"}</button>{error ? <div className="error-banner" role="alert">{error}</div> : null}</div> : <form className="chat-composer" onSubmit={submit}>
@@ -603,7 +672,30 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
               maxLength={2000}
               disabled={pending}
             />
-            <div className="composer-actions"><div className="composer-help"><small>Enter to send · Shift + Enter for a new line</small><small>Tutor audio is AI-generated. Do not include patient identifiers.</small></div><div className="composer-buttons"><button className={`voice-input-button${listening ? " listening" : ""}`} type="button" onClick={toggleSpeechInput} disabled={pending || !speechInputAvailable} aria-pressed={listening} aria-label={listening ? "Stop voice input" : "Start voice input"} title={speechInputAvailable ? "Dictate your answer" : "Voice input is not supported by this browser"}>{listening ? <MicOff size={17} /> : <Mic size={17} />}</button><button className="send-button" disabled={!answer.trim() || pending} aria-label={pendingAction === "message" ? "Sending answer" : "Send answer"}>{pendingAction === "message" ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}</button></div></div>
+            <div className="composer-actions">
+              <div className="composer-help">
+                <small>Enter to send · Shift + Enter for a new line</small>
+                <small>Tutor audio is AI-generated. Do not include patient identifiers.</small>
+                <small id="help-availability" className="composer-help-status">{helpDisabledReason ?? HELP_BUTTON_READY_DESCRIPTION}</small>
+              </div>
+              <div className="composer-buttons">
+                <button
+                  className="more-help-button"
+                  type="button"
+                  onClick={() => void requestHelp(failedHelp?.clientRequestId)}
+                  disabled={helpDisabled}
+                  aria-describedby="help-availability"
+                  aria-busy={pendingMessageKind === "help"}
+                  aria-label="Ask for more help"
+                  title={helpDisabledReason ?? HELP_BUTTON_READY_DESCRIPTION}
+                >
+                  {pendingMessageKind === "help" ? <LoaderCircle className="spin" size={16} /> : <CircleHelp size={16} />}
+                  <span>{pendingMessageKind === "help" ? "Preparing help…" : "More help"}</span>
+                </button>
+                <button className={`voice-input-button${listening ? " listening" : ""}`} type="button" onClick={toggleSpeechInput} disabled={pending || !speechInputAvailable} aria-pressed={listening} aria-label={listening ? "Stop voice input" : "Start voice input"} title={speechInputAvailable ? "Dictate your answer" : "Voice input is not supported by this browser"}>{listening ? <MicOff size={17} /> : <Mic size={17} />}</button>
+                <button className="send-button" disabled={!answer.trim() || pending} aria-label={pendingAction === "message" && pendingMessageKind === "answer" ? "Sending answer" : "Send answer"}>{pendingAction === "message" && pendingMessageKind === "answer" ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}</button>
+              </div>
+            </div>
           </div>
         </form>}
       </section>

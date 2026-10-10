@@ -36,12 +36,35 @@ export function progressPhase(phase: CasePhase, previous: PhaseTutorProgress | u
     return { state: { ...state, completed: true }, complete: true, escalated: false };
   }
   const oldLevel = state.supportLevel;
-  if (attempt >= (phase.phaseCeiling ?? 8)) state.supportLevel = 2;
+  // Five evaluated answers is the global pre-reveal ceiling.  A phase may
+  // still override it explicitly; Help presses never increment `attempt`.
+  if (attempt >= (phase.phaseCeiling ?? 5)) state.supportLevel = 2;
   else if (state.noProgressCount >= (phase.noProgressLimit ?? 2)) state.supportLevel = Math.min(2, oldLevel + 1) as 0 | 1 | 2;
   const escalated = state.supportLevel !== oldLevel;
   if (escalated) state.noProgressCount = 0;
   if (state.supportLevel === 2) state.awaitingApplication = true;
   return { state, complete: false, escalated };
+}
+
+/**
+ * Apply one explicit Help press to the current phase progress.  This is kept
+ * separate from `progressPhase`: Help is an ungraded event and must not alter
+ * criteria, the best classification, attempts, mastery or correction state.
+ */
+export function requestHelpProgress(previous: PhaseTutorProgress | undefined) {
+  const before: PhaseTutorProgress = previous ?? {
+    criteriaMet: [], bestClassification: "wrong", noProgressCount: 0,
+    supportLevel: 0, awaitingApplication: false, completedWithSupport: false, completed: false,
+  };
+  if (before.supportLevel >= 2) return { state: before, eligible: false as const };
+  const supportLevel = Math.min(2, before.supportLevel + 1) as 0 | 1 | 2;
+  const state: PhaseTutorProgress = {
+    ...before,
+    noProgressCount: 0,
+    supportLevel,
+    ...(supportLevel === 2 ? { awaitingApplication: true, completedWithSupport: true } : {}),
+  };
+  return { state, eligible: true as const };
 }
 
 const sentence = (text: string) => {

@@ -4,6 +4,7 @@ import { DEMO_STUDENT_ID } from "@/lib/seed";
 import { InMemoryTutorRepository } from "@/lib/repository/memory";
 import { resetRepositoryForTests } from "@/lib/repository";
 import * as tutor from "@/lib/tutor";
+import * as support from "@/lib/tutor/support";
 import { submitStudentAnswer } from "@/lib/tutor/state-machine";
 import { studentCaseView, studentView } from "@/lib/http";
 
@@ -183,20 +184,23 @@ describe("v2 end-to-end tutor state", () => {
   it("writes step-up wording in a second call that carries the new level and target criterion", async () => {
     vi.spyOn(tutor, "getTutorMode").mockReturnValue("openai");
     let turn = 0;
-    const evaluate = vi.spyOn(tutor, "evaluateWithFallback").mockImplementation(async (input) => input.support
-      ? result({ source: "openai", nextQuestion: `Model wording for level ${input.support.level}, would that hold up?` })
-      : result({ source: "openai", nextQuestion: `Ordinary question ${++turn}?` }));
+    const evaluate = vi.spyOn(tutor, "evaluateWithFallback").mockImplementation(async () =>
+      result({ source: "openai", nextQuestion: `Ordinary question ${++turn}?` }));
+    const generate = vi.spyOn(support, "generateTutorSupport").mockImplementation(async (input) => ({
+      source: "openai",
+      content: `Model wording for level ${input.support.level}, would that hold up?`,
+    }));
     let bundle = await start();
     for (const answer of ["First try.", "Second try.", "Third try.", "Fourth try.", "Fifth try."]) {
       bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, answer);
     }
-    const supportCalls = evaluate.mock.calls.map(([input]) => input).filter((input) => input.support);
+    const supportCalls = generate.mock.calls.map(([input]) => input);
     expect(supportCalls.map((input) => input.support)).toEqual([
       { level: 1, targetCriterion: expect.objectContaining({ id: "private-observation" }) },
       { level: 2, targetCriterion: expect.objectContaining({ id: "private-observation", revealText: "Separate what is observed from an assumed cause." }) },
     ]);
     expect(supportCalls.map((input) => input.state.phaseProgress?.["1"].supportLevel)).toEqual([1, 2]);
-    expect(evaluate).toHaveBeenCalledTimes(7);
+    expect(evaluate).toHaveBeenCalledTimes(5);
     const tutorMessages = bundle.session.messages.filter((message) => message.sender === "ai");
     expect(tutorMessages.filter((message) => message.moveType === "hypothetical").map((message) => message.content))
       .toEqual([expect.stringContaining("Model wording for level 1, would that hold up?")]);

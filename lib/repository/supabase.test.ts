@@ -6,6 +6,14 @@ import { DEMO_ASSIGNMENT_ID, DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID } from "@/
 
 type Result = { data: unknown; error: null };
 
+type PersistedTutorMessage = TutorMessage & {
+  turnKind?: "answer" | "help";
+  helpRequested?: boolean;
+  phaseOrder?: number;
+  supportLevel?: 0 | 1 | 2;
+  completedWithSupport?: boolean;
+};
+
 function fakeClient(tableRows: Record<string, unknown>, calls: string[]) {
   return {
     from(table: string) {
@@ -150,6 +158,58 @@ describe("SupabaseTutorRepository student catalogue batching", () => {
     });
 
     expect(rpc).toHaveBeenCalledWith("commit_tutor_turn", expect.objectContaining({ p_evaluation_score: null }));
+  });
+
+  it("sends Help commits as nullable, metadata-tagged operations", async () => {
+    const memory = new InMemoryTutorRepository();
+    memory.reset();
+    const started = await memory.createSession(DEMO_STUDENT_ID, IMPACTED_CANINE_CASE_ID, DEMO_ASSIGNMENT_ID);
+    const now = new Date().toISOString();
+    const marker = {
+      id: crypto.randomUUID(), sessionId: started.session.id, sender: "student" as const,
+      content: "Requested more help", timestamp: now, turnKind: "help" as const,
+      helpRequested: true, phaseOrder: 1, supportLevel: 1 as const, completedWithSupport: false,
+    } satisfies PersistedTutorMessage;
+    const reply = {
+      id: crypto.randomUUID(), sessionId: started.session.id, sender: "ai" as const,
+      content: "What evidence would change your view?", timestamp: now,
+      replyToMessageId: marker.id, moveType: "hypothetical" as const, turnKind: "help" as const,
+      helpRequested: true, phaseOrder: 1, supportLevel: 1 as const, completedWithSupport: false,
+    } satisfies PersistedTutorMessage;
+    const rpc = vi.fn(async () => ({ data: null, error: null }));
+    const repository = Object.create(SupabaseTutorRepository.prototype) as SupabaseTutorRepository;
+    Object.defineProperty(repository, "client", { value: { rpc } });
+    vi.spyOn(repository, "getSession").mockResolvedValue(started);
+
+    await repository.commitTurn({
+      sessionId: started.session.id,
+      expectedVersion: started.session.state.version,
+      clientRequestId: "help-rpc-1",
+      studentMessage: marker,
+      evaluation: null,
+      aiMessage: reply,
+      nextState: { ...started.session.state, version: started.session.state.version + 1, updatedAt: now },
+      nextPhase: started.session.currentPhase,
+      status: "active",
+      score: null,
+      summary: null,
+      completedAt: null,
+    });
+
+    expect(rpc).toHaveBeenCalledWith("commit_tutor_turn", expect.objectContaining({
+      p_evaluation_type: null,
+      p_evaluation_score: null,
+      p_evaluation_criteria: null,
+      p_evaluation_feedback: null,
+      p_student_metadata: expect.objectContaining({
+        turnKind: "help", helpRequested: true, phaseOrder: 1, supportLevel: 1, completedWithSupport: false,
+        clientRequestId: "help-rpc-1",
+      }),
+      p_ai_metadata: expect.objectContaining({
+        turnKind: "help", helpRequested: true, replyToMessageId: marker.id,
+        phaseOrder: 1, supportLevel: 1, completedWithSupport: false,
+      }),
+    }));
   });
 
 });

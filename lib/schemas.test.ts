@@ -1,6 +1,23 @@
 import { describe, expect, it } from "vitest";
 
-import { assignmentInputSchema, caseAttachmentInputSchema, caseInputSchema, summaryOutputSchema } from "@/lib/schemas";
+import { assignmentInputSchema, caseAttachmentInputSchema, caseInputSchema, sessionMessageSchema, summaryOutputSchema } from "@/lib/schemas";
+
+describe("session message Help operation", () => {
+  const sessionId = "11111111-1111-4111-8111-111111111111";
+
+  it("accepts the existing answer shape and the text-free Help shape", () => {
+    expect(sessionMessageSchema.safeParse({ sessionId, message: "An answer." }).success).toBe(true);
+    expect(sessionMessageSchema.safeParse({ sessionId, helpRequested: true, clientRequestId: "help-request-01" }).success).toBe(true);
+  });
+
+  it("rejects missing operations, missing Help IDs and mixed Help payloads", () => {
+    expect(sessionMessageSchema.safeParse({ sessionId }).success).toBe(false);
+    expect(sessionMessageSchema.safeParse({ sessionId, helpRequested: false }).success).toBe(false);
+    expect(sessionMessageSchema.safeParse({ sessionId, helpRequested: true }).success).toBe(false);
+    expect(sessionMessageSchema.safeParse({ sessionId, helpRequested: true, clientRequestId: "help-request-01", message: "" }).success).toBe(false);
+    expect(sessionMessageSchema.safeParse({ sessionId, helpRequested: true, clientRequestId: "help-request-01", message: "A mixed answer." }).success).toBe(false);
+  });
+});
 
 describe("assignment input schema", () => {
   it("compares deadlines as instants rather than lexicographic time zones", () => {

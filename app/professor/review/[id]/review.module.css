@@ -18,6 +18,9 @@
 .readOnly > svg { color: #9a5b28; }
 .modeBadge { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 6px 9px; background: rgba(255,255,255,.68); font-size: 8px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
 .readOnlyNote { display: flex; align-items: center; gap: 6px; margin: 13px 0 0; padding: 11px; border-radius: 8px; color: #855126; background: #fbf2e6; font-size: 10px; line-height: 1.4; }
+.contextMessage { margin-top: 12px; padding: 14px 15px; border: 1px solid var(--line); border-left: 3px solid var(--plum); background: #faf8f4; color: var(--ink); font: 500 14px/1.55 Georgia, serif; }
+.helpTurn { background: #fffaf4; }
+.helpMarker { margin: 12px 0; padding: 12px 14px; border-left: 3px solid #d28b49; background: #fbf2e6; color: #855126; font-size: 12px; line-height: 1.5; }
 .tutorQuality { margin-top: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 4px 14px 4px 4px; background: #f8f6f1; }
 .qualityHeading { display: grid; gap: 6px; margin-bottom: 14px; }
 .qualityHeading strong { color: var(--ink); font: 500 14px/1.55 Georgia, serif; }

@@ -12,6 +12,8 @@ type SourceMessage = {
   sender: "student" | "ai" | string;
   content: string;
   replyToMessageId?: string;
+  turnKind?: "answer" | "help";
+  helpRequested?: boolean;
 };
 
 type SourceEvaluation = {
@@ -163,7 +165,12 @@ export function buildFrozenEvaluationSamples(
   const tutorReviews = new Map((source.tutorTurnReviews ?? []).map((review) => [review.evaluationId, review]));
   const messages = new Map(source.messages.map((message) => [message.id, message]));
 
-  const samples = source.evaluations.map((evaluation) => {
+  const samples = source.evaluations.filter((evaluation) => {
+    const answer = messages.get(evaluation.messageId);
+    // Help markers are chronological transcript events, never answer-based
+    // humanization samples, even if a legacy caller supplied an evaluation.
+    return !answer || (answer.turnKind !== "help" && answer.helpRequested !== true);
+  }).map((evaluation) => {
     const answer = messages.get(evaluation.messageId);
     const tutor = tutorMessageFor(source.messages, evaluation);
     const answerReview = answerReviews.get(evaluation.id);

@@ -18,8 +18,25 @@ export const startSessionSchema = z.object({
 
 export const sessionMessageSchema = z.object({
   sessionId: z.string().uuid(),
-  message: z.string().trim().min(2).max(2_000),
+  /** Ordinary answer text is required unless this is an explicit Help press. */
+  message: z.string().trim().min(2).max(2_000).optional(),
   clientRequestId: z.string().trim().min(8).max(100).optional(),
+  helpRequested: z.boolean().optional(),
+}).superRefine((value, context) => {
+  if (value.helpRequested === true) {
+    if (!value.clientRequestId) {
+      context.addIssue({ code: "custom", path: ["clientRequestId"], message: "Help requests require a client request ID." });
+    }
+    // Presence, rather than truthiness, matters here: an empty message is a
+    // mixed answer+Help payload and must not be silently treated as Help.
+    if (value.message !== undefined) {
+      context.addIssue({ code: "custom", path: ["message"], message: "Help requests must not include a message." });
+    }
+    return;
+  }
+  if (value.message === undefined) {
+    context.addIssue({ code: "custom", path: ["message"], message: "Submit an answer or request help." });
+  }
 });
 
 export const identitySwitchSchema = z.object({
