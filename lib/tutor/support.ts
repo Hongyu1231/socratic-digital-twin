@@ -7,6 +7,7 @@ import type { TutorEvaluateInput } from "@/lib/domain";
 import { createOpenAIClient } from "@/lib/tutor/openai-client";
 import { getConfiguredTutorProvider, requireTutorProviderCredentials } from "@/lib/tutor/provider-config";
 import { tutorProviderTimeout } from "@/lib/tutor/request-budget";
+import { hasAskedQuestion } from "@/lib/tutor/questions";
 
 export type TutorSupportInput = Omit<TutorEvaluateInput, "answer" | "attempt" | "support"> & {
   answer?: string;
@@ -36,10 +37,6 @@ export const TUTOR_SUPPORT_INSTRUCTIONS = [
 
 export const SUPPORT_MAX_WORDS = { 1: 40, 2: 60 } as const;
 
-function normalized(text: string) {
-  return text.toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
 export function validateTutorSupportOutput(raw: unknown, input: TutorSupportInput): string | null {
   const parsed = tutorSupportOutputSchema.safeParse(raw);
   if (!parsed.success) return null;
@@ -51,10 +48,14 @@ export function validateTutorSupportOutput(raw: unknown, input: TutorSupportInpu
   if (content.includes(input.support.targetCriterion.id)) return null;
   const goal = input.phase.goal.trim().toLowerCase();
   if (goal.length >= 12 && content.toLowerCase().includes(goal)) return null;
-  const questionStart = Math.max(content.lastIndexOf(". "), content.lastIndexOf("! "));
-  const question = content.slice(questionStart < 0 ? 0 : questionStart + 2).trim();
-  if ((input.recentDialogue ?? []).some((turn) => turn.sender === "ai"
-    && (normalized(turn.content) === normalized(content) || normalized(turn.content).endsWith(normalized(question))))) return null;
+  const earlierTutorContent = [
+    ...(input.askedQuestions ?? []),
+    ...(input.currentQuestion ? [input.currentQuestion] : []),
+    ...(input.recentDialogue ?? [])
+      .filter((turn) => turn.sender === "ai")
+      .map((turn) => turn.content),
+  ];
+  if (hasAskedQuestion(content, earlierTutorContent)) return null;
   return content;
 }
 

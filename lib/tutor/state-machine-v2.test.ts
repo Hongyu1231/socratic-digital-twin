@@ -32,7 +32,7 @@ describe("v2 end-to-end tutor state", () => {
         goal: "Distinguish observations from assumptions.",
         rubric: [{ id: "private-observation", text: "Identify the supplied finding", revealText: "Separate what is observed from an assumed cause." },
           { id: "private-evidence", text: "Justify the observation using a record" }],
-        starterQuestion: "Which finding or uncertainty had the greatest influence on your reasoning?",
+        starterQuestion: index === 0 ? "Which finding or uncertainty had the greatest influence on your reasoning?" : "How would you assess the next finding?",
         exampleQuestions: ["Which record supports that observation?"], phaseCeiling, tutorMoves, acceptedExtras,
       })),
       // Keep phase-unlock fixtures valid for one-phase reflection tests too;
@@ -224,7 +224,7 @@ describe("v2 end-to-end tutor state", () => {
     });
     let bundle = await start();
     for (const answer of ["First try.", "Second try.", "Third try."]) bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, answer);
-    expect(bundle.session.messages.at(-1)).toMatchObject({ moveType: "hypothetical", content: "Which finding would you check first, and why?" });
+    expect(bundle.session.messages.at(-1)).toMatchObject({ moveType: "hypothetical", content: "One possible plan is to act before checking the available records. What might that plan miss?", supportProvider: "deterministic", supportFallbackFrom: "openai" });
     expect(bundle.session.evaluations.at(-1)?.targetCriterionId).toBeUndefined();
     for (const answer of ["Fourth try.", "Fifth try."]) bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, answer);
     expect(bundle.session.messages.at(-1)).toMatchObject({
@@ -268,7 +268,7 @@ describe("v2 end-to-end tutor state", () => {
   it("keeps the model's acknowledgement when a phase ends with support", async () => {
     const message = await finishPhaseWithSupport("You tried the hint on the supplied record.");
     expect(message.acknowledgement).toBe("You tried the hint on the supplied record.");
-    expect(message.content).toBe("You tried the hint on the supplied record. Which finding or uncertainty had the greatest influence on your reasoning?");
+    expect(message.content).toBe("You tried the hint on the supplied record. How would you assess the next finding?");
     expect(message.completedWithSupport).toBe(true);
     expect(message.content).not.toContain("with support");
   });
@@ -283,7 +283,7 @@ describe("v2 end-to-end tutor state", () => {
   ])("uses the exact fixed line when the supported acknowledgement is unusable: %s", async (acknowledgement) => {
     const message = await finishPhaseWithSupport(acknowledgement);
     expect(message.acknowledgement).toBe("Let's move on to the next part.");
-    expect(message.content).toBe("Let's move on to the next part. Which finding or uncertainty had the greatest influence on your reasoning?");
+    expect(message.content).toBe("Let's move on to the next part. How would you assess the next finding?");
     expect(message.content).not.toMatch(/got it|well done|correct|master/i);
   });
 
@@ -297,7 +297,7 @@ describe("v2 end-to-end tutor state", () => {
       .mockResolvedValueOnce(result({ source: "openai", nextQuestion: "Ordinary question 4?" }))
       .mockResolvedValueOnce(result({ source: "openai", acknowledgement: "You named one finding." }));
     vi.spyOn(support, "generateTutorSupport").mockImplementation(async (input) => ({
-      source: "openai", content: `A plan for level ${input.support.level}. What might it miss?`,
+      source: "openai", content: input.support.level === 1 ? "A plan for level 1. What might it miss?" : "A finding for level 2. How would this change your plan?",
     }));
     let bundle = await start();
     for (const answer of ["First try.", "Second try.", "Third try."]) bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, answer);
@@ -306,7 +306,7 @@ describe("v2 end-to-end tutor state", () => {
     for (const answer of ["Fourth try.", "Fifth try."]) bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, answer);
     expect(bundle.session.messages.at(-1)).toMatchObject({
       moveType: "reveal", acknowledgement: "You named one finding.",
-      content: "You named one finding. A plan for level 2. What might it miss?",
+      content: "You named one finding. A finding for level 2. How would this change your plan?",
     });
   });
 
@@ -322,11 +322,11 @@ describe("v2 end-to-end tutor state", () => {
     bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, "Both required points.");
     expect(bundle.session.currentPhase).toBe(2);
     for (const answer of ["First try.", "Second try.", "Third try."]) bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, answer);
-    // Phase 1 and phase 2 open with the same starter: it is listed once.
-    expect(evaluate.mock.calls.at(-1)?.[0].askedQuestions).toEqual([starter, "Phase two question 1?", "Phase two question 2?"]);
+    const history = [starter, "How would you assess the next finding?", "Phase two question 1?", "Phase two question 2?"];
+    expect(evaluate.mock.calls.at(-1)?.[0].askedQuestions).toEqual(history);
     expect(generate).toHaveBeenCalledTimes(1);
-    expect(generate.mock.calls[0][0].askedQuestions).toEqual([starter, "Phase two question 1?", "Phase two question 2?"]);
-    expect(askedTutorQuestions(bundle.session.messages)).toEqual([starter, "Phase two question 1?", "Phase two question 2?", "One plan is to wait. What might it miss?"]);
+    expect(generate.mock.calls[0][0].askedQuestions).toEqual(history);
+    expect(askedTutorQuestions(bundle.session.messages)).toEqual([...history, "What might it miss?"]);
     for (const question of askedTutorQuestions(bundle.session.messages)) expect(question).not.toContain(result().acknowledgement);
   });
 
@@ -342,5 +342,29 @@ describe("v2 end-to-end tutor state", () => {
     expect(updated.session.summary).toBeNull();
     expect(updated.session.evaluations.at(-1)?.isReflection).toBe(false);
     expect(updated.session.state.reflectionAsked).toBe(false);
+  });
+
+  it("does not repeat a next-phase starter already asked in the first phase", async () => {
+    const started = await start();
+    const firstQuestion = started.case.phases[0].starterQuestion;
+    vi.spyOn(repository, "getSession").mockResolvedValueOnce({ ...started,
+      case: { ...started.case, phases: started.case.phases.map(phase => ({ ...phase, starterQuestion: firstQuestion })) } });
+    vi.spyOn(tutor, "evaluateWithFallback").mockResolvedValue(result({ classification: "correct", criteriaMet: ["private-observation", "private-evidence"] }));
+    const advanced = await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "Both required points.");
+    expect(advanced.session.currentPhase).toBe(2);
+    expect(advanced.session.messages.at(-1)?.content).not.toContain(firstQuestion);
+    expect(advanced.session.messages.at(-1)?.content).toContain("Which record supports that observation?");
+  });
+
+  it("persists the actual automatic-support generator independently of grading", async () => {
+    const started = await start(2, 1);
+    vi.spyOn(tutor, "getTutorMode").mockReturnValue("openai");
+    vi.spyOn(tutor, "evaluateWithFallback").mockResolvedValue(result({ source: "deterministic", fallbackFrom: "openai" }));
+    vi.spyOn(support, "generateTutorSupport").mockResolvedValue({ source: "openai", content: "The supplied finding needs a supporting record. How would you use this in your plan?" });
+    const updated = await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "One weak answer.");
+    expect(updated.session.evaluations.at(-1)?.provider).toBe("deterministic");
+    expect(updated.session.messages.at(-1)?.supportProvider).toBe("openai");
+    expect(updated.runtime.tutor).toBe("openai");
+    expect((await repository.getSession(updated.session.id))?.runtime.tutor).toBe("openai");
   });
 });

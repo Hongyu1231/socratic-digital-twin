@@ -15,6 +15,7 @@ import { normalizeCriterionTags, phaseCriteria } from "@/lib/tutor/criteria";
 import { avoidRepeatedQuestion, progressPhase, requestHelpProgress, supportQuestion, supportTarget } from "@/lib/tutor/progression";
 import { remainingTutorRequestMs, startTutorRequestBudget } from "@/lib/tutor/request-budget";
 import { stepUpAcknowledgement, supportedPhaseAcknowledgement } from "@/lib/tutor/acknowledgement";
+import { hasAskedQuestion, normalizeQuestion, questionTexts } from "@/lib/tutor/questions";
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 export const HELP_REQUEST_MARKER = "Requested more help";
@@ -44,10 +45,12 @@ export function askedTutorQuestions(messages: TutorMessage[]): string[] {
     const withoutAcknowledgement = message.acknowledgement && message.content.startsWith(`${message.acknowledgement} `)
       ? message.content.slice(message.acknowledgement.length + 1) : message.content;
     const question = withoutAcknowledgement.replace(/^That statement is incorrect\.\s*/, "").trim();
-    const key = question.toLowerCase().replace(/[^a-z0-9]/g, "");
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    questions.push(question);
+    for (const text of questionTexts(question)) {
+      const key = normalizeQuestion(text);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      questions.push(text);
+    }
   }
   return questions;
 }
@@ -205,10 +208,11 @@ export async function submitTutorHelp(
     // a provider failure must not strand the learner at level 1.
     generated = null;
   }
-  const supportContent = generated?.content?.trim() || supportQuestion(phase, transition.state);
+  if (generated && hasAskedQuestion(generated.content, askedQuestions)) generated = null;
   if (transition.state.supportLevel === 1 && !generated?.content?.trim()) {
     throw new HelpGenerationRetryableError();
   }
+  const supportContent = generated?.content?.trim() || supportQuestion(phase, transition.state, askedQuestions);
   const configuredProvider = getTutorMode();
   const supportProvider = generated?.source ?? "deterministic";
   const supportFallbackFrom = !generated && configuredProvider !== "deterministic" ? configuredProvider : undefined;
@@ -389,6 +393,7 @@ async function performStudentAnswer(
   // semantics for a missing level-1 hypothetical).
   const target = progress?.escalated ? supportTarget(phase, progress.state) : undefined;
   let supportReply: string | undefined;
+  let supportProvider: TutorMessage["supportProvider"];
   const supportTimeoutMs = remainingTutorRequestMs(requestDeadline);
   if (progress?.escalated && target && progress.state.supportLevel !== 0 && getTutorMode() !== "deterministic" && supportTimeoutMs > 0) {
     try {
@@ -398,7 +403,10 @@ async function performStudentAnswer(
         support: { level: progress.state.supportLevel, targetCriterion: target },
         timeoutMs: supportTimeoutMs,
       });
-      if (written?.content?.trim()) supportReply = written.content.trim();
+      if (written?.content?.trim() && !hasAskedQuestion(written.content, askedQuestions)) {
+        supportReply = written.content.trim();
+        supportProvider = written.source;
+      }
     } catch {
       supportReply = undefined;
     }
@@ -500,11 +508,11 @@ async function performStudentAnswer(
       : phaseComplete
       ? nextPhaseRecord.starterQuestion
       : progress?.escalated
-        ? supportReply ?? supportQuestion(phase, progress.state)
+        ? supportReply ?? supportQuestion(phase, progress.state, askedQuestions)
       : tutorMove?.question ?? result.nextQuestion;
   // Compare the actual question, including when it is scripted.
-  const baseQuestion = phaseComplete || sessionComplete || progress?.escalated ? proposedQuestion
-    : avoidRepeatedQuestion(proposedQuestion, askedQuestions, phase, attempt);
+  const baseQuestion = sessionComplete || progress?.escalated ? proposedQuestion
+    : avoidRepeatedQuestion(proposedQuestion, askedQuestions, phaseComplete ? nextPhaseRecord : phase, attempt);
   // Log the actual displayed target, not a discarded model/script proposal.
   if (phaseComplete || isReflectionAnswer || baseQuestion !== proposedQuestion) evaluation.targetCriterionId = undefined;
   else if (progress?.escalated) evaluation.targetCriterionId = progress.state.supportLevel === 2 || supportReply ? target?.id : undefined;
@@ -517,7 +525,7 @@ async function performStudentAnswer(
   // A supported phase keeps the model's own acknowledgement unless it is
   // missing, invalid or claims mastery. The supported flag itself is unchanged.
   const acknowledgement = isReflectionAnswer ? undefined
-    : supported ? supportedPhaseAcknowledgement(result.acknowledgement)
+    : phaseComplete && supported ? supportedPhaseAcknowledgement(result.acknowledgement)
       : progress?.escalated ? stepUpAcknowledgement(result.acknowledgement)
         : result.acknowledgement;
   const moveType: TutorMessage["moveType"] = askReflection ? "reflection" : phaseComplete || sessionComplete ? "transition"
@@ -539,6 +547,10 @@ async function performStudentAnswer(
     phaseOrder: phase.order,
     supportLevel: progress?.state.supportLevel ?? bundle.session.state.phaseProgress?.[phaseKey]?.supportLevel ?? 0,
     completedWithSupport: supported,
+    ...(progress?.escalated ? {
+      supportProvider: supportProvider ?? "deterministic",
+      ...(!supportProvider && getTutorMode() !== "deterministic" ? { supportFallbackFrom: getTutorMode() as "openai" | "claude" } : {}),
+    } : {}),
   };
 
   const committed = await repository.commitTurn({
@@ -555,8 +567,8 @@ async function performStudentAnswer(
     summary,
     completedAt: sessionComplete ? now : null,
   });
-  committed.runtime.tutor = result.source;
-  committed.runtime.fallbackFrom = result.fallbackFrom;
+  committed.runtime.tutor = aiMessage.supportProvider ?? result.source;
+  committed.runtime.fallbackFrom = aiMessage.supportProvider ? aiMessage.supportFallbackFrom : result.fallbackFrom;
   return committed;
 }
 

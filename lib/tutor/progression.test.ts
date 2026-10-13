@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { CasePhase, PhaseTutorProgress, TutorEvaluationResult } from "@/lib/domain";
 import { normalizeCriterionTags, phaseCriteria } from "@/lib/tutor/criteria";
-import { avoidRepeatedQuestion, progressPhase, SUPPORT_FALLBACK_QUESTION, supportQuestion, supportTarget } from "@/lib/tutor/progression";
+import { avoidRepeatedQuestion, progressPhase, SUPPORT_FALLBACK_QUESTION, SupportFallbackUnavailableError, supportQuestion, supportTarget } from "@/lib/tutor/progression";
 
 const phase = (overrides: Partial<CasePhase> = {}): CasePhase => ({
   id: "phase-1",
@@ -298,7 +298,6 @@ describe("support and repeated-question safeguards", () => {
       supportQuestion(empty, progress({ supportLevel: 2 })),
       avoidRepeatedQuestion("What do you notice?", ["What do you notice?", "Which record supports that observation?"], phase(), 3),
     ];
-    expect(fallbacks[0]).toBe("Which finding would you check first, and why?");
     expect(fallbacks[0]).toBe(SUPPORT_FALLBACK_QUESTION);
     expect(fallbacks[2]).toBe(SUPPORT_FALLBACK_QUESTION);
     expect(fallbacks[3]).toBe(SUPPORT_FALLBACK_QUESTION);
@@ -330,6 +329,20 @@ describe("support and repeated-question safeguards", () => {
     );
     expect(fallback).not.toBe(current);
     expect(fallback).not.toBe("Which record supports that observation?");
-    expect(fallback).toContain("For this attempt (4)");
+    expect(fallback.match(/\?/g)).toHaveLength(1);
+  });
+
+  it("keeps fallback turns bounded and never repeats an earlier application question", () => {
+    const first = supportQuestion(phase(), progress({ supportLevel: 1 }));
+    expect(first.split(/\s+/).length).toBeLessThanOrEqual(40);
+    expect(first.match(/\?/g)).toHaveLength(1);
+    const next = supportQuestion(phase(), progress({ supportLevel: 2 }), ["Earlier finding. How would you use this in your plan?"]);
+    expect(next).toBe("State the visible observation. What would this change in your plan?");
+    expect(next.split(/\s+/).length).toBeLessThanOrEqual(60);
+  });
+
+  it("does not truncate a clinical reveal to meet the fallback word budget", () => {
+    const tooLong = phase({ rubric: [{ id: "long", text: "A short rubric", revealText: `${"clinically relevant ".repeat(35)}but this finding is uncertain.` }] });
+    expect(() => supportQuestion(tooLong, progress({ supportLevel: 2 }))).toThrow(SupportFallbackUnavailableError);
   });
 });

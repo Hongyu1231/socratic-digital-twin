@@ -202,6 +202,15 @@ export function ProfessorReview({ sessionId }: { sessionId: string }) {
           })}
         </section>
         <aside className="review-panel"><span className="section-kicker">Learner model</span><div className="memory-list"><div><span>Strengths</span><p>{bundle.session.state.strengths.join(" · ") || "Not enough evidence yet"}</p></div><div><span>Weak areas</span><p>{bundle.session.state.weaknesses.join(" · ") || "Not enough evidence yet"}</p></div><div><span>Previous errors</span><p>{bundle.session.state.previousErrors.join(" · ") || "None recorded"}</p></div><div><span>AI score</span><p>{bundle.session.score ?? "In progress"} / 100</p></div></div>
+          <section aria-label="Phase completion" className="memory-list">
+            <span className="sidebar-label">Phase completion</span>
+            <ul>{(bundle.case.phases ?? []).map((phase) => {
+              const progress = bundle.session.state.phaseProgress?.[String(phase.order)];
+              return <li key={phase.id}><strong>{phase.title}</strong><p>{progress?.completed
+                ? progress.completedWithSupport ? "Completed with tutor support" : "Completed independently"
+                : "No completion recorded"}</p></li>;
+            })}</ul>
+          </section>
           <label className="sidebar-label" htmlFor="overall-feedback">Overall feedback</label><textarea id="overall-feedback" readOnly={readOnly} value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="Summarise the student's clinical reasoning…" />
           {readOnly ? <p className={styles.readOnlyNote}><LockKeyhole size={13} /> This completed or claimed review cannot be edited.</p> : <div className="review-actions"><button type="button" className="secondary-button" disabled={Boolean(savingStatus)} onClick={() => void save("draft")}>{savingStatus === "draft" ? <LoaderCircle size={15} className="spin" /> : <Save size={15} />} {savingStatus === "draft" ? "Saving…" : "Save draft"}</button><button type="button" className="primary-button" disabled={Boolean(savingStatus)} onClick={() => void save("completed")}>{savingStatus === "completed" ? <LoaderCircle size={15} className="spin" /> : <Check size={15} />} {savingStatus === "completed" ? "Completing…" : "Complete review"}</button></div>}
         </aside>

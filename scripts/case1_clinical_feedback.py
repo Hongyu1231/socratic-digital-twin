@@ -213,6 +213,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             "Include severe upper and moderate lower crowding, relevant occlusion, and the patient's crooked-teeth concern in one integrated list.",
             "Third-molar status is a useful bonus context only and is not a required problem-list item.",
             "Accept a numbered list. If the student has already ranked the problems, treat that order as their prioritisation and do not ask them to rank again; ask about the reasoning behind the order instead.",
+            "Carry forward the supplied Phase 2 finding: #23 is palatally located, its crown buccal surface faces buccally, it is not rotated, and no #22/#24 root resorption is recorded. A mid-alveolar relationship or crown orientation in a reference is not evidence against that confirmed bucco-palatal location. Do not mark a palatal #23 problem-list item wrong or return the discussion to #22 resorption.",
         ],
         "acceptedExtras": [
             {

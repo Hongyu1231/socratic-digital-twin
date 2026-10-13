@@ -114,4 +114,21 @@ describe("ProfessorReview Help chronology", () => {
     expect(answerTurn?.querySelector(".label-buttons")).not.toBeNull();
     expect(answerTurn?.querySelector("[aria-label^='Tutor quality']")).not.toBeNull();
   });
+
+  it.each([true, false])("only labels supported completion after actual phase completion: %s", async (completed) => {
+    const value = { ...bundle, case: { ...bundle.case, phases: [{ id: "phase-1", order: 1, title: "Observe the records" }] },
+      session: { ...bundle.session, state: { ...bundle.session.state, phaseProgress: { "1": { completed, completedWithSupport: true, supportLevel: 2 } } } } };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => value })));
+    await act(async () => {
+      root.render(createElement(ProfessorReview, { sessionId: "session-1" }));
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    const region = container.querySelector("[aria-label='Phase completion']");
+    expect(region?.textContent).toContain("Observe the records");
+    if (completed) expect(region?.textContent).toContain("Completed with tutor support");
+    else {
+      expect(region?.textContent).toContain("No completion recorded");
+      expect(region?.textContent).not.toContain("Completed with tutor support");
+    }
+  });
 });

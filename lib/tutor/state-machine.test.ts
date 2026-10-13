@@ -103,7 +103,7 @@ describe("Socratic state machine", () => {
       DEMO_STUDENT_ID,
       "I still think impacted canines never resorb lateral incisor roots.",
     );
-    expect(second.session.messages.at(-1)?.content).toBe("That statement is incorrect. Which finding would you check first, and why?");
+    expect(second.session.messages.at(-1)?.content).toBe("That statement is incorrect. One possible plan is to act before checking the available records. What might that plan miss?");
     expect(second.session.messages.at(-1)?.moveType).toBe("hypothetical");
     expect(evaluateSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({
       recentEvaluations: [expect.objectContaining({ misconceptionKey: "root-resorption-claim" })],

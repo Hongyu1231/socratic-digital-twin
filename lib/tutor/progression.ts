@@ -1,5 +1,6 @@
 import type { CasePhase, Classification, PhaseTutorProgress, TutorEvaluationResult } from "@/lib/domain";
 import { criterionIds, phaseCriteria } from "@/lib/tutor/criteria";
+import { hasAskedQuestion } from "@/lib/tutor/questions";
 
 const rank: Record<Classification, number> = { wrong: 0, vague: 1, partial: 2, correct: 3 };
 
@@ -71,7 +72,16 @@ const sentence = (text: string) => {
   const value = text.replace(/[?？]/g, ".").trim();
   return /[.!。！]$/.test(value) ? value : `${value}.`;
 };
-export const SUPPORT_FALLBACK_QUESTION = "Which finding would you check first, and why?";
+export const SUPPORT_FALLBACK_QUESTION = "One possible plan is to act before checking the available records. What might that plan miss?";
+
+export class SupportFallbackUnavailableError extends Error {
+  readonly retryable = true;
+  readonly code = "HELP_GENERATION_RETRYABLE";
+  constructor() {
+    super("A short, new support question is temporarily unavailable. Please try again.");
+    this.name = "SupportFallbackUnavailableError";
+  }
+}
 
 /** The criterion a step-up is about: the first unmet one. */
 export function supportTarget(phase: CasePhase, progress: PhaseTutorProgress) {
@@ -79,17 +89,35 @@ export function supportTarget(phase: CasePhase, progress: PhaseTutorProgress) {
 }
 
 /** Fixed step-up wording, used when the model cannot write it. Never contains the phase goal. */
-export function supportQuestion(phase: CasePhase, progress: PhaseTutorProgress) {
+export function supportQuestion(phase: CasePhase, progress: PhaseTutorProgress, askedQuestions: string[] = []) {
   const criterion = supportTarget(phase, progress);
   const point = criterion?.revealText ?? criterion?.text;
-  if (progress.supportLevel === 2 && point) return `${sentence(point)} How would you use this in your plan?`;
-  return SUPPORT_FALLBACK_QUESTION;
+  if (progress.supportLevel === 2 && point) {
+    const question = ["How would you use this in your plan?", "What would this change in your plan?", "Which part of your plan depends on this finding?", "How would you explain this finding to the patient?", `What does this change in ${phase.title.toLowerCase()}?`]
+      .find(question => !hasAskedQuestion(question, askedQuestions));
+    const content = question ? `${sentence(point)} ${question}` : "";
+    // Never truncate an authored clinical finding or discard its qualifiers to
+    // meet the UI word budget. A failure commits no answer/Help state instead.
+    if (!content || content.split(/\s+/).length > 60) throw new SupportFallbackUnavailableError();
+    return content;
+  }
+  const content = [SUPPORT_FALLBACK_QUESTION,
+    "One possible plan is to decide before resolving an important uncertainty. Which assumption in that plan would you check?",
+    "One possible plan is to choose an option before weighing alternatives. What other option would you consider?",
+    "One possible plan is to accept the first reading of a record. Which part of that record would you check again?",
+    "One possible plan is to decide from the first finding. What evidence might change that decision?",
+    "One possible plan assumes the available evidence is complete. Which limitation might matter here?",
+    "One possible plan is to act before discussing the patient's concerns. What would you ask the patient?",
+    "One possible plan is to choose a procedure before agreeing its purpose. Which aim should guide that choice?",
+  ].find(content => !hasAskedQuestion(content, askedQuestions));
+  if (!content) throw new SupportFallbackUnavailableError();
+  return content;
 }
 
 export function avoidRepeatedQuestion(question: string, earlier: string[], phase: CasePhase, attempt: number) {
-  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const previous = new Set(earlier.map(normalize));
-  if (!previous.has(normalize(question))) return question;
-  return phase.exampleQuestions.find((candidate) => !previous.has(normalize(candidate)))
-    ?? `For this attempt (${attempt}), which part of the current goal remains unclear, and what evidence would help you address it?`;
+  if (!hasAskedQuestion(question, earlier)) return question;
+  return phase.exampleQuestions.find((candidate) => !hasAskedQuestion(candidate, earlier))
+    ?? ["Which remaining point would you explore next?", "What would help you resolve the remaining uncertainty?", `In ${phase.title}, which finding would you check next?`]
+      .find(candidate => !hasAskedQuestion(candidate, earlier))
+    ?? `For this attempt (${attempt}), what else would help you explain your decision?`;
 }

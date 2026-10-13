@@ -156,8 +156,9 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
         ranked = "Accept a numbered list. If the student has already ranked the problems, treat that order as their prioritisation and do not ask them to rank again; ask about the reasoning behind the order instead."
         self.assertEqual(self.phases[1]["tutorGuidance"][-1], focus)
         self.assertEqual(self.phases[2]["tutorGuidance"][-1], focus)
-        self.assertEqual(self.phases[3]["tutorGuidance"][-1], ranked)
-        self.assertEqual([len(phase["tutorGuidance"]) for phase in self.phases[:4]], [4, 4, 4, 4])
+        self.assertIn(ranked, self.phases[3]["tutorGuidance"])
+
+        self.assertEqual([len(phase["tutorGuidance"]) for phase in self.phases[:4]], [4, 4, 4, 5])
         for index in (0, 3, 4, 5):
             self.assertNotIn(focus, self.phases[index]["tutorGuidance"])
         for index in (0, 1, 2, 4, 5):
@@ -166,6 +167,12 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
             self.phases[0]["exampleQuestions"][-1],
             "What other features of the malocclusion do you observe on the records provided?",
         )
+
+    def test_problem_list_keeps_the_confirmed_palatal_location(self):
+        guidance = " ".join(self.phases[3]["tutorGuidance"])
+        self.assertIn("#23 is palatally located", guidance)
+        self.assertIn("no #22/#24 root resorption is recorded", guidance)
+        self.assertIn("A mid-alveolar relationship or crown orientation", guidance)
 
     def test_closing_reflection_and_palatal_exposure_guidance(self):
         self.assertEqual([phase["tutorMoves"] for phase in self.phases[:5]], [[]] * 5)

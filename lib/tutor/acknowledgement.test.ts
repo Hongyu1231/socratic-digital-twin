@@ -38,6 +38,7 @@ describe("acknowledgement repair", () => {
 
   it.each([
     undefined, null, "", "Does that help?", "x".repeat(201),
+    `${Array.from({ length: 21 }, () => "word").join(" ")}.`,
     "You've got it.", "You\u2019ve got it now.", "You have got it.", "You got this.", "You have mastered the localisation.",
     "Well done on the localisation.", "Great point about the film.", "That's right about the film.", "You correctly named the tooth.",
     "You now understand the limit of the OPG.", "Exactly right about the canine.",

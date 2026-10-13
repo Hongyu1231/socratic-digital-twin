@@ -34,7 +34,10 @@ const MASTERY_CLAIM = /\b(?:you(?:'|\u2019)?ve got (?:it|this)|you have got (?:i
  */
 export function supportedPhaseAcknowledgement(value: unknown): string {
   const acknowledgement = normalizeAcknowledgement(value);
-  return acknowledgement && !MASTERY_CLAIM.test(acknowledgement) ? acknowledgement : SUPPORTED_PHASE_ACKNOWLEDGEMENT;
+  return acknowledgement
+    && acknowledgement.split(/\s+/).length <= STEP_UP_ACKNOWLEDGEMENT_MAX_WORDS
+    && !MASTERY_CLAIM.test(acknowledgement)
+    ? acknowledgement : SUPPORTED_PHASE_ACKNOWLEDGEMENT;
 }
 
 /** The acknowledgement shown before a step-up is one short sentence, or nothing. */

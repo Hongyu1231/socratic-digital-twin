@@ -74,6 +74,37 @@ describe("ungraded support generation", () => {
   it("rejects a repeated earlier tutor question", () => {
     expect(validateTutorSupportOutput(valid, { ...input, recentDialogue: [{ sender: "ai", content: "What would you question about that plan?" }] })).toBeNull();
   });
+  it("rejects an older session question outside recent dialogue", () => {
+    expect(validateTutorSupportOutput(valid, {
+      ...input,
+      askedQuestions: ["What would you question about that plan?"],
+      recentDialogue: [],
+    })).toBeNull();
+  });
+  it("rejects a repeated trailing question when earlier entries include support prose", () => {
+    const content = "Imagine a different plan. What would you question about that plan?";
+    expect(validateTutorSupportOutput({ ...valid, content }, {
+      ...input,
+      askedQuestions: ["Imagine choosing treatment from the OPG alone. What would you question about that plan?"],
+      recentDialogue: [],
+    })).toBeNull();
+  });
+  it("rejects the current question even when askedQuestions is omitted", () => {
+    expect(validateTutorSupportOutput(valid, {
+      ...input,
+      currentQuestion: valid.content,
+      askedQuestions: [],
+      recentDialogue: [],
+    })).toBeNull();
+  });
+  it("allows a genuinely different support question", () => {
+    const content = "Imagine choosing treatment from the OPG alone. Which record would you check next?";
+    expect(validateTutorSupportOutput({ ...valid, content }, {
+      ...input,
+      askedQuestions: ["What would you question about that plan?"],
+      recentDialogue: [],
+    })).toBe(content);
+  });
   const words = (count: number) => `${Array.from({ length: count - 4 }, () => "word").join(" ")}. What would you do?`;
   const level2 = { ...input, support: { ...input.support, level: 2 as const } };
   it("limits a level 1 plan to 40 words and a level 2 reveal to 60 words", () => {

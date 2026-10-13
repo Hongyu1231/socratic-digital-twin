@@ -31,4 +31,13 @@ describe("Help generator provenance", () => {
     expect(latestTutorRuntime({ messages: [mapped], evaluations: [] }, "openai"))
       .toEqual({ tutor: "openai", fallbackFrom: undefined });
   });
+
+  it("reloads automatic support provenance from an ordinary paired answer", () => {
+    const mapped = mapMessage({ id: reply.id, session_id: reply.sessionId, role: "ai",
+      created_at: reply.timestamp, content: reply.content,
+      metadata: { turnKind: "answer", helpRequested: false, supportProvider: "deterministic", supportFallbackFrom: "openai" },
+    });
+    expect(latestTutorRuntime({ messages: [mapped], evaluations: [] }, "openai"))
+      .toEqual({ tutor: "deterministic", fallbackFrom: "openai" });
+  });
 });
