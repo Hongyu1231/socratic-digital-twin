@@ -12,6 +12,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   try {
     const identity = await getIdentity();
     if (!identity) return Response.json({ error: "Authentication is required." }, { status: 401 });
+    const professorView = new URL(_request.url).searchParams.get("view") === "professor";
+    if (professorView && identity.role !== "professor" && identity.role !== "admin") {
+      return Response.json({ error: "Switch to a professor or admin profile to view this session." }, { status: 403 });
+    }
     const { id } = await params;
     const repository = getRepository();
     const bundle = await repository.getSession(id);

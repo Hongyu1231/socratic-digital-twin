@@ -46,21 +46,27 @@ export function ProfessorReview({ sessionId }: { sessionId: string }) {
   const [savingStatus, setSavingStatus] = useState<"draft" | "completed" | null>(null);
 
   useEffect(() => {
-    fetch(`/api/session/${sessionId}`)
+    let active = true;
+    const controller = new AbortController();
+    fetch(`/api/session/${sessionId}?view=professor`, { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error ?? "Review could not be loaded.");
+        if (!Array.isArray(data.session?.messages) || !Array.isArray(data.session?.evaluations)
+          || !Array.isArray(data.answerReviews) || !Array.isArray(data.tutorTurnReviews)
+          || !data.student || !data.case || !data.session.state) {
+          throw new Error("Switch to a professor or administrator profile, then reopen this review.");
+        }
         return data as SessionBundle;
       })
       .then((data) => {
-        setBundle(data);
-        setFeedback(data.sessionReview?.overallFeedback ?? "");
-        setDrafts(Object.fromEntries(data.session.evaluations.filter((evaluation) => !evaluation.isReflection).map((evaluation) => {
+        if (!active) return;
+        const nextDrafts = Object.fromEntries(data.session.evaluations.filter((evaluation) => !evaluation.isReflection).map((evaluation) => {
           const existing = data.answerReviews.find((review) => review.evaluationId === evaluation.id);
           return [evaluation.id, { label: existing?.label ?? evaluation.classification, comments: existing?.comments ?? "" }];
-        })));
+        }));
         const transcript = projectProfessorTranscript(data.session);
-        setTutorDrafts(Object.fromEntries(data.session.evaluations.flatMap((evaluation) => {
+        const nextTutorDrafts = Object.fromEntries(data.session.evaluations.flatMap((evaluation) => {
           const turn = transcript.find((item) => item.kind !== "context" && item.kind !== "help" && item.evaluation?.id === evaluation.id);
           const tutorMessage = turn && "tutorReply" in turn ? turn.tutorReply : undefined;
           if (!tutorMessage) return [];
@@ -86,10 +92,19 @@ export function ProfessorReview({ sessionId }: { sessionId: string }) {
             preferredRewrite: "",
             comments: "",
           }]];
-        })));
+        }));
+        setFeedback(data.sessionReview?.overallFeedback ?? "");
+        setDrafts(nextDrafts);
+        setTutorDrafts(nextTutorDrafts);
+        setBundle(data);
       })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : "Review could not be loaded."))
-      .finally(() => setLoading(false));
+      .catch((reason) => {
+        if (!active) return;
+        setBundle(null);
+        setError(reason instanceof Error ? reason.message : "Review could not be loaded.");
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; controller.abort(); };
   }, [sessionId]);
 
   const turns = useMemo(() => {

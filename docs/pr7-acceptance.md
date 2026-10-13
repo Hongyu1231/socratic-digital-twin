@@ -18,10 +18,11 @@ This release includes PR 7 plus the acceptance fixes below. No schema migration 
 - Persist the actual automatic-support provider/fallback independently of the answer grader, and reconstruct it after a repository reload.
 - Show phase completion in the professor sidebar from actual completed phase state. A Help marker/reveal alone cannot produce a "Completed with tutor support" label. Help rows remain ungraded and have no grading controls.
 - Carry the confirmed Phase 2 palatal #23/no #22/#24 resorption findings into Phase 4 faculty guidance. The first live run wrongly contrasted palatal and mid-alveolar descriptors; the corrected run accepted the numbered ordering and asked about missing skeletal evidence instead of asking the student to rank again.
+- Production smoke testing exposed a role-switch timing bug: entering a professor review before the identity switch completed returned a student DTO and crashed the review component. The follow-up requests an explicit professor view, rejects student roles server-side before loading/signing the session, validates the staff DTO before mounting, and ignores aborted/stale fetches. An unavailable review now has no grading controls. Normal student responses and professor class authorization are unchanged.
 
 ## Verification
 
-- Local TypeScript suite: 530 passed, zero failed. 48 tests skipped in the local checkout: 35 opt-in/external tests plus the 13 ignored operator live-harness cases. Skipped tests are not counted as passed.
+- Local TypeScript suite after the role-view follow-up: 533 passed, zero failed. 48 tests skipped in the local checkout: 35 opt-in/external tests plus the 13 ignored operator live-harness cases. Skipped tests are not counted as passed.
 - TypeScript, ESLint, production build and diff whitespace check passed. Python Case 1/profile and review-preparation suites passed 15 + 6 tests.
 - Explicit real OpenAI run: 12 support scenarios (six phases, both levels) and one numbered-list scenario passed. Provider fallbacks were not counted as live passes. The first failing clinical run is retained separately from the final result.
 - Local full HTTP workflow used synthetic instructor-oracle answers, not real student performance. All six phase answers used OpenAI with no fallback, taking approximately 9.2–11.9 seconds per request. Phase 4 used a numbered list; Phase 5 used the conditional retention plan. This is not a production p95 measurement.
@@ -29,6 +30,8 @@ This release includes PR 7 plus the acceptance fixes below. No schema migration 
 - The browser summary recorded Phase 1 as completed with support and the other five as completed independently. Reflection was ungraded. The professor transcript contained two Help turns with no controls; supported-completion sidebar rendering additionally has positive/negative component regressions.
 - Separate live automatic-support HTTP run: two weak answers produced level 1; continued weak answers produced level 2; an application answer advanced with support and without the old fixed completion boilerplate. Every observed visible response used OpenAI without fallback.
 - Browser console reported zero errors/warnings in the local verification context.
+
+The initial engine release `e8fa386` passed feature/master CI and reached production READY. Its first production smoke test caught the review crash above; that failed screenshot is retained, not counted as an acceptance pass. Final production acceptance must be repeated on the role-view follow-up commit. Case 1 v5 remains a private draft until approval evidence is matched to its revised content.
 
 The ignored evidence is under `work/pr7-*-results.json`; screenshots are under `output/playwright/pr7-*.png`. Secrets, authentication state, source documents, media and private manifests are not committed.
 

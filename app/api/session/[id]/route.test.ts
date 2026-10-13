@@ -19,7 +19,7 @@ const bundle = {
   assignment: { classId: "class" },
   case: { id: "case-v1", attachments: [{ id: "image", storagePath: "private/key.webp", url: "https://old-public.example/image" }] },
 };
-const read = () => GET(new Request("http://localhost/api/session/session"), { params: Promise.resolve({ id: "session" }) });
+const read = (query = "") => GET(new Request(`http://localhost/api/session/session${query}`), { params: Promise.resolve({ id: "session" }) });
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -33,7 +33,7 @@ beforeEach(() => {
 describe("session read authorization and private media", () => {
   it.each(["professor", "admin"])("returns signed media, not storage keys, to %s", async (role) => {
     mocks.getIdentity.mockResolvedValue({ id: "prof", role });
-    const response = await read();
+    const response = await read("?view=professor");
     const body = await response.json();
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
@@ -42,6 +42,17 @@ describe("session read authorization and private media", () => {
     expect(JSON.stringify(body)).not.toContain("private/key");
     expect(JSON.stringify(body)).not.toContain("old-public.example");
     expect(mocks.prepareStudentMedia).toHaveBeenCalledWith(bundle);
+  });
+
+  it("denies the professor view to a student before loading or signing the session", async () => {
+    mocks.getIdentity.mockResolvedValue({ id: "student", role: "student" });
+    const response = await read("?view=professor");
+    const body = await response.json();
+    expect(response.status).toBe(403);
+    expect(body.error).toMatch(/switch to a professor or admin profile/i);
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.listClasses).not.toHaveBeenCalled();
+    expect(mocks.prepareStudentMedia).not.toHaveBeenCalled();
   });
 
   it("never signs when a professor is outside the class", async () => {

@@ -131,4 +131,29 @@ describe("ProfessorReview Help chronology", () => {
       expect(region?.textContent).not.toContain("Completed with tutor support");
     }
   });
+
+  it("does not mount a partial student DTO as a professor bundle", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({
+      case: { title: "Case 1" }, session: { id: "session-1", messages: [], summary: null }, runtime: {},
+    }) })));
+    await act(async () => {
+      root.render(createElement(ProfessorReview, { sessionId: "session-1" }));
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    expect(container.textContent).toContain("Review unavailable");
+    expect(container.textContent).toContain("Switch to a professor or administrator profile");
+    expect(container.querySelector(".transcript-card")).toBeNull();
+    expect(fetch).toHaveBeenCalledWith("/api/session/session-1?view=professor", expect.objectContaining({ cache: "no-store" }));
+  });
+
+  it("handles a denied faculty-view request without rendering grading controls", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, json: async () => ({ error: "Switch to a professor profile." }) })));
+    await act(async () => {
+      root.render(createElement(ProfessorReview, { sessionId: "session-1" }));
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    expect(container.textContent).toContain("Review unavailable");
+    expect(container.textContent).toContain("Switch to a professor profile.");
+    expect(container.querySelector(".label-buttons")).toBeNull();
+  });
 });
