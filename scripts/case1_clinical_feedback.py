@@ -62,6 +62,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             "How would you describe the bite?",
             "If a tooth hasn't erupted, how would you work out where it is from these records?",
             "How much can an OPG alone tell you about where a tooth sits?",
+            "What other features of the malocclusion do you observe on the records provided?",
         ],
         "tutorGuidance": [
             "Keep the recorded context separate from interpretation: the 22-year-old patient reports crooked teeth and has no relevant medical history in this source.",
@@ -119,6 +120,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             "Treat the supplied CBCT record as the source-backed confirmation of a palatal #23; never claim the model read image pixels.",
             "Keep location and rotation separate: a palatal location does not mean the crown is rotated, and the crown's buccal surface faces buccally.",
             "Record no resorption of #22 or #24, and do not invent root findings outside the supplied record.",
+            "Keep the focus on #23 and its prognosis. There is no root resorption of #22 or #24, so do not keep returning to it.",
         ],
         "acceptedExtras": [],
         "tutorMoves": [],
@@ -161,6 +163,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             "Assess prognosis from the local canine, root, and adjacent teeth together with adult age and ankylosis risk; do not reduce it to one factor.",
             "Use a test movement of #23 as the checkpoint before committing to or extracting #24 when retention of #23 is being considered.",
             "Crowding requires space for final alignment, but do not require #24 space creation before the movement test; absent movement supports removing #23 and retaining #24.",
+            "Keep the focus on #23 and its prognosis. There is no root resorption of #22 or #24, so do not keep returning to it.",
         ],
         "acceptedExtras": [],
         "tutorMoves": [],
@@ -169,7 +172,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
     },
     {
         "title": "Build the problem list",
-        "goal": "Pull everything together into a list of the problems a treatment plan would need to address, not just the unerupted tooth.",
+        "goal": "Organise the patient's problems into a prioritised, numbered list, not just the unerupted tooth.",
         "rubric": [
             _criterion(
                 "p4-skeletal-classiii-lowangle",
@@ -197,7 +200,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
                 "Her main concern is crooked teeth, so your problem list should connect back to that.",
             ),
         ],
-        "starterQuestion": "Putting everything together, what problems does this patient have that a treatment plan would need to address?",
+        "starterQuestion": "Can you organise a prioritised problem list for this patient, numbered from most to least important?",
         "exampleQuestions": [
             "What do the ceph findings tell you about her skeletal pattern?",
             "How have her front teeth compensated for the skeletal pattern?",
@@ -209,6 +212,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             "Keep the source Class III, low-angle retrusive-maxilla pattern distinct from incisor compensation and the occlusal findings.",
             "Include severe upper and moderate lower crowding, relevant occlusion, and the patient's crooked-teeth concern in one integrated list.",
             "Third-molar status is a useful bonus context only and is not a required problem-list item.",
+            "Accept a numbered list. If the student has already ranked the problems, treat that order as their prioritisation and do not ask them to rank again; ask about the reasoning behind the order instead.",
         ],
         "acceptedExtras": [
             {

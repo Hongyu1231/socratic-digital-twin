@@ -14,6 +14,7 @@ import { getTeachingContextWithTrace, getTeachingContextWithTraceAsync } from "@
 import { normalizeCriterionTags, phaseCriteria } from "@/lib/tutor/criteria";
 import { avoidRepeatedQuestion, progressPhase, requestHelpProgress, supportQuestion, supportTarget } from "@/lib/tutor/progression";
 import { remainingTutorRequestMs, startTutorRequestBudget } from "@/lib/tutor/request-budget";
+import { stepUpAcknowledgement, supportedPhaseAcknowledgement } from "@/lib/tutor/acknowledgement";
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 export const HELP_REQUEST_MARKER = "Requested more help";
@@ -28,6 +29,27 @@ export class HelpGenerationRetryableError extends Error {
     super(message, options);
     this.name = "HelpGenerationRetryableError";
   }
+}
+
+/**
+ * Every tutor question asked so far in this session, across all phases, as
+ * plain text with no duplicates. Acknowledgements and correction verdicts are
+ * stored in content for the legacy UI, so they are removed first.
+ */
+export function askedTutorQuestions(messages: TutorMessage[]): string[] {
+  const seen = new Set<string>();
+  const questions: string[] = [];
+  for (const message of messages) {
+    if (message.sender !== "ai") continue;
+    const withoutAcknowledgement = message.acknowledgement && message.content.startsWith(`${message.acknowledgement} `)
+      ? message.content.slice(message.acknowledgement.length + 1) : message.content;
+    const question = withoutAcknowledgement.replace(/^That statement is incorrect\.\s*/, "").trim();
+    const key = question.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    questions.push(question);
+  }
+  return questions;
 }
 
 function isRealAnswerForPhase(bundle: SessionBundle, phaseOrder: number) {
@@ -140,6 +162,7 @@ export async function submitTutorHelp(
     reasoningGap,
     phaseOrder,
   }));
+  const askedQuestions = askedTutorQuestions(bundle.session.messages);
   const query = `${currentQuestion ?? ""} ${phase.goal}`.trim();
   const retrieval = bundle.case.teachingMaterialPackageId
     ? await getTeachingContextWithTraceAsync(bundle.case.sourceCaseId ?? bundle.case.id, query, bundle.case.teachingMaterialPackageId)
@@ -171,6 +194,7 @@ export async function submitTutorHelp(
         currentQuestion,
         recentDialogue,
         recentEvaluations,
+        askedQuestions,
         support: { level: transition.state.supportLevel as 1 | 2, targetCriterion: target },
         timeoutMs: supportTimeoutMs,
       });
@@ -284,6 +308,7 @@ async function performStudentAnswer(
     reasoningGap,
     phaseOrder,
   }));
+  const askedQuestions = askedTutorQuestions(bundle.session.messages);
   const query = `${content} ${currentQuestion ?? ""} ${phase.goal}`;
   const retrieval = isReflectionAnswer ? { context: undefined, trace: { query: "", passages: [] } }
     : bundle.case.teachingMaterialPackageId
@@ -311,6 +336,7 @@ async function performStudentAnswer(
     currentQuestion,
     recentDialogue,
     recentEvaluations,
+    askedQuestions,
   };
   const baselineResult: TutorEvaluationResult = isReflectionAnswer ? {
     classification: "partial", confidence: 0, misconceptionKey: null, strategy: "reflect",
@@ -336,6 +362,7 @@ async function performStudentAnswer(
       currentQuestion,
       recentDialogue,
       recentEvaluations,
+      askedQuestions,
       baseline: baselineResult,
       timeoutMs: remainingTutorRequestMs(requestDeadline),
       deadlineMs: requestDeadline,
@@ -475,15 +502,9 @@ async function performStudentAnswer(
       : progress?.escalated
         ? supportReply ?? supportQuestion(phase, progress.state)
       : tutorMove?.question ?? result.nextQuestion;
-  // Acknowledgements and correction verdicts are stored in content for the
-  // legacy UI. Compare the actual question, including when it is scripted.
-  const earlierQuestions = bundle.session.messages.filter((message) => message.sender === "ai").map((message) => {
-    const question = message.acknowledgement && message.content.startsWith(`${message.acknowledgement} `)
-      ? message.content.slice(message.acknowledgement.length + 1) : message.content;
-    return question.replace(/^That statement is incorrect\.\s*/, "");
-  });
+  // Compare the actual question, including when it is scripted.
   const baseQuestion = phaseComplete || sessionComplete || progress?.escalated ? proposedQuestion
-    : avoidRepeatedQuestion(proposedQuestion, earlierQuestions, phase, attempt);
+    : avoidRepeatedQuestion(proposedQuestion, askedQuestions, phase, attempt);
   // Log the actual displayed target, not a discarded model/script proposal.
   if (phaseComplete || isReflectionAnswer || baseQuestion !== proposedQuestion) evaluation.targetCriterionId = undefined;
   else if (progress?.escalated) evaluation.targetCriterionId = progress.state.supportLevel === 2 || supportReply ? target?.id : undefined;
@@ -493,9 +514,12 @@ async function performStudentAnswer(
     { ...result, misconceptionKey, nextQuestion: baseQuestion }, bundle.session.evaluations, phase.order,
     { hasScriptedMove: Boolean(scriptedMove), correctionProbes: bundle.case.correctionProbes ?? 1 },
   );
-  const acknowledgement = isReflectionAnswer ? undefined : supported
-    ? "We have completed this phase with support; any remaining gaps are recorded for review."
-    : result.acknowledgement;
+  // A supported phase keeps the model's own acknowledgement unless it is
+  // missing, invalid or claims mastery. The supported flag itself is unchanged.
+  const acknowledgement = isReflectionAnswer ? undefined
+    : supported ? supportedPhaseAcknowledgement(result.acknowledgement)
+      : progress?.escalated ? stepUpAcknowledgement(result.acknowledgement)
+        : result.acknowledgement;
   const moveType: TutorMessage["moveType"] = askReflection ? "reflection" : phaseComplete || sessionComplete ? "transition"
     : progress?.escalated ? progress.state.supportLevel === 2 ? "reveal" : "hypothetical"
       : nextQuestion.startsWith("That statement is incorrect.") ? "correction" : "question";

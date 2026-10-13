@@ -15,6 +15,7 @@ interface ShadowInput {
   currentQuestion?: string;
   recentDialogue?: Array<{ sender: "student" | "ai"; content: string }>;
   recentEvaluations?: TutorEvaluateInput["recentEvaluations"];
+  askedQuestions?: string[];
   baseline: TutorEvaluationResult;
   /** Candidate work shares the learner request's remaining time budget. */
   timeoutMs?: number;
@@ -63,6 +64,7 @@ export async function applyHumanizationExperiment(input: ShadowInput): Promise<E
     currentQuestion: input.currentQuestion,
     recentDialogue: input.recentDialogue,
     recentEvaluations: input.recentEvaluations,
+    askedQuestions: input.askedQuestions,
     timeoutMs,
   }); }
   catch { return { studentResult: input.baseline, experimentId: active.experiment.id, arm: "baseline" }; }

@@ -5,7 +5,7 @@ import { InMemoryTutorRepository } from "@/lib/repository/memory";
 import { resetRepositoryForTests } from "@/lib/repository";
 import * as tutor from "@/lib/tutor";
 import * as support from "@/lib/tutor/support";
-import { submitStudentAnswer } from "@/lib/tutor/state-machine";
+import { askedTutorQuestions, submitStudentAnswer } from "@/lib/tutor/state-machine";
 import { studentCaseView, studentView } from "@/lib/http";
 
 const result = (patch: Partial<TutorEvaluationResult> = {}): TutorEvaluationResult => ({
@@ -108,7 +108,8 @@ describe("v2 end-to-end tutor state", () => {
     expect(bundle.session.evaluations.at(-1)).toMatchObject({ classification: "partial", completedWithSupport: true });
     expect(bundle.session.state.phaseEvidence?.["1"].completed).toBe(false);
     expect(bundle.session.state.weaknesses.length).toBeGreaterThan(0);
-    expect(bundle.session.messages.at(-1)?.content).toContain("with support");
+    expect(bundle.session.messages.at(-1)?.content).toContain(result().acknowledgement);
+    expect(bundle.session.messages.at(-1)?.content).not.toContain("with support");
   });
 
   it("always asks an explicit final reflection and does not grade its answer", async () => {
@@ -247,6 +248,86 @@ describe("v2 end-to-end tutor state", () => {
     expect(first.session.state.usedTutorMoves).toEqual([]);
     const second = await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "The remaining evidence.");
     expect(second.session.messages.at(-1)).toMatchObject({ moveType: "reflection", content: `${result().acknowledgement} ${closing}` });
+  });
+
+  async function finishPhaseWithSupport(lastAcknowledgement: string | undefined) {
+    vi.spyOn(tutor, "evaluateWithFallback")
+      .mockResolvedValueOnce(result())
+      .mockResolvedValueOnce(result())
+      .mockResolvedValueOnce(result({ acknowledgement: lastAcknowledgement }));
+    let bundle = await start(2, 2);
+    for (const answer of ["I need help.", "I still need help.", "I tried to use the hint."]) {
+      bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, answer);
+    }
+    expect(bundle.session.currentPhase).toBe(2);
+    expect(bundle.session.evaluations.at(-1)).toMatchObject({ completedWithSupport: true, supportLevel: 2 });
+    expect(studentView(bundle).case.phases[0].phaseProgress?.completedWithSupport).toBe(true);
+    return bundle.session.messages.at(-1)!;
+  }
+
+  it("keeps the model's acknowledgement when a phase ends with support", async () => {
+    const message = await finishPhaseWithSupport("You tried the hint on the supplied record.");
+    expect(message.acknowledgement).toBe("You tried the hint on the supplied record.");
+    expect(message.content).toBe("You tried the hint on the supplied record. Which finding or uncertainty had the greatest influence on your reasoning?");
+    expect(message.completedWithSupport).toBe(true);
+    expect(message.content).not.toContain("with support");
+  });
+
+  it.each([
+    undefined,
+    "",
+    "Can you say more?",
+    "You've got it now.",
+    "Well done, that is correct.",
+    "You have mastered this part.",
+  ])("uses the exact fixed line when the supported acknowledgement is unusable: %s", async (acknowledgement) => {
+    const message = await finishPhaseWithSupport(acknowledgement);
+    expect(message.acknowledgement).toBe("Let's move on to the next part.");
+    expect(message.content).toBe("Let's move on to the next part. Which finding or uncertainty had the greatest influence on your reasoning?");
+    expect(message.content).not.toMatch(/got it|well done|correct|master/i);
+  });
+
+  it("drops an acknowledgement longer than 20 words before a step-up", async () => {
+    vi.spyOn(tutor, "getTutorMode").mockReturnValue("openai");
+    const long = `${Array.from({ length: 21 }, (_, index) => `word${index}`).join(" ")}.`;
+    vi.spyOn(tutor, "evaluateWithFallback")
+      .mockResolvedValueOnce(result({ source: "openai", nextQuestion: "Ordinary question 1?" }))
+      .mockResolvedValueOnce(result({ source: "openai", nextQuestion: "Ordinary question 2?" }))
+      .mockResolvedValueOnce(result({ source: "openai", acknowledgement: long }))
+      .mockResolvedValueOnce(result({ source: "openai", nextQuestion: "Ordinary question 4?" }))
+      .mockResolvedValueOnce(result({ source: "openai", acknowledgement: "You named one finding." }));
+    vi.spyOn(support, "generateTutorSupport").mockImplementation(async (input) => ({
+      source: "openai", content: `A plan for level ${input.support.level}. What might it miss?`,
+    }));
+    let bundle = await start();
+    for (const answer of ["First try.", "Second try.", "Third try."]) bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, answer);
+    expect(bundle.session.messages.at(-1)).toMatchObject({ moveType: "hypothetical", content: "A plan for level 1. What might it miss?" });
+    expect(bundle.session.messages.at(-1)?.acknowledgement).toBeUndefined();
+    for (const answer of ["Fourth try.", "Fifth try."]) bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, answer);
+    expect(bundle.session.messages.at(-1)).toMatchObject({
+      moveType: "reveal", acknowledgement: "You named one finding.",
+      content: "You named one finding. A plan for level 2. What might it miss?",
+    });
+  });
+
+  it("passes every earlier tutor question, from all phases and without duplicates, to both prompts", async () => {
+    vi.spyOn(tutor, "getTutorMode").mockReturnValue("openai");
+    let turn = 0;
+    const evaluate = vi.spyOn(tutor, "evaluateWithFallback")
+      .mockResolvedValueOnce(result({ source: "openai", classification: "correct", criteriaMet: ["private-observation", "private-evidence"] }))
+      .mockImplementation(async () => result({ source: "openai", nextQuestion: `Phase two question ${++turn}?` }));
+    const generate = vi.spyOn(support, "generateTutorSupport").mockResolvedValue({ source: "openai", content: "One plan is to wait. What might it miss?" });
+    const starter = "Which finding or uncertainty had the greatest influence on your reasoning?";
+    let bundle = await start();
+    bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, "Both required points.");
+    expect(bundle.session.currentPhase).toBe(2);
+    for (const answer of ["First try.", "Second try.", "Third try."]) bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, answer);
+    // Phase 1 and phase 2 open with the same starter: it is listed once.
+    expect(evaluate.mock.calls.at(-1)?.[0].askedQuestions).toEqual([starter, "Phase two question 1?", "Phase two question 2?"]);
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(generate.mock.calls[0][0].askedQuestions).toEqual([starter, "Phase two question 1?", "Phase two question 2?"]);
+    expect(askedTutorQuestions(bundle.session.messages)).toEqual([starter, "Phase two question 1?", "Phase two question 2?", "One plan is to wait. What might it miss?"]);
+    for (const question of askedTutorQuestions(bundle.session.messages)) expect(question).not.toContain(result().acknowledgement);
   });
 
   it("ignores a stale reflection flag outside the final phase", async () => {

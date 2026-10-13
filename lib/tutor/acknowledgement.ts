@@ -22,6 +22,28 @@ export function normalizeAcknowledgement(value: unknown): string | undefined {
   return acknowledgement;
 }
 
+export const STEP_UP_ACKNOWLEDGEMENT_MAX_WORDS = 20;
+export const SUPPORTED_PHASE_ACKNOWLEDGEMENT = "Let's move on to the next part.";
+
+const MASTERY_CLAIM = /\b(?:you(?:'|\u2019)?ve got (?:it|this)|you have got (?:it|this)|you got (?:it|this)|got it right|master(?:y|ed|ing)?|well done|good job|great|excellent|perfect|spot on|nailed|exactly right|that(?:'|\u2019)?s right|correct(?:ly)?|fully underst(?:and|ood)|you (?:now )?understand)\b/i;
+
+/**
+ * A phase that ended after a reveal keeps the model's own acknowledgement, but
+ * only when it does not suggest the learner got there unaided. Anything else
+ * becomes the fixed neutral line.
+ */
+export function supportedPhaseAcknowledgement(value: unknown): string {
+  const acknowledgement = normalizeAcknowledgement(value);
+  return acknowledgement && !MASTERY_CLAIM.test(acknowledgement) ? acknowledgement : SUPPORTED_PHASE_ACKNOWLEDGEMENT;
+}
+
+/** The acknowledgement shown before a step-up is one short sentence, or nothing. */
+export function stepUpAcknowledgement(value: unknown): string | undefined {
+  const acknowledgement = normalizeAcknowledgement(value);
+  if (!acknowledgement || acknowledgement.split(/\s+/).length > STEP_UP_ACKNOWLEDGEMENT_MAX_WORDS) return undefined;
+  return acknowledgement;
+}
+
 export const ACKNOWLEDGEMENT_RETRY_INSTRUCTIONS = [
   "The evaluation is already complete; repair only the acknowledgement field.",
   "Return one short, grounded sentence of at most 200 characters with no question mark.",

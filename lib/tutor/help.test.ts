@@ -88,6 +88,7 @@ describe("ungraded Help turns", () => {
     const attemptsBefore = answered.session.state.phaseAttempts["1"];
     const firstHelp = await submitTutorHelp(answered.session.id, DEMO_STUDENT_ID, "help-turn-01");
     expect(generate).toHaveBeenCalledTimes(1);
+    expect(generate.mock.calls[0][0].askedQuestions).toEqual(["What do you observe?", "What evidence supports that conclusion?"]);
     expect(firstHelp.session.evaluations).toHaveLength(1);
     expect(firstHelp.session.state.phaseProgress?.["1"]).toMatchObject({ supportLevel: 1, noProgressCount: 0, completedWithSupport: false });
     expect(firstHelp.session.state.phaseAttempts["1"]).toBe(attemptsBefore);

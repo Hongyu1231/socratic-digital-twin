@@ -53,8 +53,27 @@ describe("human tutor prompt contract", () => {
       const targetCriterion = { id: "c1", text: "Names the finding", revealText: "The finding is present." };
       expect(JSON.parse(buildTutorInput({ ...base, support: { level, targetCriterion } })).support).toEqual({ level, targetCriterion });
     }
-    expect(TUTOR_INSTRUCTIONS).toContain("At support.level 1, put one concrete plan or interpretation");
-    expect(TUTOR_INSTRUCTIONS).toContain("At support.level 2, tell the learner the point in support.targetCriterion.revealText");
+  });
+
+  it("no longer carries the unused step-up paragraph", () => {
+    expect(TUTOR_INSTRUCTIONS).not.toContain("When the input has a support object");
+    expect(TUTOR_INSTRUCTIONS).not.toContain("support.level");
+    expect(TUTOR_INSTRUCTIONS).not.toContain("80 words");
+  });
+
+  it("lists every question already asked and forbids asking or rewording them", () => {
+    const phase = impactedCanineCase.phases[0];
+    const askedQuestions = ["What do you see on the OPG?", "Which tooth is missing from the arch?"];
+    expect(JSON.parse(buildTutorInput({ phase, answer: "An answer.", state, attempt: 1, askedQuestions })).askedQuestions).toEqual(askedQuestions);
+    expect(JSON.parse(buildTutorInput({ phase, answer: "An answer.", state, attempt: 1 })).askedQuestions).toEqual([]);
+    expect(TUTOR_INSTRUCTIONS).toContain("askedQuestions lists every question you have already asked in this session, across all phases");
+    expect(TUTOR_INSTRUCTIONS).toContain("Never ask any of them again and never reword one of them");
+  });
+
+  it("asks for a short acknowledgement that never claims mastery", () => {
+    expect(TUTOR_INSTRUCTIONS).toContain("one short sentence of at most 20 words");
+    expect(TUTOR_INSTRUCTIONS).toContain("never claims mastery or tells the learner they have got it");
+    expect(TUTOR_INSTRUCTIONS).not.toContain("\u2014");
   });
 
   it("requires grounded acknowledgement, one non-leading question, and attempt-aware scaffolding", () => {

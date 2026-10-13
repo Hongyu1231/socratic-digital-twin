@@ -447,6 +447,8 @@ export interface TutorEvaluateInput {
   currentQuestion?: string;
   recentDialogue?: Array<{ sender: "student" | "ai"; content: string }>;
   recentEvaluations?: Array<Pick<Evaluation, "classification" | "misconceptionKey" | "reasoningGap" | "phaseOrder">>;
+  /** Every tutor question already asked in this session, all phases, text only, no duplicates. */
+  askedQuestions?: string[];
   /** Set only on the second, step-up call: the level just reached and the criterion to write about. */
   support?: { level: 1 | 2; targetCriterion: RubricCriterion };
   /** Remaining provider budget for this call; omitted for legacy callers. */

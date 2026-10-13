@@ -5,7 +5,7 @@ vi.mock("@/lib/tutor/openai-client", () => ({ createOpenAIClient: () => ({ respo
 vi.mock("@anthropic-ai/sdk", () => ({ default: class { messages = { parse: claudeMock }; } }));
 
 import { impactedCanineCase } from "@/lib/seed";
-import { generateTutorSupport, validateTutorSupportOutput, type TutorSupportInput } from "@/lib/tutor/support";
+import { generateTutorSupport, TUTOR_SUPPORT_INSTRUCTIONS, validateTutorSupportOutput, type TutorSupportInput } from "@/lib/tutor/support";
 
 const input: TutorSupportInput = {
   phase: { ...impactedCanineCase.phases[0], goal: "Form an initial record-based assessment." },
@@ -66,13 +66,40 @@ describe("ungraded support generation", () => {
     { ...valid, content: "Which rubric criterion is missing?" },
     { ...valid, content: "Form an initial record-based assessment. What would you check?" },
     { ...valid, content: "Use p1-localisation. What would you check?" },
-    { ...valid, content: "Treat the opening record as a draft. How would you phrase that summary?" },
+    { ...valid, content: "What would you check first? Imagine choosing treatment from the OPG alone." },
     { ...valid, classification: "partial" },
   ])("rejects malformed or leaked support output %#", (output) => {
     expect(validateTutorSupportOutput(output, input)).toBeNull();
   });
   it("rejects a repeated earlier tutor question", () => {
     expect(validateTutorSupportOutput(valid, { ...input, recentDialogue: [{ sender: "ai", content: "What would you question about that plan?" }] })).toBeNull();
+  });
+  const words = (count: number) => `${Array.from({ length: count - 4 }, () => "word").join(" ")}. What would you do?`;
+  const level2 = { ...input, support: { ...input.support, level: 2 as const } };
+  it("limits a level 1 plan to 40 words and a level 2 reveal to 60 words", () => {
+    expect(validateTutorSupportOutput({ ...valid, content: words(40) }, input)).toBe(words(40));
+    expect(validateTutorSupportOutput({ ...valid, content: words(41) }, input)).toBeNull();
+    expect(validateTutorSupportOutput({ ...valid, supportLevel: 2, content: words(60) }, level2)).toBe(words(60));
+    expect(validateTutorSupportOutput({ ...valid, supportLevel: 2, content: words(61) }, level2)).toBeNull();
+  });
+  it("accepts a level 1 plain question with no critique-type word", () => {
+    const content = "One plan is to treat the opening record as final. How would you phrase that summary?";
+    expect(validateTutorSupportOutput({ ...valid, content }, input)).toBe(content);
+  });
+  it("states the limits, the plain-question rule and one generic example", () => {
+    expect(TUTOR_SUPPORT_INSTRUCTIONS).toContain("At level 1, write at most 40 words in total");
+    expect(TUTOR_SUPPORT_INSTRUCTIONS).toContain("At level 2, write at most 60 words in total");
+    expect(TUTOR_SUPPORT_INSTRUCTIONS).toContain("ending in exactly one plain question");
+    expect(TUTOR_SUPPORT_INSTRUCTIONS).toContain("One plan is to start treatment from a single X-ray view. What might that plan miss?");
+    expect(TUTOR_SUPPORT_INSTRUCTIONS).not.toMatch(/critique|at most 80 words|#\d\d|\u2014/);
+  });
+  it("sends every question already asked and forbids asking or rewording them", async () => {
+    parseMock.mockResolvedValue({ status: "completed", output_parsed: valid });
+    const askedQuestions = ["What do you see on the OPG?", "Which tooth is missing from the arch?"];
+    await generateTutorSupport({ ...input, askedQuestions });
+    expect(JSON.parse(parseMock.mock.calls[0][0].input).askedQuestions).toEqual(askedQuestions);
+    expect(TUTOR_SUPPORT_INSTRUCTIONS).toContain("askedQuestions lists every tutor question already asked in this session, across all phases");
+    expect(TUTOR_SUPPORT_INSTRUCTIONS).toContain("Never ask any of them again and never reword one of them");
   });
   it("allows a plain authorized reveal with one application question", () => {
     expect(validateTutorSupportOutput({ targetCriterionId: valid.targetCriterionId, supportLevel: 2,

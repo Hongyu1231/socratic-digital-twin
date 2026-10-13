@@ -142,13 +142,29 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
             ("Observe the records", "Describe what you see in the records, then say what you think the main problem is and how sure you can be from these records alone.", "Looking through the records, what do you notice about this patient's malocclusion?"),
             ("Localise the problem", "Use the CBCT to confirm where the unerupted tooth is located, and what each record can and can't show you.", "How would you work out exactly where #23 is located, and what can each of the records tell you about that?"),
             ("Assess the prognosis", "Weigh what makes it more or less likely that the tooth can be brought safely into the arch.", "How likely is it that #23 can be brought into the arch, and what makes it more or less likely?"),
-            ("Build the problem list", "Pull everything together into a list of the problems a treatment plan would need to address, not just the unerupted tooth.", "Putting everything together, what problems does this patient have that a treatment plan would need to address?"),
+            ("Build the problem list", "Organise the patient's problems into a prioritised, numbered list, not just the unerupted tooth.", "Can you organise a prioritised problem list for this patient, numbered from most to least important?"),
             ("Compare management options", "Put forward a treatment plan for both arches, justify it, and weigh it against the alternatives.", "What treatment plan would you propose for both arches, and why?"),
             ("Review the plan", "Picture where treatment should end up, and what would make you change course along the way.", "Picture the end of treatment under your plan. Where does each tooth that matters end up?"),
         ]
         self.assertEqual(
             [(phase["title"], phase["goal"], phase["starterQuestion"]) for phase in self.phases],
             approved,
+        )
+
+    def test_wording_follow_up_guidance_is_added_exactly(self):
+        focus = "Keep the focus on #23 and its prognosis. There is no root resorption of #22 or #24, so do not keep returning to it."
+        ranked = "Accept a numbered list. If the student has already ranked the problems, treat that order as their prioritisation and do not ask them to rank again; ask about the reasoning behind the order instead."
+        self.assertEqual(self.phases[1]["tutorGuidance"][-1], focus)
+        self.assertEqual(self.phases[2]["tutorGuidance"][-1], focus)
+        self.assertEqual(self.phases[3]["tutorGuidance"][-1], ranked)
+        self.assertEqual([len(phase["tutorGuidance"]) for phase in self.phases[:4]], [4, 4, 4, 4])
+        for index in (0, 3, 4, 5):
+            self.assertNotIn(focus, self.phases[index]["tutorGuidance"])
+        for index in (0, 1, 2, 4, 5):
+            self.assertNotIn(ranked, self.phases[index]["tutorGuidance"])
+        self.assertEqual(
+            self.phases[0]["exampleQuestions"][-1],
+            "What other features of the malocclusion do you observe on the records provided?",
         )
 
     def test_closing_reflection_and_palatal_exposure_guidance(self):
@@ -200,6 +216,7 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
                 "How would you describe the bite?",
                 "If a tooth hasn't erupted, how would you work out where it is from these records?",
                 "How much can an OPG alone tell you about where a tooth sits?",
+                "What other features of the malocclusion do you observe on the records provided?",
             ],
             [
                 "What does the CBCT show about where #23 is?",
