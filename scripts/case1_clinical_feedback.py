@@ -242,7 +242,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             ),
             _criterion(
                 "p5-remaining-premolar-choice",
-                "Specifies and justifies the remaining premolar choice as first premolars or second premolars rather than treating the selection as fixed.",
+                "Names the remaining three premolar extractions; either first or second premolars are acceptable, and no first-versus-second justification is required.",
                 "The other three extractions are premolars, for example #14, #34 and #44. They can be first or second premolars.",
             ),
             _criterion(
@@ -263,7 +263,8 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
         ],
         "tutorGuidance": [
             "Require one justified plan that addresses both arches; do not require two alternative plans when one plan is coherent and evidence-linked.",
-            "Accept either #23 extraction or #24 extraction as the upper-arch choice, and accept first or second premolars when justified for the remaining space plan.",
+            "Accept either #23 extraction or #24 extraction as the upper-arch choice, and accept named first or second premolars for the remaining space plan without requiring a first-versus-second justification.",
+            "Treat an explanation for choosing first rather than second premolars (or vice versa) as an accepted extra; naming an acceptable premolar plan is sufficient for completion.",
             "When retaining #23, assess its movement before committing to or extracting #24; do not require #24 space creation before the test, and accept removing #23 while retaining #24 if movement is absent.",
             "One justified direct remove-#23/retain-#24 plan that addresses both arches is complete; the phase goal's invitation to weigh alternatives does not require a second plan or a comparison with retaining #23 and extracting #24.",
             "For faculty evaluation, p5-movement-before-24 is not applicable when the learner directly chooses remove-#23/retain-#24; treat it as satisfied for completion in that branch. Apply that criterion only when the learner chooses to retain #23 and extract #24, where movement must be tested first.",
@@ -277,6 +278,10 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             {
                 "id": "p5-extra-second-plan",
                 "text": "Offers a second alternative extraction plan as a bonus; it is not required when the primary plan is justified.",
+            },
+            {
+                "id": "p5-extra-premolar-rationale",
+                "text": "Explains why first rather than second premolars were selected (or vice versa) as a bonus treatment-planning detail; naming acceptable premolars is sufficient.",
             },
             {
                 "id": "p5-extra-no-bond-22",
@@ -303,13 +308,8 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             ),
             _criterion(
                 "p6-evidence-tradeoffs",
-                "Acknowledges the principal evidence-based trade-off or uncertainty that could change the anticipated outcome.",
+                "Identifies an evidence-based execution uncertainty or trade-off that could change how the plan is carried out, such as whether #23 will move or how #24's gingival margin will appear if it replaces #23.",
                 "The main uncertainty is whether #23 will move, given her age and the risk of ankylosis. For the removal plan, it's how the uneven gingival margin level of #24 looks when she smiles.",
-            ),
-            _criterion(
-                "p6-overbite-control",
-                "Acknowledges that the overbite is minimal, and that aligning severely displaced teeth such as #13, #23 and #43 may intrude adjacent teeth and reduce the overbite further, leading to an anterior open bite tendency.",
-                "To keep the overbite positive: don't engage #13 and #43 on a continuous archwire at first bonding, start traction or alignment of #13, #23 and #43 only on a stiff archwire, bond posterior teeth more occlusally to avoid extruding them, and consider vertical elastics.",
             ),
         ],
         "starterQuestion": "Picture the end of treatment under your plan. What challenges will you anticipate?",
@@ -323,9 +323,15 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             "Focus on the practical challenges of carrying out the chosen plan and how the student would handle them, linked to the case findings and the patient's concerns. Do not ask the student to describe final tooth positions.",
             "Make the #23 movement checkpoint and reconsideration rule explicit; absent movement supports removing #23 while retaining #24.",
             "Keep optional second plans, third-molar discussion, and no-bonding #22 and #24 as bonus details rather than hidden requirements.",
+            "Treat the minimal-overbite management point as an accepted extra: acknowledge it if the student raises it, but do not require it for phase completion or target it as a missing criterion.",
             "Carry forward the supplied Phase 2 palatal #23 location with a buccally facing, unrotated crown and no recorded #22/#24 root resorption; do not confuse crown orientation or a possible exposure route with canine location.",
         ],
-        "acceptedExtras": [],
+        "acceptedExtras": [
+            {
+                "id": "p6-overbite-control",
+                "text": "As an accepted extra (bonus), notes that the minimal overbite may reduce further or develop an anterior open-bite tendency while aligning severely displaced #13, #23 and #43, and may suggest practical mechanics such as delaying continuous engagement of #13/#43 at first bonding, using a stiff archwire for traction or alignment, bonding posterior teeth more occlusally to avoid extrusion, or considering vertical elastics. This point is optional and not required for phase completion.",
+            },
+        ],
         "tutorMoves": [
             {
                 "id": "p6-closing-reflection",

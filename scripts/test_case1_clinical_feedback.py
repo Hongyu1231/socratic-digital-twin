@@ -67,6 +67,8 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
         self.assertIn("not applicable when the learner directly chooses remove-#23/retain-#24", guidance)
         self.assertIn("directly choosing remove-#23/retain-#24", rubric)
         self.assertIn("second alternative extraction plan", " ".join(item["text"] for item in phase["acceptedExtras"]).lower())
+        self.assertIn("no first-versus-second justification is required", rubric)
+        self.assertIn("p5-extra-premolar-rationale", {item["id"] for item in phase["acceptedExtras"]})
 
     def test_phase_five_branch_applicability_and_bonus_are_explicit(self):
         phase = self.phases[4]
@@ -87,6 +89,46 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
         self.assertIn("does not require a second plan", guidance)
         self.assertIn("p5-extra-second-plan", extras)
         self.assertIn("bonus", extras["p5-extra-second-plan"])
+        self.assertIn("p5-extra-premolar-rationale", extras)
+        self.assertIn("bonus", extras["p5-extra-premolar-rationale"])
+
+    def test_phase_five_premolar_naming_is_required_but_rationale_is_optional(self):
+        phase = self.phases[4]
+        required = {item["id"]: item["text"].lower() for item in phase["rubric"]}
+        extras = {item["id"]: item["text"].lower() for item in phase["acceptedExtras"]}
+        self.assertIn("names the remaining three premolar extractions", required["p5-remaining-premolar-choice"])
+        self.assertIn("either first or second premolars are acceptable", required["p5-remaining-premolar-choice"])
+        self.assertIn("no first-versus-second justification is required", required["p5-remaining-premolar-choice"])
+        self.assertIn("explains why first rather than second", extras["p5-extra-premolar-rationale"])
+        self.assertIn("naming acceptable premolars is sufficient", extras["p5-extra-premolar-rationale"])
+
+    def test_phase_six_overbite_point_is_an_accepted_extra_not_a_gate(self):
+        phase = self.phases[5]
+        required_ids = {item["id"] for item in phase["rubric"]}
+        extras = {item["id"]: item["text"].lower() for item in phase["acceptedExtras"]}
+        guidance = " ".join(phase["tutorGuidance"]).lower()
+        self.assertNotIn("p6-overbite-control", required_ids)
+        self.assertIn("p6-overbite-control", extras)
+        self.assertIn("bonus", extras["p6-overbite-control"])
+        self.assertIn("minimal overbite", extras["p6-overbite-control"])
+        self.assertIn("anterior open-bite tendency", extras["p6-overbite-control"])
+        self.assertIn("#13, #23 and #43", extras["p6-overbite-control"])
+        self.assertIn("stiff archwire", extras["p6-overbite-control"])
+        self.assertIn("vertical elastics", extras["p6-overbite-control"])
+        self.assertIn("not required for phase completion", extras["p6-overbite-control"])
+        self.assertIn("accepted extra", guidance)
+        self.assertIn("do not require it for phase completion", guidance)
+
+    def test_phase_six_marking_stays_on_execution_uncertainty_without_final_position_gate(self):
+        criterion = next(item for item in self.phases[5]["rubric"] if item["id"] == "p6-evidence-tradeoffs")
+        text = criterion["text"].lower()
+        guidance = " ".join(self.phases[5]["tutorGuidance"]).lower()
+        self.assertIn("execution uncertainty", text)
+        self.assertIn("trade-off", text)
+        self.assertIn("whether #23 will move", text)
+        self.assertIn("#24's gingival margin", text)
+        self.assertNotIn("anticipated outcome", text)
+        self.assertIn("do not ask the student to describe final tooth positions", guidance)
 
     def test_optional_extras_are_separate_from_required_criteria(self):
         phase_by_order = {phase["order"]: phase for phase in self.phases}
@@ -96,7 +138,11 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
         )
         self.assertEqual(
             {item["id"] for item in phase_by_order[5]["acceptedExtras"]},
-            {"p5-extra-second-plan", "p5-extra-no-bond-22"},
+            {"p5-extra-second-plan", "p5-extra-premolar-rationale", "p5-extra-no-bond-22"},
+        )
+        self.assertEqual(
+            {item["id"] for item in phase_by_order[6]["acceptedExtras"]},
+            {"p6-overbite-control"},
         )
         for phase in self.phases:
             required = {item["id"] for item in phase["rubric"]}
@@ -213,7 +259,6 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
             "p6-anticipated-outcome": "In carrying out the plan, the main challenges are getting #23 to move, keeping the extraction spaces to relieve the severe crowding, and, if #24 takes #23's place, matching its gingival margin level to #13.",
             "p6-checkpoint-reconsideration": "The key checkpoint is that #23 might not be movable, so it is preferable to test whether #23 moves before deciding whether to keep it. The premolar hasn't been extracted yet at that point, so if #23 doesn't move you can still switch to removing it and keeping #24.",
             "p6-evidence-tradeoffs": "The main uncertainty is whether #23 will move, given her age and the risk of ankylosis. For the removal plan, it's how the uneven gingival margin level of #24 looks when she smiles.",
-            "p6-overbite-control": "To keep the overbite positive: don't engage #13 and #43 on a continuous archwire at first bonding, start traction or alignment of #13, #23 and #43 only on a stiff archwire, bond posterior teeth more occlusally to avoid extruding them, and consider vertical elastics.",
         }
         actual = {item["id"]: item["revealText"] for phase in self.phases for item in phase["rubric"]}
         self.assertEqual(actual, approved)
