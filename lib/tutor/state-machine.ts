@@ -504,7 +504,7 @@ async function performStudentAnswer(
   const proposedQuestion = sessionComplete
     ? `You have completed all ${orderedPhases.length} ${orderedPhases.length === 1 ? "phase" : "phases"}. Your learning summary is ready.`
     : askReflection
-      ? reflectMove?.question ?? "Looking back, which finding or uncertainty had the greatest influence on your decision?"
+      ? reflectMove?.question ?? "Looking back, which finding had the greatest influence on your decision?"
       : phaseComplete
       ? nextPhaseRecord.starterQuestion
       : progress?.escalated

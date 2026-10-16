@@ -332,6 +332,17 @@ describe("support and repeated-question safeguards", () => {
     expect(fallback.match(/\?/g)).toHaveLength(1);
   });
 
+  it("asks what is still unsure before the attempt-numbered last resort", () => {
+    const current = "Which finding matters most?";
+    const genericBackups = ["Which remaining point would you explore next?", "What would help you resolve the remaining uncertainty?", "In Observe, which finding would you check next?"];
+    const exhausted = [current, "Which record supports that observation?", ...genericBackups];
+    const examples = phase({ exampleQuestions: ["Which record supports that observation?"] });
+
+    expect(avoidRepeatedQuestion(current, exhausted, examples, 4)).toBe("Which part of this are you still unsure about?");
+    expect(avoidRepeatedQuestion(current, [...exhausted, "Which part of this are you still unsure about?"], examples, 4))
+      .toBe("For this attempt (4), what else would help you explain your decision?");
+  });
+
   it("keeps fallback turns bounded and never repeats an earlier application question", () => {
     const first = supportQuestion(phase(), progress({ supportLevel: 1 }));
     expect(first.split(/\s+/).length).toBeLessThanOrEqual(40);

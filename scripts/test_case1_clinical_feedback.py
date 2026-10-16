@@ -2,6 +2,7 @@
 
 import importlib.util
 from pathlib import Path
+import re
 import unittest
 import uuid
 
@@ -139,12 +140,12 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
     def test_titles_goals_and_opening_questions_match_the_approved_wording(self):
         self.assertEqual(MODULE.CASE1_TITLE, "Case 1")
         approved = [
-            ("Observe the records", "Describe what you see in the records, then say what you think the main problem is and how sure you can be from these records alone.", "Looking through the records, what do you notice about this patient's malocclusion?"),
+            ("Observe the records", "Describe what you see in the records, then say what you think the main problem is and how sure you can be from these records alone.", "Looking through the records, what is the patient's chief complaint and what do you notice about her malocclusion?"),
             ("Localise the problem", "Use the CBCT to confirm where the unerupted tooth is located, and what each record can and can't show you.", "How would you work out exactly where #23 is located, and what can each of the records tell you about that?"),
             ("Assess the prognosis", "Weigh what makes it more or less likely that the tooth can be brought safely into the arch.", "How likely is it that #23 can be brought into the arch, and what makes it more or less likely?"),
             ("Build the problem list", "Organise the patient's problems into a prioritised, numbered list, not just the unerupted tooth.", "Can you organise a prioritised problem list for this patient, numbered from most to least important?"),
-            ("Compare management options", "Put forward a treatment plan for both arches, justify it, and weigh it against the alternatives.", "What treatment plan would you propose for both arches, and why?"),
-            ("Review the plan", "Picture where treatment should end up, and what would make you change course along the way.", "Picture the end of treatment under your plan. Where does each tooth that matters end up?"),
+            ("Compare management options", "Put forward a treatment plan for both arches, justify it, and weigh it against the alternatives.", "What treatment plan would you propose for this patient, and why?"),
+            ("Review the plan", "Picture the potential challenges encountered when executing the plan, and what would make you change course along the way.", "Picture the end of treatment under your plan. What challenges will you anticipate?"),
         ]
         self.assertEqual(
             [(phase["title"], phase["goal"], phase["starterQuestion"]) for phase in self.phases],
@@ -155,10 +156,10 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
         focus = "Keep the focus on #23 and its prognosis. There is no root resorption of #22 or #24, so do not keep returning to it."
         ranked = "Accept a numbered list. If the student has already ranked the problems, treat that order as their prioritisation and do not ask them to rank again; ask about the reasoning behind the order instead."
         self.assertEqual(self.phases[1]["tutorGuidance"][-1], focus)
-        self.assertEqual(self.phases[2]["tutorGuidance"][-1], focus)
+        self.assertEqual(self.phases[2]["tutorGuidance"][3], focus)
         self.assertIn(ranked, self.phases[3]["tutorGuidance"])
 
-        self.assertEqual([len(phase["tutorGuidance"]) for phase in self.phases[:4]], [4, 4, 4, 5])
+        self.assertEqual([len(phase["tutorGuidance"]) for phase in self.phases[:4]], [4, 4, 6, 5])
         for index in (0, 3, 4, 5):
             self.assertNotIn(focus, self.phases[index]["tutorGuidance"])
         for index in (0, 1, 2, 4, 5):
@@ -179,7 +180,7 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
         self.assertEqual(self.phases[5]["tutorMoves"], [{
             "id": "p6-closing-reflection",
             "strategy": "reflect",
-            "question": "Looking back over the whole case, which prognostic factor had the biggest impact on the management of the impacted maxillary canine, and why?",
+            "question": "Looking back over the whole case, which factor had the biggest impact on the management of the impacted maxillary canine, and why?",
         }])
         guidance = self.phases[4]["tutorGuidance"]
         self.assertIn("The crown is palatal, superficial and reachable from the palatal side, so an open palatal exposure is appropriate.", guidance)
@@ -196,7 +197,7 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
             "p2-crown-buccal-surface": "The crown's buccal surface faces buccally.",
             "p2-not-rotated": "So the crown isn't rotated. Where a tooth sits and which way it faces are separate things: #23 sits palatally but faces the normal way.",
             "p2-no-22-24-resorption": "There's no root resorption on #22 or #24.",
-            "p3-local-prognosis": "The crown is superficial, the root shape is uncomplicated, and the neighbouring roots show no resorption, so the local prognosis for bringing #23 into the arch is favourable.",
+            "p3-local-prognosis": "The #23 crown tip sits at the #22 CEJ, overlapping only the distal half of the #22 root. Its apex lies between the #22 and #24 apices, its angulation to the midline is under 30 degrees, its morphology is normal and there's no pathology, so #23 has a good prognosis.",
             "p3-adult-ankylosis": "At 22 the eruptive potential is lower than in an adolescent, and the tooth could be ankylosed, so whether it can move needs testing early.",
             "p3-test-movement": "Before extracting #24, expose #23 and apply an orthodontic force to check it moves. If it doesn't move, remove #23 and keep #24 instead.",
             "p3-crowding-final-space": "The severe upper crowding means space will be needed to bring #23 into its final position, but only after you've confirmed it can move.",
@@ -206,12 +207,13 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
             "p4-occlusion": "The bite problems to address include the Class III incisor relationship, the crossbite at #22/#33 and the lateral open bites.",
             "p4-patient-concerns": "Her main concern is crooked teeth, so your problem list should connect back to that.",
             "p5-both-arch-plan": "Given the crowding in both arches, a plan needs two extractions in the upper arch and two premolar extractions in the lower.",
-            "p5-upper-extraction-choice": "In the upper left, either keep #23 and extract #24, or remove #23 and keep #24. #24 already sits where #23 should be and is similar in width and colour to #13, but its gum line won't match #13, so her smile line needs checking.",
+            "p5-upper-extraction-choice": "In the upper left, either keep #23 and extract #24, or remove #23 and keep #24. #24 is positioned where #23 should be and is similar in width and colour to #13, but its gingival margin level won't match #13, so her smile line needs checking.",
             "p5-remaining-premolar-choice": "The other three extractions are premolars, for example #14, #34 and #44. They can be first or second premolars.",
             "p5-movement-before-24": "If you keep #23, test that it moves before extracting #24. If it doesn't move, remove #23 and keep #24.",
-            "p6-anticipated-outcome": "If #23 is kept, it ends up in the arch where #24 was, with the crowding resolved. If #23 is removed, #24 takes its place.",
-            "p6-checkpoint-reconsideration": "The key checkpoint is testing whether #23 moves. The premolar hasn't been extracted yet at that point, so if #23 doesn't move you can still switch to removing it and keeping #24.",
-            "p6-evidence-tradeoffs": "The main uncertainty is whether #23 will move, given her age and the risk of ankylosis. For the removal plan, it's how the uneven gum line of #24 looks when she smiles.",
+            "p6-anticipated-outcome": "In carrying out the plan, the main challenges are getting #23 to move, keeping the extraction spaces to relieve the severe crowding, and, if #24 takes #23's place, matching its gingival margin level to #13.",
+            "p6-checkpoint-reconsideration": "The key checkpoint is that #23 might not be movable, so it is preferable to test whether #23 moves before deciding whether to keep it. The premolar hasn't been extracted yet at that point, so if #23 doesn't move you can still switch to removing it and keeping #24.",
+            "p6-evidence-tradeoffs": "The main uncertainty is whether #23 will move, given her age and the risk of ankylosis. For the removal plan, it's how the uneven gingival margin level of #24 looks when she smiles.",
+            "p6-overbite-control": "To keep the overbite positive: don't engage #13 and #43 on a continuous archwire at first bonding, start traction or alignment of #13, #23 and #43 only on a stiff archwire, bond posterior teeth more occlusally to avoid extruding them, and consider vertical elastics.",
         }
         actual = {item["id"]: item["revealText"] for phase in self.phases for item in phase["rubric"]}
         self.assertEqual(actual, approved)
@@ -220,39 +222,40 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
         approved = [
             [
                 "Looking at the arch, which teeth would you expect to see that you can't?",
-                "How would you describe the bite?",
-                "If a tooth hasn't erupted, how would you work out where it is from these records?",
-                "How much can an OPG alone tell you about where a tooth sits?",
+                "How would you describe the occlusion?",
+                "If a tooth hasn't erupted, how would you determine its position in the arch based on these records?",
+                "How much can an OPG alone tell you about where a tooth is positioned?",
                 "What other features of the malocclusion do you observe on the records provided?",
             ],
             [
                 "What does the CBCT show about where #23 is?",
-                "Which way does the crown of #23 face?",
+                "Which direction does the buccal surface of the crown of #23 face?",
                 "How can you tell from the CBCT whether #23 is rotated?",
                 "What do the roots of #22 and #24 look like on the CBCT?",
             ],
             [
-                "What about the tooth and its neighbours makes it easier or harder to bring into the arch?",
-                "Would your view change if this patient were 13 instead of 22?",
+                "Would your view change if this patient were 45 years old instead of 22 years old?",
                 "How would you find out whether #23 can move before committing to the full plan?",
-                "Where would the space for #23 come from in this upper arch?",
+                "Where would the space for #23 come from in the upper arch?",
             ],
             [
                 "What do the ceph findings tell you about her skeletal pattern?",
-                "How have her front teeth compensated for the skeletal pattern?",
-                "Beyond the canine, what else would your plan have to deal with?",
+                "How have her incisors compensated for the skeletal pattern?",
+                "Beyond the impacted canine, what other features of the malocclusion would your plan have to address?",
                 "Of these problems, which matters most to her?",
-                "How would her soft-tissue profile affect your treatment considerations?",
+                "Although the extraoral photos are not provided in this case, how do you think her soft-tissue profile would affect your treatment considerations?",
             ],
             [
                 "Which teeth would you extract, and why?",
                 "What would you want to know about #23 before deciding which tooth to extract?",
                 "What's your Plan B, and why isn't it your Plan A?",
-                "Would the final result look very different if you kept #23 rather than removed it?",
+                "Would the final result look very different if you kept #23 rather than removing it?",
                 "If she wanted the quickest, most predictable option, how would that change your plan?",
+                "What are your anchorage considerations in this case?",
+                "How would you decide on the method of surgical exposure of the canine: open or closed?",
             ],
             [
-                "Working backwards from that end result, is there anything in your plan you'd change?",
+                "Which of these challenges would you plan for before you start, and how?",
                 "What would tell you partway through that the plan isn't working?",
                 "If #23 doesn't move when you test it, what would you do next?",
                 "What's the main uncertainty in your plan?",
@@ -276,6 +279,22 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
                 self.assertNotIn("\u2014", text)
             for text in visible[2:]:
                 self.assertNotIn(phase["goal"], text)
+
+    def test_every_reveal_fits_the_level_two_help_word_cap(self):
+        # Mirrors supportQuestion in lib/tutor/progression.ts: a level-2 step-up
+        # is the reveal text plus one backup question, capped at 60 words.
+        source = Path(__file__).resolve().parents[1].joinpath("lib", "tutor", "progression.ts").read_text()
+        cap = int(re.search(r"content\.split\(/\\s\+/\)\.length > (\d+)", source).group(1))
+        backups = re.search(r"const question = \[(.*?)\]\s*\.find", source, re.S).group(1)
+        backups = re.findall(r"[\"`]([^\"`]+\?)[\"`]", backups)
+        self.assertEqual(cap, 60)
+        self.assertEqual(len(backups), 5)
+        for phase in self.phases:
+            questions = [question.replace("${phase.title.toLowerCase()}", phase["title"].lower()) for question in backups]
+            for item in phase["rubric"]:
+                for question in questions:
+                    words = len(f"{item['revealText']} {question}".split())
+                    self.assertLessEqual(words, cap, f"{item['id']} + {question!r} is {words} words")
 
 
 if __name__ == "__main__":

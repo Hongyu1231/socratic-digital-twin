@@ -21,7 +21,7 @@ def _criterion(criterion_id, text, reveal_text):
 
 CASE1_TITLE = "Case 1"
 CASE1_CLOSING_QUESTION = (
-    "Looking back over the whole case, which prognostic factor had the biggest impact "
+    "Looking back over the whole case, which factor had the biggest impact "
     "on the management of the impacted maxillary canine, and why?"
 )
 
@@ -56,12 +56,12 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
                 "An OPG is a 2D image, so on its own it can't show whether the canine is buccal or palatal. Palpation and the shift between the two films support a palatal position, but only 3D imaging can confirm it.",
             ),
         ],
-        "starterQuestion": "Looking through the records, what do you notice about this patient's malocclusion?",
+        "starterQuestion": "Looking through the records, what is the patient's chief complaint and what do you notice about her malocclusion?",
         "exampleQuestions": [
             "Looking at the arch, which teeth would you expect to see that you can't?",
-            "How would you describe the bite?",
-            "If a tooth hasn't erupted, how would you work out where it is from these records?",
-            "How much can an OPG alone tell you about where a tooth sits?",
+            "How would you describe the occlusion?",
+            "If a tooth hasn't erupted, how would you determine its position in the arch based on these records?",
+            "How much can an OPG alone tell you about where a tooth is positioned?",
             "What other features of the malocclusion do you observe on the records provided?",
         ],
         "tutorGuidance": [
@@ -112,7 +112,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
         "starterQuestion": "How would you work out exactly where #23 is located, and what can each of the records tell you about that?",
         "exampleQuestions": [
             "What does the CBCT show about where #23 is?",
-            "Which way does the crown of #23 face?",
+            "Which direction does the buccal surface of the crown of #23 face?",
             "How can you tell from the CBCT whether #23 is rotated?",
             "What do the roots of #22 and #24 look like on the CBCT?",
         ],
@@ -134,7 +134,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             _criterion(
                 "p3-local-prognosis",
                 "Assesses prognosis from the local canine, its root, and adjacent teeth rather than from age alone.",
-                "The crown is superficial, the root shape is uncomplicated, and the neighbouring roots show no resorption, so the local prognosis for bringing #23 into the arch is favourable.",
+                "The #23 crown tip sits at the #22 CEJ, overlapping only the distal half of the #22 root. Its apex lies between the #22 and #24 apices, its angulation to the midline is under 30 degrees, its morphology is normal and there's no pathology, so #23 has a good prognosis.",
             ),
             _criterion(
                 "p3-adult-ankylosis",
@@ -154,16 +154,17 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
         ],
         "starterQuestion": "How likely is it that #23 can be brought into the arch, and what makes it more or less likely?",
         "exampleQuestions": [
-            "What about the tooth and its neighbours makes it easier or harder to bring into the arch?",
-            "Would your view change if this patient were 13 instead of 22?",
+            "Would your view change if this patient were 45 years old instead of 22 years old?",
             "How would you find out whether #23 can move before committing to the full plan?",
-            "Where would the space for #23 come from in this upper arch?",
+            "Where would the space for #23 come from in the upper arch?",
         ],
         "tutorGuidance": [
             "Assess prognosis from the local canine, root, and adjacent teeth together with adult age and ankylosis risk; do not reduce it to one factor.",
             "Use a test movement of #23 as the checkpoint before committing to or extracting #24 when retention of #23 is being considered.",
             "Crowding requires space for final alignment, but do not require #24 space creation before the movement test; absent movement supports removing #23 and retaining #24.",
             "Keep the focus on #23 and its prognosis. There is no root resorption of #22 or #24, so do not keep returning to it.",
+            "To assess the prognosis of an impacted canine, look at its anteroposterior position, vertical position, angulation to the midline, crown and root morphology, presence of pathology, and effects on adjacent structures. Use these factors to shape questions in this phase.",
+            "Marking guide for the age follow-up (never show to students): at 45 there is a higher risk of ankylosis or failed traction of #23, so choosing #23 as one of the extractions in the overall plan becomes reasonable.",
         ],
         "acceptedExtras": [],
         "tutorMoves": [],
@@ -203,10 +204,10 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
         "starterQuestion": "Can you organise a prioritised problem list for this patient, numbered from most to least important?",
         "exampleQuestions": [
             "What do the ceph findings tell you about her skeletal pattern?",
-            "How have her front teeth compensated for the skeletal pattern?",
-            "Beyond the canine, what else would your plan have to deal with?",
+            "How have her incisors compensated for the skeletal pattern?",
+            "Beyond the impacted canine, what other features of the malocclusion would your plan have to address?",
             "Of these problems, which matters most to her?",
-            "How would her soft-tissue profile affect your treatment considerations?",
+            "Although the extraoral photos are not provided in this case, how do you think her soft-tissue profile would affect your treatment considerations?",
         ],
         "tutorGuidance": [
             "Keep the source Class III, low-angle retrusive-maxilla pattern distinct from incisor compensation and the occlusal findings.",
@@ -237,7 +238,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             _criterion(
                 "p5-upper-extraction-choice",
                 "Justifies either #23 extraction or #24 extraction as the upper-arch choice; both choices are acceptable when tied to the evidence.",
-                "In the upper left, either keep #23 and extract #24, or remove #23 and keep #24. #24 already sits where #23 should be and is similar in width and colour to #13, but its gum line won't match #13, so her smile line needs checking.",
+                "In the upper left, either keep #23 and extract #24, or remove #23 and keep #24. #24 is positioned where #23 should be and is similar in width and colour to #13, but its gingival margin level won't match #13, so her smile line needs checking.",
             ),
             _criterion(
                 "p5-remaining-premolar-choice",
@@ -250,13 +251,15 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
                 "If you keep #23, test that it moves before extracting #24. If it doesn't move, remove #23 and keep #24.",
             ),
         ],
-        "starterQuestion": "What treatment plan would you propose for both arches, and why?",
+        "starterQuestion": "What treatment plan would you propose for this patient, and why?",
         "exampleQuestions": [
             "Which teeth would you extract, and why?",
             "What would you want to know about #23 before deciding which tooth to extract?",
             "What's your Plan B, and why isn't it your Plan A?",
-            "Would the final result look very different if you kept #23 rather than removed it?",
+            "Would the final result look very different if you kept #23 rather than removing it?",
             "If she wanted the quickest, most predictable option, how would that change your plan?",
+            "What are your anchorage considerations in this case?",
+            "How would you decide on the method of surgical exposure of the canine: open or closed?",
         ],
         "tutorGuidance": [
             "Require one justified plan that addresses both arches; do not require two alternative plans when one plan is coherent and evidence-linked.",
@@ -266,6 +269,9 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             "For faculty evaluation, p5-movement-before-24 is not applicable when the learner directly chooses remove-#23/retain-#24; treat it as satisfied for completion in that branch. Apply that criterion only when the learner chooses to retain #23 and extract #24, where movement must be tested first.",
             "The crown is palatal, superficial and reachable from the palatal side, so an open palatal exposure is appropriate.",
             "Carry forward the supplied Phase 2 finding: #23 is palatally located, its crown buccal surface faces buccally, it is not rotated, and no #22/#24 root resorption is recorded. Do not reinterpret a buccal crown surface, bracket position, or exposure route in an interview as a buccally located canine; location and orientation are separate.",
+            "High upper vertical anchorage: #13 and #23 need extruding into the arch, so reinforce vertical anchorage to prevent intrusion of adjacent teeth during alignment. High upper posterior anchorage: severe anterior crowding, so extraction spaces must be preserved to relieve it. High lower posterior anchorage: anterior crowding and lower incisor retraction are needed for a positive overjet, given a Class III incisor relationship on a Class III skeletal base.",
+            "Consider position, depth, angulation, relationship to adjacent roots and the attached gingiva available. Open exposure suits a relatively superficial, favourably positioned canine that can erupt towards the centre of the ridge with adequate attached gingiva. Closed exposure suits deeply impacted or high canines, especially palatal ones needing significant traction, preserving keratinised gingiva.",
+            "Here the crown is palatal, superficial and reachable palatally, so open palatal exposure is appropriate. The decision is made jointly by orthodontist and surgeon, considering eruption path, periodontal prognosis and planned mechanics.",
         ],
         "acceptedExtras": [
             {
@@ -274,7 +280,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             },
             {
                 "id": "p5-extra-no-bond-22",
-                "text": "Considers not bonding #22 while #23 remains impacted as a bonus management detail.",
+                "text": "Considers not bonding #22 and #24 while #23 remains impacted as a bonus management detail.",
             },
         ],
         "tutorMoves": [],
@@ -283,35 +289,40 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
     },
     {
         "title": "Review the plan",
-        "goal": "Picture where treatment should end up, and what would make you change course along the way.",
+        "goal": "Picture the potential challenges encountered when executing the plan, and what would make you change course along the way.",
         "rubric": [
             _criterion(
                 "p6-anticipated-outcome",
-                "Defends an anticipated outcome by linking it to the chosen both-arch extraction and alignment plan and the patient's concerns.",
-                "If #23 is kept, it ends up in the arch where #24 was, with the crowding resolved. If #23 is removed, #24 takes its place.",
+                "Names at least one practical challenge in carrying out the chosen plan and links it to the case findings, such as moving #23, holding the extraction spaces in the crowded arches, or the #24 gingival margin.",
+                "In carrying out the plan, the main challenges are getting #23 to move, keeping the extraction spaces to relieve the severe crowding, and, if #24 takes #23's place, matching its gingival margin level to #13.",
             ),
             _criterion(
                 "p6-checkpoint-reconsideration",
-                "States a reassessment checkpoint relevant to the chosen plan; if retaining #23, absent movement triggers the remove-#23/retain-#24 fallback, while direct #23 extraction does not require testing its retention.",
-                "The key checkpoint is testing whether #23 moves. The premolar hasn't been extracted yet at that point, so if #23 doesn't move you can still switch to removing it and keeping #24.",
+                "States a reassessment checkpoint relevant to the chosen plan; if #23 is retained, there is a challenge that #23 might not be movable. If retaining #23, absent movement triggers the remove-#23/retain-#24 fallback, while direct #23 extraction does not require testing its retention.",
+                "The key checkpoint is that #23 might not be movable, so it is preferable to test whether #23 moves before deciding whether to keep it. The premolar hasn't been extracted yet at that point, so if #23 doesn't move you can still switch to removing it and keeping #24.",
             ),
             _criterion(
                 "p6-evidence-tradeoffs",
                 "Acknowledges the principal evidence-based trade-off or uncertainty that could change the anticipated outcome.",
-                "The main uncertainty is whether #23 will move, given her age and the risk of ankylosis. For the removal plan, it's how the uneven gum line of #24 looks when she smiles.",
+                "The main uncertainty is whether #23 will move, given her age and the risk of ankylosis. For the removal plan, it's how the uneven gingival margin level of #24 looks when she smiles.",
+            ),
+            _criterion(
+                "p6-overbite-control",
+                "Acknowledges that the overbite is minimal, and that aligning severely displaced teeth such as #13, #23 and #43 may intrude adjacent teeth and reduce the overbite further, leading to an anterior open bite tendency.",
+                "To keep the overbite positive: don't engage #13 and #43 on a continuous archwire at first bonding, start traction or alignment of #13, #23 and #43 only on a stiff archwire, bond posterior teeth more occlusally to avoid extruding them, and consider vertical elastics.",
             ),
         ],
-        "starterQuestion": "Picture the end of treatment under your plan. Where does each tooth that matters end up?",
+        "starterQuestion": "Picture the end of treatment under your plan. What challenges will you anticipate?",
         "exampleQuestions": [
-            "Working backwards from that end result, is there anything in your plan you'd change?",
+            "Which of these challenges would you plan for before you start, and how?",
             "What would tell you partway through that the plan isn't working?",
             "If #23 doesn't move when you test it, what would you do next?",
             "What's the main uncertainty in your plan?",
         ],
         "tutorGuidance": [
-            "Defend an anticipated outcome rather than promising a guaranteed result, and link it to the chosen plan, evidence, and patient concerns.",
+            "Focus on the practical challenges of carrying out the chosen plan and how the student would handle them, linked to the case findings and the patient's concerns. Do not ask the student to describe final tooth positions.",
             "Make the #23 movement checkpoint and reconsideration rule explicit; absent movement supports removing #23 while retaining #24.",
-            "Keep optional second plans, third-molar discussion, and no-bonding #22 as bonus details rather than hidden requirements.",
+            "Keep optional second plans, third-molar discussion, and no-bonding #22 and #24 as bonus details rather than hidden requirements.",
             "Carry forward the supplied Phase 2 palatal #23 location with a buccally facing, unrotated crown and no recorded #22/#24 root resorption; do not confuse crown orientation or a possible exposure route with canine location.",
         ],
         "acceptedExtras": [],

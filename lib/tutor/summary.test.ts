@@ -34,7 +34,7 @@ describe("buildSessionSummary", () => {
 
     expect(summary.narrative).toContain("You finished all the phases and the reflection.");
     expect(summary.narrative).not.toContain("identification, assessment, risk, management");
-    expect(summary.narrative).toContain("Phase 1 was completed with tutor support, not demonstrated independent mastery.");
+    expect(summary.narrative).toContain("Phase 1 was completed with help from the tutor.");
   });
 
   it("keeps the formative caveat when a session ends before completion", () => {
@@ -55,6 +55,6 @@ describe("buildSessionSummary", () => {
     }), false);
     expect(summary.supportedPhases).toEqual([]);
     expect(summary.narrative).toContain("You ended the session before finishing all the phases.");
-    expect(summary.narrative).not.toContain("was completed with tutor support");
+    expect(summary.narrative).not.toContain("was completed with help from the tutor");
   });
 });

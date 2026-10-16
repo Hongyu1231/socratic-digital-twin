@@ -145,7 +145,7 @@ describe("v2 end-to-end tutor state", () => {
     bundle = await submitStudentAnswer(bundle.session.id, DEMO_STUDENT_ID, "I would revisit the supporting evidence.");
     expect(bundle.session.status).toBe("completed");
     expect(bundle.session.summary).toMatchObject({ supportedPhases: [1], overallScore: 70, completedAllPhases: true });
-    expect(bundle.session.summary?.narrative).toContain("not demonstrated independent mastery");
+    expect(bundle.session.summary?.narrative).toContain("Phase 1 was completed with help from the tutor.");
     expect(evaluate).toHaveBeenCalledTimes(3);
   });
 
