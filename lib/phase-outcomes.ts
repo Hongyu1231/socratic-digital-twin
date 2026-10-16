@@ -9,5 +9,5 @@ export function phaseCompletionLabel(phase: StudentPhase, currentPhase: number, 
   if (supported) return "Completed with tutor support";
   if (evidenced) return "Completed independently";
   // Legacy sessions can be complete without v2 evidence/support metadata.
-  return "Completed — support not recorded";
+  return "Completed (support not recorded)";
 }

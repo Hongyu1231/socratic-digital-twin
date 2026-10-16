@@ -35,7 +35,7 @@ export function buildSessionSummary(
     narrative: (completedAllPhases
       ? "You finished all the phases and the reflection. The score reflects how well you explained your reasoning, not just your final answer."
       : "You ended the session before finishing all the phases. This summary covers the reasoning you showed so far. Treat it as feedback to learn from.")
-      + (supportedPhases.length ? ` ${supportedPhases.length === 1 ? "Phase" : "Phases"} ${supportedPhases.join(", ")} ${supportedPhases.length === 1 ? "was" : "were"} completed with tutor support, not demonstrated independent mastery.` : ""),
+      + (supportedPhases.length ? ` ${supportedPhases.length === 1 ? "Phase" : "Phases"} ${supportedPhases.join(", ")} ${supportedPhases.length === 1 ? "was" : "were"} completed with help from the tutor.` : ""),
     strengths: strengths.length ? strengths : ["Kept working through the questions"],
     // An empty gap list is meaningful: do not invent a deficit after the
     // learner has resolved the recorded ones. The UI has an explicit empty state.

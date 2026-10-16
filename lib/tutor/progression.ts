@@ -119,5 +119,6 @@ export function avoidRepeatedQuestion(question: string, earlier: string[], phase
   return phase.exampleQuestions.find((candidate) => !hasAskedQuestion(candidate, earlier))
     ?? ["Which remaining point would you explore next?", "What would help you resolve the remaining uncertainty?", `In ${phase.title}, which finding would you check next?`]
       .find(candidate => !hasAskedQuestion(candidate, earlier))
+    ?? ["Which part of this are you still unsure about?"].find(candidate => !hasAskedQuestion(candidate, earlier))
     ?? `For this attempt (${attempt}), what else would help you explain your decision?`;
 }

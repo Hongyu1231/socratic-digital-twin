@@ -8,7 +8,7 @@ const summary: SessionSummary = { overallScore: 70, headline: "Summary", narrati
 describe("phase outcome presentation", () => {
   it("retains historical support flags even without phase progress", () => {
     expect(phaseCompletionLabel(phase, 1, { ...summary, supportedPhases: [1] })).toBe("Completed with tutor support");
-    expect(phaseCompletionLabel(phase, 1, summary)).toBe("Completed — support not recorded");
+    expect(phaseCompletionLabel(phase, 1, summary)).toBe("Completed (support not recorded)");
   });
   it("only claims independent completion when all criteria are evidenced", () => {
     const evidenced = { ...phase, phaseProgress: { criteriaMet: 1, criteriaTotal: 1, completedWithSupport: false } };

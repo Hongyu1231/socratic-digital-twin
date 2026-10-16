@@ -73,7 +73,7 @@ export function SessionSummaryView({ sessionId }: { sessionId: string }) {
         <p>Supported completion is recorded separately from independent evidence. Reflection is not graded.</p>
       </section>
       <div className="summary-grid">
-        <InsightCard icon={<ShieldCheck />} title="Strengths" items={summary.strengths} emptyMessage="The tutor did not single out a specific strength this time. That is a comment on one short session, not on you — work through the next steps and they are what the next summary will draw on." />
+        <InsightCard icon={<ShieldCheck />} title="Strengths" items={summary.strengths} emptyMessage="The tutor did not single out a specific strength this time. That's about one short session, not about you. Work through the next steps, and the next summary will draw on them." />
         <InsightCard icon={<Target />} title="Reasoning gaps" items={summary.weaknesses} emptyMessage="No specific gaps were recorded in this session. Keep making each step of your reasoning explicit so the tutor has something to test." />
         <InsightCard icon={<Compass />} title="Next steps" items={summary.nextSteps} emptyMessage="No next steps were generated for this session. Revisit the case, or ask your professor which part of the reasoning to practise first." />
       </div>
