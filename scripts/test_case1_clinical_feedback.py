@@ -96,7 +96,11 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
         )
         self.assertEqual(
             {item["id"] for item in phase_by_order[5]["acceptedExtras"]},
-            {"p5-extra-second-plan", "p5-extra-no-bond-22"},
+            {"p5-extra-second-plan", "p5-extra-no-bond-22", "p5-extra-premolar-justification"},
+        )
+        self.assertEqual(
+            {item["id"] for item in phase_by_order[6]["acceptedExtras"]},
+            {"p6-extra-overbite-control"},
         )
         for phase in self.phases:
             required = {item["id"] for item in phase["rubric"]}
@@ -213,7 +217,6 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
             "p6-anticipated-outcome": "In carrying out the plan, the main challenges are getting #23 to move, keeping the extraction spaces to relieve the severe crowding, and, if #24 takes #23's place, matching its gingival margin level to #13.",
             "p6-checkpoint-reconsideration": "The key checkpoint is that #23 might not be movable, so it is preferable to test whether #23 moves before deciding whether to keep it. The premolar hasn't been extracted yet at that point, so if #23 doesn't move you can still switch to removing it and keeping #24.",
             "p6-evidence-tradeoffs": "The main uncertainty is whether #23 will move, given her age and the risk of ankylosis. For the removal plan, it's how the uneven gingival margin level of #24 looks when she smiles.",
-            "p6-overbite-control": "To keep the overbite positive: don't engage #13 and #43 on a continuous archwire at first bonding, start traction or alignment of #13, #23 and #43 only on a stiff archwire, bond posterior teeth more occlusally to avoid extruding them, and consider vertical elastics.",
         }
         actual = {item["id"]: item["revealText"] for phase in self.phases for item in phase["rubric"]}
         self.assertEqual(actual, approved)
