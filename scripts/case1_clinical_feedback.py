@@ -242,8 +242,8 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             ),
             _criterion(
                 "p5-remaining-premolar-choice",
-                "Names the remaining premolar extractions, which can be first or second premolars.",
-                "The other three extractions are premolars, for example #14, #34 and #44. They can be first or second premolars.",
+                "Names the remaining three premolar extractions. First or second premolars are acceptable, and the rationale for that choice is optional.",
+                "The remaining three extractions are premolars, for example #14, #34 and #44. First or second premolars are acceptable; explaining why is optional.",
             ),
             _criterion(
                 "p5-movement-before-24",
@@ -307,7 +307,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             ),
             _criterion(
                 "p6-evidence-tradeoffs",
-                "Acknowledges the principal evidence-based trade-off or uncertainty that could change the anticipated outcome.",
+                "Explains an execution-related uncertainty or trade-off in how the chosen plan would be carried out, using the #23 movement or #24 gingival-margin examples; do not require both.",
                 "The main uncertainty is whether #23 will move, given her age and the risk of ankylosis. For the removal plan, it's how the uneven gingival margin level of #24 looks when she smiles.",
             ),
         ],

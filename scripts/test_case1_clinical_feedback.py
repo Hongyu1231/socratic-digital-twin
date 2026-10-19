@@ -88,6 +88,20 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
         self.assertIn("p5-extra-second-plan", extras)
         self.assertIn("bonus", extras["p5-extra-second-plan"])
 
+    def test_phase_five_requires_three_premolars_but_not_their_rationale(self):
+        phase = self.phases[4]
+        required = {item["id"]: item["text"].lower() for item in phase["rubric"]}
+        extras = {item["id"]: item["text"].lower() for item in phase["acceptedExtras"]}
+
+        criterion = required["p5-remaining-premolar-choice"]
+        self.assertIn("remaining three premolar extractions", criterion)
+        self.assertIn("first or second premolars are acceptable", criterion)
+        self.assertIn("rationale", criterion)
+        self.assertIn("optional", criterion)
+        self.assertIn("p5-extra-premolar-justification", extras)
+        self.assertIn("justifies the choice of first versus second premolars", extras["p5-extra-premolar-justification"])
+        self.assertNotIn("required", extras["p5-extra-premolar-justification"])
+
     def test_optional_extras_are_separate_from_required_criteria(self):
         phase_by_order = {phase["order"]: phase for phase in self.phases}
         self.assertEqual(
@@ -128,6 +142,17 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
         self.assertIn("#24 space creation is not required before", combined)
         self.assertIn("removing #23 while retaining #24", combined)
         self.assertIn("movement", combined)
+
+    def test_phase_six_tradeoff_is_about_execution_not_just_outcome(self):
+        phase = self.phases[5]
+        criterion = next(item for item in phase["rubric"] if item["id"] == "p6-evidence-tradeoffs")
+        text = criterion["text"].lower()
+        self.assertIn("execution-related", text)
+        self.assertIn("how the chosen plan would be carried out", text)
+        self.assertIn("#23 movement", text)
+        self.assertIn("#24 gingival-margin", text)
+        self.assertIn("do not require both", text)
+        self.assertNotIn("anticipated outcome", text)
 
     def test_later_decisions_preserve_phase_two_location_without_leaking_it_in_phase_one(self):
         for phase in (self.phases[4], self.phases[5]):
@@ -212,7 +237,7 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
             "p4-patient-concerns": "Her main concern is crooked teeth, so your problem list should connect back to that.",
             "p5-both-arch-plan": "Given the crowding in both arches, a plan needs two extractions in the upper arch and two premolar extractions in the lower.",
             "p5-upper-extraction-choice": "In the upper left, either keep #23 and extract #24, or remove #23 and keep #24. #24 is positioned where #23 should be and is similar in width and colour to #13, but its gingival margin level won't match #13, so her smile line needs checking.",
-            "p5-remaining-premolar-choice": "The other three extractions are premolars, for example #14, #34 and #44. They can be first or second premolars.",
+            "p5-remaining-premolar-choice": "The remaining three extractions are premolars, for example #14, #34 and #44. First or second premolars are acceptable; explaining why is optional.",
             "p5-movement-before-24": "If you keep #23, test that it moves before extracting #24. If it doesn't move, remove #23 and keep #24.",
             "p6-anticipated-outcome": "In carrying out the plan, the main challenges are getting #23 to move, keeping the extraction spaces to relieve the severe crowding, and, if #24 takes #23's place, matching its gingival margin level to #13.",
             "p6-checkpoint-reconsideration": "The key checkpoint is that #23 might not be movable, so it is preferable to test whether #23 moves before deciding whether to keep it. The premolar hasn't been extracted yet at that point, so if #23 doesn't move you can still switch to removing it and keeping #24.",
