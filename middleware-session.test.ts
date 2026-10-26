@@ -74,3 +74,46 @@ describe("middleware session refresh", () => {
     expect(response?.status).toBe(200);
   });
 });
+
+describe("middleware must-change-password", () => {
+  function flagged(refreshCookie = false) {
+    mocks.createServerClient.mockImplementation((_url: string, _key: string, options: { cookies: CookieMethods }) => ({
+      auth: {
+        getClaims: async () => {
+          if (refreshCookie) options.cookies.setAll([{ name: "sb-project-auth-token", value: "refreshed", options: { path: "/" } }], {});
+          return { data: { claims: { sub: "user", app_metadata: { must_change_password: true } } }, error: null };
+        },
+      },
+    }));
+  }
+
+  it("redirects pages to /set-password and keeps refreshed cookies", async () => {
+    setEnv(supabaseEnv);
+    flagged(true);
+    const response = (await middleware(new NextRequest("https://app.test/admin"))) as NextResponse;
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://app.test/set-password");
+    expect(response.cookies.get("sb-project-auth-token")?.value).toBe("refreshed");
+  });
+
+  it("returns 403 for API routes", async () => {
+    setEnv(supabaseEnv);
+    flagged();
+    const response = (await middleware(new NextRequest("https://app.test/api/cases"))) as NextResponse;
+    expect(response.status).toBe(403);
+  });
+
+  it("lets /set-password and /login through", async () => {
+    setEnv(supabaseEnv);
+    flagged();
+    for (const path of ["/set-password", "/login"]) {
+      expect(((await middleware(new NextRequest(`https://app.test${path}`))) as NextResponse).status).toBe(200);
+    }
+  });
+
+  it("does nothing once the flag is cleared", async () => {
+    setEnv(supabaseEnv);
+    mocks.getClaims.mockResolvedValue({ data: { claims: { sub: "user", app_metadata: { must_change_password: false } } }, error: null });
+    expect(((await middleware(new NextRequest("https://app.test/admin"))) as NextResponse).status).toBe(200);
+  });
+});
