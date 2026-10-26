@@ -134,7 +134,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             _criterion(
                 "p3-local-prognosis",
                 "Assesses prognosis from the local canine, its root, and adjacent teeth rather than from age alone.",
-                "The #23 crown tip sits at the #22 CEJ, overlapping only the distal half of the #22 root. Its apex lies between the #22 and #24 apices, its angulation to the midline is under 30 degrees, its morphology is normal and there's no pathology, so #23 has a good prognosis.",
+                "The #23 crown tip is located at the #22 CEJ, overlapping only the distal half of the #22 root. Its apex lies between the #22 and #24 apices, its angulation to the midline is under 30 degrees, its morphology is normal and there's no pathology, so #23 has a good prognosis.",
             ),
             _criterion(
                 "p3-adult-ankylosis",
@@ -297,8 +297,8 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
         "rubric": [
             _criterion(
                 "p6-anticipated-outcome",
-                "Names at least one practical challenge in carrying out the chosen plan and links it to the case findings, such as moving #23, holding the extraction spaces in the crowded arches, or the #24 gingival margin.",
-                "In carrying out the plan, the main challenges are getting #23 to move, keeping the extraction spaces to relieve the severe crowding, and, if #24 takes #23's place, matching its gingival margin level to #13.",
+                "Names at least one practical challenge in carrying out the chosen plan and links it to the case findings, such as moving #23, camouflaging #24 as #23, or managing the minimal overbite.",
+                "In carrying out the plan, the main challenges are the mechanics in moving and aligning #23, and, if #24 takes #23's place, camouflaging the #24 as a #23 by ensuring the gingival margin and shape of #24 matches that of #13, and ensuring that the overbite does not reduce further.",
             ),
             _criterion(
                 "p6-checkpoint-reconsideration",
@@ -313,7 +313,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
         ],
         "starterQuestion": "Picture the end of treatment under your plan. What challenges will you anticipate?",
         "exampleQuestions": [
-            "Which of these challenges would you plan for before you start, and how?",
+            "How do you plan to overcome these challenges?",
             "What would tell you partway through that the plan isn't working?",
             "If #23 doesn't move when you test it, what would you do next?",
             "What's the main uncertainty in your plan?",
