@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { demoUsers, DEMO_ADMIN_ID } from "@/lib/seed";
 
@@ -13,11 +13,26 @@ vi.mock("next/headers", () => ({
   cookies: async () => ({ set: mocks.cookieSet }),
 }));
 
-vi.mock("@/lib/auth", () => ({
-  DEMO_SESSION_COOKIE_NAME: "demo_session",
+// Keep the real isDemoIdentityMode so the env rules are exercised.
+vi.mock("@/lib/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth")>()),
   getIdentity: mocks.getIdentity,
   signSession: mocks.signSession,
 }));
+
+function setDemoEnv(values: { DEMO_IDENTITY_ENABLED?: string; VERCEL?: string; VERCEL_ENV?: string; VERCEL_URL?: string }) {
+  for (const name of ["DEMO_IDENTITY_ENABLED", "VERCEL", "VERCEL_ENV", "VERCEL_URL"] as const) {
+    vi.stubEnv(name, values[name] ?? "");
+  }
+}
+
+function postSwitch(userId: string) {
+  return POST(new Request("http://localhost/api/demo/identity", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId }),
+  }));
+}
 
 vi.mock("@/lib/repository", () => ({
   getRepository: () => ({ listUsers: mocks.listUsers }),
@@ -31,7 +46,9 @@ describe("demo identity API", () => {
     mocks.signSession.mockClear();
     mocks.listUsers.mockResolvedValue(demoUsers);
     mocks.getIdentity.mockResolvedValue(demoUsers[0]);
+    setDemoEnv({ DEMO_IDENTITY_ENABLED: "true" });
   });
+  afterEach(() => vi.unstubAllEnvs());
 
   it("returns only id, name, and role for seeded active identities", async () => {
     const response = await GET();
@@ -84,6 +101,33 @@ describe("demo identity API", () => {
     }));
 
     expect(response.status).toBe(403);
+    expect(mocks.cookieSet).not.toHaveBeenCalled();
+  });
+});
+
+describe("demo identity API outside demo mode", () => {
+  beforeEach(() => {
+    mocks.cookieSet.mockClear();
+    mocks.listUsers.mockClear();
+    mocks.listUsers.mockResolvedValue(demoUsers);
+    mocks.getIdentity.mockResolvedValue(demoUsers[0]);
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each([
+    ["the flag is off", { DEMO_IDENTITY_ENABLED: "false" }],
+    ["the flag is missing", {}],
+    ["VERCEL is set", { DEMO_IDENTITY_ENABLED: "true", VERCEL: "1" }],
+    ["only VERCEL_ENV is set", { DEMO_IDENTITY_ENABLED: "true", VERCEL_ENV: "preview" }],
+  ])("returns 404 for GET and POST when %s", async (_label, env) => {
+    setDemoEnv(env);
+
+    const getResponse = await GET();
+    const postResponse = await postSwitch(DEMO_ADMIN_ID);
+
+    expect(getResponse.status).toBe(404);
+    expect(postResponse.status).toBe(404);
+    expect(mocks.listUsers).not.toHaveBeenCalled();
     expect(mocks.cookieSet).not.toHaveBeenCalled();
   });
 });

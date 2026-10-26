@@ -17,7 +17,7 @@ function request(path: string, authorization?: string): NextRequest {
 }
 
 function setEnv(values: Record<string, string | undefined>) {
-  for (const name of ["SITE_GATE_PASSWORD", "VERCEL", "VERCEL_ENV", "VERCEL_URL"]) {
+  for (const name of ["SITE_GATE_PASSWORD", "VERCEL", "VERCEL_ENV", "VERCEL_URL", "SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY"]) {
     vi.stubEnv(name, values[name] ?? "");
   }
 }

@@ -937,6 +937,12 @@ export class SupabaseTutorRepository implements TutorRepository {
     return must(data, error, "List users").map(mapUser);
   }
 
+  async findUserByAuthUserId(authUserId: string) {
+    const { data, error } = await this.client.from("users").select("*").eq("auth_user_id", authUserId).maybeSingle();
+    if (error) throw new Error(`Find user by auth user id: ${error.message}`);
+    return data ? mapUser(data) : undefined;
+  }
+
   async updateUser(userId: string, patch: Partial<Pick<DemoUser, "name" | "email" | "isActive">>) {
     const { data, error } = await this.client.from("users").update({ ...(patch.name === undefined ? {} : { display_name: patch.name }), ...(patch.email === undefined ? {} : { email: patch.email }), ...(patch.isActive === undefined ? {} : { is_active: patch.isActive }) }).eq("id", userId).select("*").single();
     return mapUser(must(data, error, "Update user"));

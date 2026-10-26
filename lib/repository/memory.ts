@@ -56,6 +56,8 @@ interface MemoryStore {
   tutorTurnReviews: Map<string, TutorTurnReview>;
   sessionReviews: Map<string, SessionReview>;
   users: Map<string, DemoUser>;
+  /** Supabase Auth user id -> app user id, mirroring users.auth_user_id. */
+  authUserLinks?: Map<string, string>;
   classes: Map<string, TeachingClass>;
   cases: Map<string, ClinicalCase>;
   assignments: Map<string, CaseAssignment>;
@@ -487,6 +489,7 @@ export class InMemoryTutorRepository implements TutorRepository {
     this.store.tutorTurnReviews.clear();
     this.store.sessionReviews.clear();
     this.store.users = new Map(demoUsers.map((item) => [item.id, clone(item)]));
+    this.store.authUserLinks = new Map();
     this.store.classes = new Map([[demoClass.id, clone(demoClass)]]);
     const fresh = createStore();
     this.store.cases = fresh.cases;
@@ -494,6 +497,19 @@ export class InMemoryTutorRepository implements TutorRepository {
   }
 
   async listUsers() { return clone([...this.store.users.values()]); }
+
+  async findUserByAuthUserId(authUserId: string) {
+    const userId = this.store.authUserLinks?.get(authUserId);
+    const user = userId ? this.store.users.get(userId) : undefined;
+    return user ? clone(user) : undefined;
+  }
+
+  /** Memory-only stand-in for setting users.auth_user_id. */
+  linkAuthUser(authUserId: string, userId: string) {
+    if (!this.store.users.has(userId)) throw new Error("User not found.");
+    this.store.authUserLinks ??= new Map();
+    this.store.authUserLinks.set(authUserId, userId);
+  }
 
   async updateUser(userId: string, patch: Partial<Pick<DemoUser, "name" | "email" | "isActive">>) {
     const current = this.store.users.get(userId);

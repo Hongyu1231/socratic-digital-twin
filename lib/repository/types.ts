@@ -116,6 +116,8 @@ export interface TutorRepository {
   listSessions(): Promise<SessionBundle[]>;
   saveReview(input: SaveReviewInput): Promise<SessionBundle>;
   listUsers(): Promise<DemoUser[]>;
+  /** The app user linked to a Supabase Auth user (users.auth_user_id), if any. */
+  findUserByAuthUserId(authUserId: string): Promise<DemoUser | undefined>;
   updateUser(userId: string, patch: Partial<Pick<DemoUser, "name" | "email" | "isActive">>): Promise<DemoUser>;
   listClasses(userId?: string): Promise<TeachingClass[]>;
   saveClass(input: Omit<TeachingClass, "id" | "createdAt" | "members"> & { id?: string }): Promise<TeachingClass>;
