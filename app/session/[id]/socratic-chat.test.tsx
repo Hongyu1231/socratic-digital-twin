@@ -351,4 +351,50 @@ describe("student More help interaction", () => {
     expect(container.querySelector(".message-failure")?.textContent).toContain("save status is unknown");
     expect(container.querySelector(".message-failure")?.textContent).not.toContain("was not saved");
   });
+
+  function pauseButtons() {
+    return [...container.querySelectorAll<HTMLButtonElement>(".mobile-pause-button, .pause-session")];
+  }
+
+  it("disables Pause while the tutor is replying and re-enables it when the reply arrives", async () => {
+    const response = deferred<Response>();
+    const initial = makeBundle();
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === SESSION_URL) return Promise.resolve(jsonResponse(initial));
+      if (init?.method === "POST") return response.promise;
+      return Promise.reject(new Error("Unexpected fetch"));
+    });
+    await renderChat(initial);
+    expect(pauseButtons().length).toBe(2);
+    expect(pauseButtons().every((button) => !button.disabled)).toBe(true);
+
+    await setDraft("The canine is palatally displaced.");
+    await click(container.querySelector(".send-button")!);
+    expect(pauseButtons().every((button) => button.disabled)).toBe(true);
+    // A click while disabled must not send a pause.
+    await click(pauseButtons()[1]!);
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith("/pause"))).toBe(false);
+
+    response.resolve(jsonResponse(initial));
+    await settle();
+    expect(pauseButtons().every((button) => !button.disabled)).toBe(true);
+  });
+
+  it("re-enables Pause when the tutor reply fails", async () => {
+    const response = deferred<Response>();
+    const initial = makeBundle();
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === SESSION_URL) return Promise.resolve(jsonResponse(initial));
+      if (init?.method === "POST") return response.promise;
+      return Promise.reject(new Error("Unexpected fetch"));
+    });
+    await renderChat(initial);
+    await click(helpButton());
+    expect(pauseButtons().every((button) => button.disabled)).toBe(true);
+
+    response.resolve(jsonResponse({ error: "The tutor could not reply." }, 500));
+    await settle();
+    await settle();
+    expect(pauseButtons().every((button) => !button.disabled)).toBe(true);
+  });
 });

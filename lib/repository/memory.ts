@@ -1,3 +1,4 @@
+import { applyPauseChange, closePause } from "@/lib/pause-history";
 import type {
   AdminOverview,
   AnswerReview,
@@ -397,6 +398,7 @@ export class InMemoryTutorRepository implements TutorRepository {
       summary: clone(summary),
       completedAt,
       pausedAt: null,
+      pauseHistory: closePause(current.pauseHistory ?? [], current.pausedAt, completedAt),
     };
     this.store.sessions.set(sessionId, next);
     return this.bundle(next);
@@ -406,7 +408,8 @@ export class InMemoryTutorRepository implements TutorRepository {
     const current = this.store.sessions.get(sessionId);
     if (!current) throw new Error("Session not found.");
     if (current.status !== "active") throw new Error("Completed sessions cannot be paused or resumed.");
-    const next = { ...current, pausedAt };
+    const pauseHistory = applyPauseChange(current.pauseHistory ?? [], current.pausedAt, pausedAt, new Date().toISOString());
+    const next = { ...current, pausedAt, pauseHistory };
     this.store.sessions.set(sessionId, clone(next));
     return this.bundle(next);
   }
