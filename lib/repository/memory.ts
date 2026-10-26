@@ -511,12 +511,33 @@ export class InMemoryTutorRepository implements TutorRepository {
     this.store.authUserLinks.set(authUserId, userId);
   }
 
-  async updateUser(userId: string, patch: Partial<Pick<DemoUser, "name" | "email" | "isActive">>) {
+  async updateUser(userId: string, patch: Partial<Pick<DemoUser, "name" | "email" | "isActive" | "role">>) {
     const current = this.store.users.get(userId);
     if (!current) throw new Error("User not found.");
     const next = { ...current, ...patch };
     this.store.users.set(userId, next);
     return clone(next);
+  }
+
+  async createUser(input: Pick<DemoUser, "name" | "email" | "role"> & { authUserId?: string | null }) {
+    const email = input.email.toLowerCase();
+    if ([...this.store.users.values()].some((user) => user.email.toLowerCase() === email)) {
+      throw new Error("An account with this email or code already exists.");
+    }
+    const user: DemoUser = { id: crypto.randomUUID(), name: input.name, email, role: input.role, isActive: true, profile: {} };
+    this.store.users.set(user.id, user);
+    if (input.authUserId) this.linkAuthUser(input.authUserId, user.id);
+    return clone(user);
+  }
+
+  async getAuthUserId(userId: string) {
+    if (!this.store.users.has(userId)) throw new Error("User not found.");
+    for (const [authUserId, linked] of this.store.authUserLinks ?? []) if (linked === userId) return authUserId;
+    return null;
+  }
+
+  async setAuthUserId(userId: string, authUserId: string) {
+    this.linkAuthUser(authUserId, userId);
   }
 
   async listClasses(userId?: string) {

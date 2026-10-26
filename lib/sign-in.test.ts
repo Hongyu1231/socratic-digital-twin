@@ -89,6 +89,11 @@ describe("role redirects", () => {
     expect(pageGuardRedirect("professor", "professor")).toBeNull();
     expect(pageGuardRedirect("student", "student")).toBeNull();
   });
+
+  it("sends staff on the student home to their own home", () => {
+    expect(pageGuardRedirect("student", "professor")).toBe("/professor");
+    expect(pageGuardRedirect("student", "admin")).toBe("/admin");
+  });
 });
 
 describe("passwordChangeAction", () => {

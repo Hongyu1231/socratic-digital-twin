@@ -1,7 +1,8 @@
 import type { DemoUser, UserRole } from "@/lib/domain";
+import { RESIDENT_EMAIL_DOMAIN } from "@/lib/account-codes.mjs";
 
 /** Residents sign in with a code (R01..R14); each code maps to a hidden email. */
-export const RESIDENT_EMAIL_DOMAIN = "pilot.invalid";
+export { RESIDENT_EMAIL_DOMAIN };
 
 /** The one message every failed sign-in shows, whatever the cause. */
 export const LOGIN_FAILURE_MESSAGE = "That code or password isn't right.";
@@ -84,10 +85,11 @@ export type PageArea = "student" | "professor" | "admin";
 /**
  * Where a page guard sends the visitor, or null to let them in. Not signed in
  * goes to /login; a student on staff pages goes home; a professor on /admin
- * goes to /professor.
+ * goes to /professor; staff on the student home go to their own home.
  */
 export function pageGuardRedirect(area: PageArea, role: UserRole | null | undefined): string | null {
   if (!role) return LOGIN_PATH;
+  if (area === "student" && role !== "student") return homeForRole(role);
   if (area === "professor" && role === "student") return homeForRole(role);
   if (area === "admin" && role !== "admin") return homeForRole(role);
   return null;
