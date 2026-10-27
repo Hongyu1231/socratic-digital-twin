@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { applyPauseChange, closePause, parsePauseHistory } from "@/lib/pause-history";
 import type {
   AdminOverview,
   AnswerReview,
@@ -640,6 +641,7 @@ export class SupabaseTutorRepository implements TutorRepository {
       createdAt: sessionRow.started_at,
       completedAt: sessionRow.ended_at,
       pausedAt: context.pausedAt ?? null,
+      pauseHistory: parsePauseHistory(context.pauseHistory),
       assignmentId: sessionRow.class_case_assignment_id ?? null,
       reviewerId: sessionRow.professor_id ?? null,
       messages: normalizeTurnMessages(messageRows.map(mapMessage)),
@@ -787,7 +789,9 @@ export class SupabaseTutorRepository implements TutorRepository {
       : input.evaluation
         ? CLASSIFICATION_SCORES[input.evaluation.classification]
         : null;
-    const context = { score: input.score, summary: input.summary, reviewStatus: bundle.session.reviewStatus, pausedAt: null };
+    // commit_tutor_turn replaces the whole context, so carry the pause history
+    // forward. Turns are refused while paused, so every entry here is closed.
+    const context = { score: input.score, summary: input.summary, reviewStatus: bundle.session.reviewStatus, pausedAt: null, pauseHistory: bundle.session.pauseHistory ?? [] };
     const { error } = await this.client.rpc("commit_tutor_turn", {
       p_session_id: input.sessionId,
       p_student_sender_id: bundle.session.studentId,
@@ -823,7 +827,11 @@ export class SupabaseTutorRepository implements TutorRepository {
     if (!current) throw new Error("Session not found.");
     const { error } = await this.client.from("sessions").update({
       status: "completed", ended_at: completedAt,
-      context: { score: summary.overallScore, summary, reviewStatus: current.session.reviewStatus, pausedAt: null },
+      context: {
+        score: summary.overallScore, summary, reviewStatus: current.session.reviewStatus, pausedAt: null,
+        // Ending while paused closes the open pause at the end time.
+        pauseHistory: closePause(current.session.pauseHistory ?? [], current.session.pausedAt, completedAt),
+      },
     }).eq("id", sessionId);
     if (error) throw new Error(`Complete session: ${error.message}`);
     return (await this.getSession(sessionId))!;
@@ -835,7 +843,11 @@ export class SupabaseTutorRepository implements TutorRepository {
     if (!data) throw new Error("Session not found.");
     if (data.status !== "active") throw new Error("Completed sessions cannot be paused or resumed.");
     const { error: updateError } = await this.client.from("sessions").update({
-      context: { ...(data.context ?? {}), pausedAt },
+      context: {
+        ...(data.context ?? {}),
+        pausedAt,
+        pauseHistory: applyPauseChange(parsePauseHistory(data.context?.pauseHistory), data.context?.pausedAt, pausedAt, new Date().toISOString()),
+      },
     }).eq("id", sessionId);
     if (updateError) throw new Error(`Update session pause state: ${updateError.message}`);
     return (await this.getSession(sessionId))!;
@@ -921,6 +933,7 @@ export class SupabaseTutorRepository implements TutorRepository {
         score: bundle.session.score,
         summary: bundle.session.summary,
         reviewStatus: input.status === "completed" ? "completed" : "in_review",
+        pauseHistory: bundle.session.pauseHistory ?? [],
       },
     }).eq("id", input.sessionId);
     if (sessionError) throw new Error(`Update review status: ${sessionError.message}`);
@@ -984,6 +997,26 @@ export class SupabaseTutorRepository implements TutorRepository {
     }
     const result = rows.map((row) => mapClass(row, membersByClass.get(row.id) ?? []));
     return userId ? result.filter((item) => item.members.some((member) => member.userId === userId)) : result;
+  }
+
+  async getClass(classId: string): Promise<TeachingClass | null> {
+    const { data, error } = await this.client.from("classes").select("*").eq("id", classId).maybeSingle();
+    if (error) throw new Error(`Get class: ${error.message}`);
+    if (!data) return null;
+    const { data: members, error: memberError } = await this.client.from("class_memberships").select("*, users(*)").eq("class_id", classId);
+    return mapClass(data, must(members, memberError, "Get class members"));
+  }
+
+  async listAssignmentsForClass(classId: string) {
+    const { data, error } = await this.client.from("class_case_assignments").select("*, classes(name), cases(title)").eq("class_id", classId).order("created_at", { ascending: false });
+    return must(data, error, "List class assignments").map(mapAssignment);
+  }
+
+  async listSessionsForAssignments(assignmentIds: string[]) {
+    if (!assignmentIds.length) return [];
+    const { data, error } = await this.client.from("sessions").select("id").in("class_case_assignment_id", assignmentIds).order("created_at", { ascending: false });
+    const rows = must(data, error, "List class sessions");
+    return Promise.all(rows.map(async (row) => (await this.getSession(row.id))!));
   }
 
   async saveClass(input: Omit<TeachingClass, "id" | "createdAt" | "members"> & { id?: string }) {

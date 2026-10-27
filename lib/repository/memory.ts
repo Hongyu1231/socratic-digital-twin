@@ -1,3 +1,4 @@
+import { applyPauseChange, closePause } from "@/lib/pause-history";
 import type {
   AdminOverview,
   AnswerReview,
@@ -399,6 +400,7 @@ export class InMemoryTutorRepository implements TutorRepository {
       summary: clone(summary),
       completedAt,
       pausedAt: null,
+      pauseHistory: closePause(current.pauseHistory ?? [], current.pausedAt, completedAt),
     };
     this.store.sessions.set(sessionId, next);
     return this.bundle(next);
@@ -408,7 +410,8 @@ export class InMemoryTutorRepository implements TutorRepository {
     const current = this.store.sessions.get(sessionId);
     if (!current) throw new Error("Session not found.");
     if (current.status !== "active") throw new Error("Completed sessions cannot be paused or resumed.");
-    const next = { ...current, pausedAt };
+    const pauseHistory = applyPauseChange(current.pauseHistory ?? [], current.pausedAt, pausedAt, new Date().toISOString());
+    const next = { ...current, pausedAt, pauseHistory };
     this.store.sessions.set(sessionId, clone(next));
     return this.bundle(next);
   }
@@ -542,6 +545,25 @@ export class InMemoryTutorRepository implements TutorRepository {
 
   async listClasses(userId?: string) {
     return clone([...this.store.classes.values()].filter((item) => !userId || item.members.some((member) => member.userId === userId)));
+  }
+
+  async getClass(classId: string) {
+    const teachingClass = this.store.classes.get(classId);
+    if (!teachingClass) return null;
+    return clone({ ...teachingClass, members: teachingClass.members.map((member) => ({ ...member, user: this.store.users.get(member.userId) ?? member.user })) });
+  }
+
+  async listAssignmentsForClass(classId: string) {
+    return clone([...this.store.assignments.values()].filter((item) => item.classId === classId));
+  }
+
+  async listSessionsForAssignments(assignmentIds: string[]) {
+    const wanted = new Set(assignmentIds);
+    if (!wanted.size) return [];
+    return Promise.all([...this.store.sessions.values()]
+      .filter((session) => session.assignmentId && wanted.has(session.assignmentId))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((session) => this.bundle(session)));
   }
 
   async saveClass(input: Omit<TeachingClass, "id" | "createdAt" | "members"> & { id?: string }) {
