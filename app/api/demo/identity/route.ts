@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { z } from "zod";
 
-import { DEMO_SESSION_COOKIE_NAME, getIdentity, signSession } from "@/lib/auth";
+import { DEMO_SESSION_COOKIE_NAME, getIdentity, isDemoIdentityMode, signSession } from "@/lib/auth";
 import { isAllowedDemoIdentity, toPublicDemoIdentity } from "@/lib/demo-identity";
 import { getRepository } from "@/lib/repository";
 
@@ -12,7 +12,13 @@ const roleSwitchSchema = z.object({
 
 export const runtime = "nodejs";
 
+// The switcher exists only in local demo mode; everywhere else it is not found.
+function notFound() {
+  return NextResponse.json({ error: "Not found." }, { status: 404, headers: { "Cache-Control": "no-store" } });
+}
+
 export async function GET() {
+  if (!isDemoIdentityMode()) return notFound();
   try {
     const [users, identity] = await Promise.all([
       getRepository().listUsers(),
@@ -31,6 +37,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!isDemoIdentityMode()) return notFound();
   let body: unknown;
   try {
     body = await request.json();

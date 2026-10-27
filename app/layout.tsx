@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import { SiteHeader } from "@/components/site-header";
+import { getIdentity, isDemoIdentityMode } from "@/lib/auth";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -28,11 +29,22 @@ export const viewport: Viewport = {
   themeColor: "#ffffff",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+async function headerIdentity() {
+  try {
+    const identity = await getIdentity();
+    return identity ? { name: identity.name, role: identity.role } : null;
+  } catch {
+    return null;
+  }
+}
+
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const demoMode = isDemoIdentityMode();
+  const identity = demoMode ? null : await headerIdentity();
   return (
     <html lang="en" data-scroll-behavior="smooth">
       <body>
-        <SiteHeader />
+        <SiteHeader demoMode={demoMode} identity={identity} />
         <main>{children}</main>
       </body>
     </html>

@@ -950,9 +950,33 @@ export class SupabaseTutorRepository implements TutorRepository {
     return must(data, error, "List users").map(mapUser);
   }
 
-  async updateUser(userId: string, patch: Partial<Pick<DemoUser, "name" | "email" | "isActive">>) {
-    const { data, error } = await this.client.from("users").update({ ...(patch.name === undefined ? {} : { display_name: patch.name }), ...(patch.email === undefined ? {} : { email: patch.email }), ...(patch.isActive === undefined ? {} : { is_active: patch.isActive }) }).eq("id", userId).select("*").single();
+  async findUserByAuthUserId(authUserId: string) {
+    const { data, error } = await this.client.from("users").select("*").eq("auth_user_id", authUserId).maybeSingle();
+    if (error) throw new Error(`Find user by auth user id: ${error.message}`);
+    return data ? mapUser(data) : undefined;
+  }
+
+  async updateUser(userId: string, patch: Partial<Pick<DemoUser, "name" | "email" | "isActive" | "role">>) {
+    const { data, error } = await this.client.from("users").update({ ...(patch.name === undefined ? {} : { display_name: patch.name }), ...(patch.email === undefined ? {} : { email: patch.email }), ...(patch.isActive === undefined ? {} : { is_active: patch.isActive }), ...(patch.role === undefined ? {} : { role: patch.role }) }).eq("id", userId).select("*").single();
     return mapUser(must(data, error, "Update user"));
+  }
+
+  async createUser(input: Pick<DemoUser, "name" | "email" | "role"> & { authUserId?: string | null }) {
+    const { data, error } = await this.client.from("users").insert({ display_name: input.name, email: input.email, role: input.role, auth_user_id: input.authUserId ?? null, is_active: true }).select("*").single();
+    if (error?.code === "23505") throw new Error("An account with this email or code already exists.");
+    return mapUser(must(data, error, "Create user"));
+  }
+
+  async getAuthUserId(userId: string) {
+    const { data, error } = await this.client.from("users").select("auth_user_id").eq("id", userId).maybeSingle();
+    if (error) throw new Error(`Get auth user id: ${error.message}`);
+    if (!data) throw new Error("User not found.");
+    return (data.auth_user_id as string | null) ?? null;
+  }
+
+  async setAuthUserId(userId: string, authUserId: string) {
+    const { error } = await this.client.from("users").update({ auth_user_id: authUserId }).eq("id", userId);
+    if (error) throw new Error(`Link sign-in account: ${error.message}`);
   }
 
   async listClasses(userId?: string): Promise<TeachingClass[]> {
