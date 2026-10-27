@@ -250,7 +250,7 @@ function Field({ label, children, hint }: { label: string; children: ReactNode; 
   );
 }
 
-const inputClass = "w-full rounded-lg border border-[#ded8d0] bg-white px-3 py-2.5 text-sm text-[#21172b] outline-none transition focus:border-[#de695c] focus:ring-2 focus:ring-[#de695c]/15 disabled:bg-[#ece7de] disabled:text-[#726c73]";
+const inputClass = "w-full rounded-lg border border-[#ded8d0] bg-white px-3 py-2.5 text-sm text-[#21172b] outline-none transition focus:border-[#3f7779] disabled:bg-[#ece7de] disabled:text-[#726c73]";
 const panelClass = "rounded-[3px_22px_3px_3px] border border-[#ded8d0] bg-[#fffdfa] shadow-[0_16px_45px_rgba(48,28,43,.06)]";
 
 export default function AdminDashboard() {
