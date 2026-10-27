@@ -137,8 +137,41 @@ function identityForSession(
   return { ...user };
 }
 
-/** Read and verify the current demo identity from the request cookie. */
+/**
+ * Demo mode keeps the seeded-persona switcher. It needs both: not running on
+ * Vercel (any Vercel system variable counts) and DEMO_IDENTITY_ENABLED=true.
+ */
+export function isDemoIdentityMode(): boolean {
+  const onVercel = Boolean(process.env.VERCEL || process.env.VERCEL_ENV || process.env.VERCEL_URL);
+  return !onVercel && process.env.DEMO_IDENTITY_ENABLED === "true";
+}
+
+/**
+ * The signed-in identity, or null. Outside demo mode this is the Supabase Auth
+ * user (verified with getClaims) mapped to an active app user through
+ * users.auth_user_id; the demo cookie is ignored.
+ */
 export async function getIdentity(): Promise<DemoIdentity | null> {
+  return isDemoIdentityMode() ? getDemoModeIdentity() : getSignedInIdentity();
+}
+
+async function getSignedInIdentity(): Promise<DemoIdentity | null> {
+  const { createSupabaseAuthClient } = await import("@/lib/supabase/auth-client");
+  const supabase = await createSupabaseAuthClient();
+  if (!supabase) return null;
+
+  // getClaims verifies the JWT; getSession would trust the cookie unchecked.
+  const { data, error } = await supabase.auth.getClaims();
+  const authUserId = error ? undefined : data?.claims?.sub;
+  if (typeof authUserId !== "string" || !authUserId) return null;
+
+  const { getRepository } = await import("@/lib/repository");
+  const user = await getRepository().findUserByAuthUserId(authUserId);
+  return isDemoIdentity(user) ? { ...user } : null;
+}
+
+/** Read and verify the current demo identity from the request cookie. */
+async function getDemoModeIdentity(): Promise<DemoIdentity | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(DEMO_SESSION_COOKIE_NAME)?.value;
   const verifiedIdentity = identityForSession(verifySession(token));
