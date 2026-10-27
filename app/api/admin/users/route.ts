@@ -32,6 +32,6 @@ export async function PATCH(request: Request) {
     const admin = await requireAdmin();
     const parsed = userUpdateSchema.safeParse(await readJson(request));
     if (!parsed.success) return Response.json({ error: parsed.error.issues[0]?.message ?? "Check the user's details." }, { status: 400 });
-    return Response.json({ user: await updateAccount(admin, parsed.data, { repository: getRepository() }) });
+    return Response.json({ user: await updateAccount(admin, parsed.data, { repository: getRepository(), auth: supabaseAuthAdmin() }) });
   } catch (error) { return errorResponse(error); }
 }

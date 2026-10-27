@@ -33,7 +33,6 @@ vi.mock("@/lib/repository", () => ({
 
 import {
   AuthError,
-  DEV_DEMO_SESSION_SECRET,
   getIdentity,
   isDemoIdentityMode,
   requireAdmin,
@@ -42,6 +41,8 @@ import {
   signSession,
 } from "@/lib/auth";
 
+// One secret for signing and verifying, whatever DEMO_SESSION_SECRET the shell or CI sets.
+const TEST_DEMO_SESSION_SECRET = "auth-identity-test-secret";
 const AUTH_USER_ID = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
 const student = demoUsers.find((user) => user.id === DEMO_STUDENT_ID)!;
 const professor = demoUsers.find((user) => user.id === DEMO_PROFESSOR_ID)!;
@@ -50,6 +51,7 @@ function setEnv(values: { DEMO_IDENTITY_ENABLED?: string; VERCEL?: string; VERCE
   for (const name of ["DEMO_IDENTITY_ENABLED", "VERCEL", "VERCEL_ENV", "VERCEL_URL"] as const) {
     vi.stubEnv(name, values[name] ?? "");
   }
+  vi.stubEnv("DEMO_SESSION_SECRET", TEST_DEMO_SESSION_SECRET);
 }
 
 function signedIn(authUserId: string | null) {
@@ -155,7 +157,7 @@ describe("getIdentity with Supabase Auth", () => {
     ["VERCEL is set", { DEMO_IDENTITY_ENABLED: "true", VERCEL: "1" }],
   ])("ignores a valid demo cookie when %s", async (_label, env) => {
     setEnv(env);
-    mocks.cookieValue = signSession({ userId: DEMO_PROFESSOR_ID, role: "professor" }, DEV_DEMO_SESSION_SECRET);
+    mocks.cookieValue = signSession({ userId: DEMO_PROFESSOR_ID, role: "professor" }, TEST_DEMO_SESSION_SECRET);
 
     await expect(getIdentity()).resolves.toBeNull();
     await expectAuthError(requireProfessor(), 401);
@@ -172,7 +174,7 @@ describe("getIdentity in local demo mode", () => {
   });
 
   it("uses the signed demo cookie", async () => {
-    mocks.cookieValue = signSession({ userId: DEMO_PROFESSOR_ID, role: "professor" }, DEV_DEMO_SESSION_SECRET);
+    mocks.cookieValue = signSession({ userId: DEMO_PROFESSOR_ID, role: "professor" }, TEST_DEMO_SESSION_SECRET);
     await expect(requireProfessor()).resolves.toMatchObject({ id: DEMO_PROFESSOR_ID, role: "professor" });
     expect(mocks.getClaims).not.toHaveBeenCalled();
   });

@@ -17,6 +17,8 @@ export interface AuthAdmin {
   createUser(email: string, password: string): Promise<string>;
   /** Sets a new password and the must-change mark. */
   setPassword(authUserId: string, password: string): Promise<void>;
+  /** Changes the sign-in email, already confirmed (no email is sent). */
+  setEmail(authUserId: string, email: string): Promise<void>;
   deleteUser(authUserId: string): Promise<void>;
 }
 
@@ -35,6 +37,10 @@ export function supabaseAuthAdmin(): AuthAdmin | null {
       const { error } = await client.auth.admin.updateUserById(authUserId, {
         password, app_metadata: { must_change_password: true },
       });
+      if (error) throw new Error(error.message);
+    },
+    async setEmail(authUserId, email) {
+      const { error } = await client.auth.admin.updateUserById(authUserId, { email, email_confirm: true });
       if (error) throw new Error(error.message);
     },
     async deleteUser(authUserId) {
@@ -65,9 +71,16 @@ function requireAuth(auth: AuthAdmin | null): AuthAdmin {
   return auth;
 }
 
+function isResidentEmail(email: string): boolean {
+  return email.toLowerCase().endsWith(`@${RESIDENT_EMAIL_DOMAIN}`);
+}
+
 function signInName(user: Pick<DemoUser, "email">): string {
-  const [local, domain] = user.email.split("@");
-  return domain === RESIDENT_EMAIL_DOMAIN ? local.toUpperCase() : user.email;
+  return isResidentEmail(user.email) ? user.email.split("@")[0].toUpperCase() : user.email;
+}
+
+function looksLikeDuplicate(error: unknown): boolean {
+  return error instanceof Error && /already|exists|registered|duplicate|unique/i.test(error.message);
 }
 
 function alreadyExists(input: CreateAccountInput): AdminUserError {
@@ -89,7 +102,7 @@ export async function createAccount(input: CreateAccountInput, deps: AccountDeps
   try {
     authUserId = await auth.createUser(email, password);
   } catch (error) {
-    if (error instanceof Error && /already|exists|registered/i.test(error.message)) throw alreadyExists(input);
+    if (looksLikeDuplicate(error)) throw alreadyExists(input);
     throw new AdminUserError(502, "The sign-in account could not be created. Please try again.");
   }
 
@@ -112,15 +125,33 @@ export async function resetPassword(userId: string, deps: AccountDeps): Promise<
   const user = (await deps.repository.listUsers()).find((item) => item.id === userId);
   if (!user) throw new AdminUserError(404, "That user no longer exists.");
   const password = generateReadablePassword();
-  const authUserId = await deps.repository.getAuthUserId(userId);
-  try {
-    if (authUserId) {
-      await auth.setPassword(authUserId, password);
-    } else {
-      await deps.repository.setAuthUserId(userId, await auth.createUser(user.email, password));
+  const failed = () => new AdminUserError(502, "The password could not be reset. Please try again.");
+  const existingAuthUserId = await deps.repository.getAuthUserId(userId);
+  if (existingAuthUserId) {
+    try {
+      await auth.setPassword(existingAuthUserId, password);
+    } catch {
+      throw failed();
     }
+    return { user, signInAs: signInName(user), password };
+  }
+
+  let newAuthUserId: string;
+  try {
+    newAuthUserId = await auth.createUser(user.email, password);
   } catch {
-    throw new AdminUserError(502, "The password could not be reset. Please try again.");
+    throw failed();
+  }
+  try {
+    await deps.repository.setAuthUserId(userId, newAuthUserId);
+  } catch {
+    // Remove the unlinked sign-in so a retry can create it again.
+    try {
+      await auth.deleteUser(newAuthUserId);
+    } catch {
+      throw new AdminUserError(500, `The password could not be reset, and the half-made sign-in for ${user.email} could not be removed. Ask a developer to remove it in Supabase before trying again.`);
+    }
+    throw failed();
   }
   return { user, signInAs: signInName(user), password };
 }
@@ -133,14 +164,50 @@ export interface UserUpdate {
   role?: UserRole;
 }
 
-/** Profile, status and role changes. An admin can't demote or deactivate themselves. */
-export async function updateAccount(actor: Pick<DemoUser, "id" | "role">, update: UserUpdate, deps: Pick<AccountDeps, "repository">): Promise<DemoUser> {
+/**
+ * Profile, status and role changes. An admin can't demote or deactivate
+ * themselves. A resident's email is fixed to their code. A staff email change
+ * goes to the sign-in account first, then the user row; if the row can't be
+ * saved, the sign-in email is put back.
+ */
+export async function updateAccount(actor: Pick<DemoUser, "id" | "role">, update: UserUpdate, deps: AccountDeps): Promise<DemoUser> {
   const { userId, ...patch } = update;
   if (userId === actor.id) {
     if (patch.role !== undefined && patch.role !== actor.role) throw new AdminUserError(403, "You can't change your own role. Ask another admin to do it.");
     if (patch.isActive === false) throw new AdminUserError(403, "You can't deactivate your own account. Ask another admin to do it.");
   }
-  const exists = (await deps.repository.listUsers()).some((user) => user.id === userId);
-  if (!exists) throw new AdminUserError(404, "That user no longer exists.");
-  return deps.repository.updateUser(userId, patch);
+  const users = await deps.repository.listUsers();
+  const user = users.find((item) => item.id === userId);
+  if (!user) throw new AdminUserError(404, "That user no longer exists.");
+
+  const newEmail = patch.email?.trim().toLowerCase();
+  delete patch.email;
+  if (newEmail === undefined || newEmail === user.email.toLowerCase()) return deps.repository.updateUser(userId, patch);
+
+  if (isResidentEmail(user.email)) throw new AdminUserError(400, "A resident signs in with their code, so their email can't be changed.");
+  if (isResidentEmail(newEmail)) throw new AdminUserError(400, `Addresses ending in @${RESIDENT_EMAIL_DOMAIN} are reserved for resident codes.`);
+  const taken = () => new AdminUserError(409, "Another account already uses this email.");
+  if (users.some((item) => item.id !== userId && item.email.toLowerCase() === newEmail)) throw taken();
+
+  const withEmail = { ...patch, email: newEmail };
+  const authUserId = await deps.repository.getAuthUserId(userId);
+  if (!authUserId) return deps.repository.updateUser(userId, withEmail);
+
+  const auth = requireAuth(deps.auth);
+  try {
+    await auth.setEmail(authUserId, newEmail);
+  } catch (error) {
+    if (looksLikeDuplicate(error)) throw taken();
+    throw new AdminUserError(502, "The sign-in email could not be changed, so nothing was changed. Please try again.");
+  }
+  try {
+    return await deps.repository.updateUser(userId, withEmail);
+  } catch {
+    try {
+      await auth.setEmail(authUserId, user.email);
+    } catch {
+      throw new AdminUserError(500, `The change could not be saved, and the sign-in email could not be put back. ${user.name} now signs in with ${newEmail}, but the user list still shows ${user.email}. Try saving again, or ask a developer to fix it.`);
+    }
+    throw new AdminUserError(500, "The change could not be saved, so nothing was changed. Please try again.");
+  }
 }

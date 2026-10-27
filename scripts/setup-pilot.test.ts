@@ -179,4 +179,31 @@ describe("setup-pilot runs", () => {
     await main([...baseArgs, "--apply"], LOCAL_ENV, { store, log: () => undefined, csvPath: path.join(dir, "v2.csv") });
     expect(state.assignments.map((row) => row.case_id)).toEqual(["44444444-4444-4444-8444-444444444444"]);
   });
+
+  it("refuses the whole plan when an unlinked user has another role, before any write", async () => {
+    const { store, state } = memoryStore();
+    state.users.push({ id: "u-admin", email: "r01@pilot.invalid", role: "admin", auth_user_id: null, is_active: true });
+    for (const name of WRITES) store[name] = vi.fn(store[name]);
+    const error = await main([...baseArgs, "--apply"], LOCAL_ENV, { store, log: () => undefined, csvPath: path.join(dir, "mismatch.csv") }).catch((reason) => reason);
+    expect(error.message).toMatch(/Nothing was changed/);
+    expect(error.message).toMatch(/R01: r01@pilot\.invalid already belongs to an admin account that has no sign-in yet, but this plan wants a student/);
+    for (const name of WRITES) expect(store[name]).not.toHaveBeenCalled();
+    expect(state.users).toHaveLength(1);
+    expect(state.users[0].auth_user_id).toBeNull();
+    expect(() => statSync(path.join(dir, "mismatch.csv"))).toThrow();
+  });
+
+  it("refuses --reset-codes for a linked user with another role, and lists every mismatch", async () => {
+    const { store, state } = memoryStore();
+    await main([...baseArgs, "--apply"], LOCAL_ENV, { store, log: () => undefined, csvPath: path.join(dir, "reset-mismatch.csv") });
+    state.users.find((row) => row.email === "r03@pilot.invalid")!.role = "professor";
+    state.users.find((row) => row.email === "lead@example.com")!.role = "admin";
+    const before = new Map(state.passwords);
+    for (const name of WRITES) store[name] = vi.fn(store[name]);
+    const error = await main([...baseArgs, "--apply", "--reset-codes", "R03"], LOCAL_ENV, { store, log: () => undefined, csvPath: path.join(dir, "reset-mismatch.csv") }).catch((reason) => reason);
+    expect(error.message).toMatch(/lead@example\.com: lead@example\.com already belongs to an admin account that has a sign-in, but this plan wants a professor/);
+    expect(error.message).toMatch(/R03 \(listed in --reset-codes\): r03@pilot\.invalid already belongs to a professor account that has a sign-in, but this plan wants a student/);
+    for (const name of WRITES) expect(store[name]).not.toHaveBeenCalled();
+    expect(state.passwords).toEqual(before);
+  });
 });

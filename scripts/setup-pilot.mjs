@@ -160,17 +160,30 @@ export async function planPilot(store, options, staff) {
   const usersByEmail = new Map((await store.findUsersByEmail(desired.map((item) => item.email))).map((row) => [row.email.toLowerCase(), row]));
   const authByEmail = await store.findAuthUsersByEmail(desired.map((item) => item.email));
 
+  // A user row with another role would otherwise be linked to, or reset with,
+  // credentials meant for a different account. Refuse before any write.
+  const mismatches = desired.flatMap((item) => {
+    const row = usersByEmail.get(item.email);
+    if (!row || row.role === item.role) return [];
+    const reset = item.kind === "student" && options.resetCodes.includes(item.code) ? " (listed in --reset-codes)" : "";
+    const link = row.auth_user_id ? "has a sign-in" : "has no sign-in yet";
+    const an = (role) => (role === "admin" ? `an ${role}` : `a ${role}`);
+    return [`${item.code || item.email}${reset}: ${item.email} already belongs to ${an(row.role)} account that ${link}, but this plan wants ${an(item.role)}.`];
+  });
+  if (mismatches.length) {
+    throw new PilotError(`Nothing was changed. These accounts already exist with a different role:\n${mismatches.map((line) => `  - ${line}`).join("\n")}\nFix or remove them in the admin page (or change the staff file or codes), then run this again.`);
+  }
+
   const accounts = desired.map((item) => {
     const row = usersByEmail.get(item.email);
     const authId = authByEmail.get(item.email) ?? null;
     const wantsReset = item.kind === "student" && options.resetCodes.includes(item.code);
-    if (row && row.role !== item.role) notes.push(`${item.code || item.email} already exists as ${row.role}, not ${item.role}; its role is left unchanged.`);
     if (row && row.is_active === false) notes.push(`${item.code || item.email} exists but is deactivated; left as is.`);
     let action;
     if (row?.auth_user_id) action = wantsReset ? "reset" : "skip";
     else if (row) action = authId ? (wantsReset ? "link+reset" : "link") : "create-auth";
     else action = authId ? (wantsReset ? "create-row+reset" : "create-row") : "create";
-    return { ...item, action, userId: row?.id ?? null, authUserId: row?.auth_user_id ?? authId, roleMatches: !row || row.role === item.role };
+    return { ...item, action, userId: row?.id ?? null, authUserId: row?.auth_user_id ?? authId };
   });
 
   const classCode = classCodeFor(options.className);
@@ -188,9 +201,8 @@ export async function planPilot(store, options, staff) {
   const memberships = classRow ? await store.listMemberships(classRow.id) : [];
   const memberByUser = new Map(memberships.map((row) => [row.user_id, row]));
   const existingLead = memberships.find((row) => row.is_lead) ?? null;
-  const lead = accounts.find((item) => item.role === "professor" && item.roleMatches);
-  if (!lead) throw new PilotError("No professor in the staff file can lead the class (each one already exists with another role).");
-  const enrol = accounts.filter((item) => item.roleMatches && (item.role === "student" || item.role === "professor")).flatMap((item) => {
+  const lead = accounts.find((item) => item.role === "professor");
+  const enrol = accounts.filter((item) => item.role === "student" || item.role === "professor").flatMap((item) => {
     const current = item.userId ? memberByUser.get(item.userId) : undefined;
     const makeLead = !existingLead && item === lead;
     if (current) {

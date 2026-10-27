@@ -31,6 +31,7 @@ import FeedbackLab from "./feedback-lab";
 import { cloneElement, FormEvent, isValidElement, ReactNode, type ReactElement, useCallback, useEffect, useId, useRef, useState } from "react";
 import type { StaffReviewFilter, StaffSessionPage, StaffSessionSummary } from "@/lib/domain";
 import { describeRequestFailure, readJsonBody, requestSignal } from "@/lib/client-request";
+import { RESIDENT_EMAIL_DOMAIN } from "@/lib/account-codes.mjs";
 import {
   CASE_DESCRIPTION_MAX_LENGTH,
   CASE_TITLE_MAX_LENGTH,
@@ -416,6 +417,7 @@ function Overview({ data, setTab }: { data: DashboardData; setTab: (tab: AdminTa
 }
 
 interface IssuedPassword { signInAs: string; password: string; user: AdminUser }
+const isResidentEmail = (email: string) => email.toLowerCase().endsWith(`@${RESIDENT_EMAIL_DOMAIN}`);
 type NewUserDraft = { role: Role; code: string; name: string; email: string };
 
 function Users({ data, busy, reload }: { data: DashboardData; busy: string; reload: () => Promise<void> }) {
@@ -457,7 +459,9 @@ function Users({ data, busy, reload }: { data: DashboardData; busy: string; relo
     event.preventDefault();
     if (!editing) return;
     const original = data.users.find((user) => user.id === editing.id);
-    const body = { userId: editing.id, name: editing.name, email: editing.email, isActive: isActive(editing), ...(original && original.role !== editing.role ? { role: editing.role } : {}) };
+    // Send the email only when it changed: it moves the sign-in email too.
+    const emailChanged = original && editing.email.trim().toLowerCase() !== original.email.toLowerCase();
+    const body = { userId: editing.id, name: editing.name, isActive: isActive(editing), ...(emailChanged ? { email: editing.email } : {}), ...(original && original.role !== editing.role ? { role: editing.role } : {}) };
     await run(() => api("/api/admin/users", { method: "PATCH", body: JSON.stringify(body) }), () => { closeDialogs(); setNotice("User updated."); });
   }
 
@@ -523,7 +527,9 @@ function Users({ data, busy, reload }: { data: DashboardData; busy: string; relo
             {dialogErrorBanner}
             <div className="grid gap-4">
               <Field label="Full name"><input className={inputClass} value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} required /></Field>
-              <Field label="Email address"><input className={inputClass} type="email" value={editing.email} onChange={(event) => setEditing({ ...editing, email: event.target.value })} required /></Field>
+              {isResidentEmail(data.users.find((user) => user.id === editing.id)?.email ?? editing.email)
+                ? <Field label="Sign-in code" hint="Residents sign in with their code, so it can't be changed here."><input className={inputClass} value={editing.email.split("@")[0].toUpperCase()} readOnly disabled /></Field>
+                : <Field label="Email address" hint="They sign in with this email. Changing it changes their sign-in too."><input className={inputClass} type="email" value={editing.email} onChange={(event) => setEditing({ ...editing, email: event.target.value })} required /></Field>}
               <Field label="Role" hint="Takes effect on their next page load. You can't change your own role."><select className={inputClass} value={editing.role} onChange={(event) => setEditing({ ...editing, role: event.target.value as Role })}><option value="student">Student</option><option value="professor">Professor</option><option value="admin">Admin</option></select></Field>
               <div className="flex items-center justify-between rounded-xl border border-[#ded8d0] p-4 text-xs font-bold"><span><strong>Account active</strong><small className="mt-1 block font-normal text-[#726c73]">Inactive users can't sign in. You can't deactivate yourself.</small></span><input type="checkbox" aria-label="Account active" className="size-4 accent-[#de695c]" checked={isActive(editing)} onChange={(event) => setEditing({ ...editing, isActive: event.target.checked })} /></div>
             </div>
