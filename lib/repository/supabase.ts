@@ -999,6 +999,26 @@ export class SupabaseTutorRepository implements TutorRepository {
     return userId ? result.filter((item) => item.members.some((member) => member.userId === userId)) : result;
   }
 
+  async getClass(classId: string): Promise<TeachingClass | null> {
+    const { data, error } = await this.client.from("classes").select("*").eq("id", classId).maybeSingle();
+    if (error) throw new Error(`Get class: ${error.message}`);
+    if (!data) return null;
+    const { data: members, error: memberError } = await this.client.from("class_memberships").select("*, users(*)").eq("class_id", classId);
+    return mapClass(data, must(members, memberError, "Get class members"));
+  }
+
+  async listAssignmentsForClass(classId: string) {
+    const { data, error } = await this.client.from("class_case_assignments").select("*, classes(name), cases(title)").eq("class_id", classId).order("created_at", { ascending: false });
+    return must(data, error, "List class assignments").map(mapAssignment);
+  }
+
+  async listSessionsForAssignments(assignmentIds: string[]) {
+    if (!assignmentIds.length) return [];
+    const { data, error } = await this.client.from("sessions").select("id").in("class_case_assignment_id", assignmentIds).order("created_at", { ascending: false });
+    const rows = must(data, error, "List class sessions");
+    return Promise.all(rows.map(async (row) => (await this.getSession(row.id))!));
+  }
+
   async saveClass(input: Omit<TeachingClass, "id" | "createdAt" | "members"> & { id?: string }) {
     const payload = { name: input.name, code: input.code, term: input.term, status: input.status, created_by: input.createdBy };
     const operation = input.id ? this.client.from("classes").update(payload).eq("id", input.id).select("id").single() : this.client.from("classes").insert(payload).select("id").single();

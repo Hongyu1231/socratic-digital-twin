@@ -3,6 +3,7 @@ import JSZip from "jszip";
 import { writePilotWorkbook } from "@/lib/export/pilot-excel";
 import { buildPilotExport, type PilotExportInput } from "@/lib/export/pilot-export";
 import { writeSessionDocument } from "@/lib/export/pilot-word";
+import type { TeachingClass } from "@/lib/domain";
 import type { TutorRepository } from "@/lib/repository/types";
 
 export const WORD_FOLDER = "Transcripts (Word)";
@@ -11,15 +12,14 @@ function safeName(text: string) {
   return text.normalize("NFKC").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "class";
 }
 
-/** Gather everything one class's export needs from the repository. */
-export async function loadPilotExportInput(repository: TutorRepository, classId: string, exportedAt = new Date()): Promise<PilotExportInput | null> {
-  const teachingClass = (await repository.listClasses()).find((item) => item.id === classId);
-  if (!teachingClass) return null;
-  const assignments = (await repository.listAssignments()).filter((item) => item.classId === classId);
-  const assignmentIds = new Set(assignments.map((item) => item.id));
-  const sessions = assignmentIds.size
-    ? (await repository.listSessions()).filter((bundle) => bundle.session.assignmentId && assignmentIds.has(bundle.session.assignmentId))
-    : [];
+/**
+ * Load one class's assignments and sessions, for a class the caller has
+ * already loaded with getClass and authorised. Only class- and
+ * assignment-scoped queries are used.
+ */
+export async function loadPilotExportInput(repository: Pick<TutorRepository, "listAssignmentsForClass" | "listSessionsForAssignments">, teachingClass: TeachingClass, exportedAt = new Date()): Promise<PilotExportInput> {
+  const assignments = await repository.listAssignmentsForClass(teachingClass.id);
+  const sessions = await repository.listSessionsForAssignments(assignments.map((item) => item.id));
   return { teachingClass, assignments, sessions, exportedAt };
 }
 

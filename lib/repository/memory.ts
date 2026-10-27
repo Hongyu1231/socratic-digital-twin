@@ -547,6 +547,25 @@ export class InMemoryTutorRepository implements TutorRepository {
     return clone([...this.store.classes.values()].filter((item) => !userId || item.members.some((member) => member.userId === userId)));
   }
 
+  async getClass(classId: string) {
+    const teachingClass = this.store.classes.get(classId);
+    if (!teachingClass) return null;
+    return clone({ ...teachingClass, members: teachingClass.members.map((member) => ({ ...member, user: this.store.users.get(member.userId) ?? member.user })) });
+  }
+
+  async listAssignmentsForClass(classId: string) {
+    return clone([...this.store.assignments.values()].filter((item) => item.classId === classId));
+  }
+
+  async listSessionsForAssignments(assignmentIds: string[]) {
+    const wanted = new Set(assignmentIds);
+    if (!wanted.size) return [];
+    return Promise.all([...this.store.sessions.values()]
+      .filter((session) => session.assignmentId && wanted.has(session.assignmentId))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((session) => this.bundle(session)));
+  }
+
   async saveClass(input: Omit<TeachingClass, "id" | "createdAt" | "members"> & { id?: string }) {
     const current = input.id ? this.store.classes.get(input.id) : undefined;
     const next: TeachingClass = { ...input, id: input.id ?? crypto.randomUUID(), createdAt: current?.createdAt ?? new Date().toISOString(), members: current?.members ?? [] };

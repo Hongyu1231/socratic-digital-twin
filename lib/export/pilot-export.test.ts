@@ -55,14 +55,14 @@ describe("pilot export rows", () => {
   });
 
   it("counts a never-paused session exactly, up to its last message while in progress", () => {
-    const sessions = fixtureSessions().map((item) => item.student.name === "R03" && item.session.status === "active"
+    const sessions = fixtureSessions().map((item) => item.student.id === users.r03!.id && item.session.status === "active"
       ? { ...item, session: { ...item.session, pausedAt: null, pauseHistory: undefined } } : item);
     const r03Paused = buildPilotExport({ teachingClass, assignments, sessions, exportedAt: new Date("2026-11-03T03:00:00.000Z") }).summary[2]!;
     expect(r03Paused.timeSpentMinutes).toBe(25); // not the 120 minutes to download time
   });
 
   it("counts from the start when paused right now with no pause history", () => {
-    const sessions = fixtureSessions().map((item) => item.student.name === "R03" && item.session.status === "active"
+    const sessions = fixtureSessions().map((item) => item.student.id === users.r03!.id && item.session.status === "active"
       ? { ...item, session: { ...item.session, pauseHistory: undefined } } : item);
     const data = buildPilotExport({ teachingClass, assignments, sessions, exportedAt: EXPORTED_AT });
     expect(data.summary[2]!.timeSpentMinutes).toBe(25);
@@ -72,7 +72,7 @@ describe("pilot export rows", () => {
   });
 
   it("keeps one decimal place of minutes", () => {
-    const sessions = fixtureSessions().map((item) => item.student.name === "R10"
+    const sessions = fixtureSessions().map((item) => item.student.id === users.r10!.id
       ? { ...item, session: { ...item.session, completedAt: "2026-11-02T02:20:24.000Z" } } : item);
     const r10 = buildPilotExport({ teachingClass, assignments, sessions, exportedAt: EXPORTED_AT }).summary.at(-1)!;
     expect(r10.timeSpentMinutes).toBe(17.4); // 20 min 24 s, minus a 3 minute pause
@@ -145,7 +145,7 @@ describe("pilot export across more than one case", () => {
     const { clinicalCase, OTHER_ASSIGNMENT_ID } = await import("@/lib/export/pilot-fixtures");
     const secondCase = { ...clinicalCase, id: "case-2", title: "Impacted Mandibular Second Molar", phases: clinicalCase.phases.map((phase, index) => index === 2 ? { ...phase, title: "Something else" } : phase) };
     const classAssignments = [assignments[0]!, { ...assignments[1]!, id: "a3", classId: CLASS_ID }];
-    const sessions = fixtureSessions().filter((item) => item.student.name === "R03" && item.session.assignmentId !== OTHER_ASSIGNMENT_ID);
+    const sessions = fixtureSessions().filter((item) => item.student.id === users.r03!.id && item.session.assignmentId !== OTHER_ASSIGNMENT_ID);
     const extra = { ...sessions[0]!, case: secondCase, session: { ...sessions[0]!.session, id: "s8", assignmentId: "a3", createdAt: "2026-11-04T00:00:00.000Z" } };
     const data = buildPilotExport({ teachingClass, assignments: classAssignments, sessions: [...sessions, extra], exportedAt: EXPORTED_AT });
     expect(data.summary.map((row) => row.fileName)).toEqual([

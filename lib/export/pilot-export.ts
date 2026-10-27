@@ -1,3 +1,4 @@
+import { hiddenEmailToCode } from "@/lib/account-codes.mjs";
 import type { CaseAssignment, SessionBundle, TeachingClass } from "@/lib/domain";
 import { activeMilliseconds } from "@/lib/pause-history";
 import { reviewPhaseOutcome, type ReviewPhaseOutcome } from "@/lib/phase-outcomes";
@@ -7,9 +8,40 @@ import { projectProfessorTranscript } from "@/lib/professor/transcript";
  * Pure projection of one class's pilot data into export rows. No file formats
  * live here: the Excel and Word writers only lay these rows out.
  *
- * Residents are identified by their code (users.display_name) and nothing
- * else. Emails, user ids and session ids never reach the output.
+ * Residents are identified by their study code and nothing else. The code
+ * comes only from the hidden sign-in email (users.email), never from a name,
+ * which admins can edit. Emails, names, user ids and session ids never reach
+ * the output.
  */
+
+/** The export can't be made without revealing who someone is. */
+export class PilotExportRefusedError extends Error {
+  readonly status = 422;
+  constructor(message: string) {
+    super(message);
+    this.name = "PilotExportRefusedError";
+  }
+}
+
+/**
+ * Study codes for the class's enrolled students, by user id. Refuses (without
+ * naming anyone) if any student has no valid code.
+ */
+export function studentCodesFor(teachingClass: TeachingClass): Map<string, string> {
+  const students = teachingClass.members.filter((member) => member.role === "student");
+  const codes = new Map<string, string>();
+  let missing = 0;
+  for (const member of students) {
+    const code = hiddenEmailToCode(member.user?.email);
+    if (code) codes.set(member.userId, code);
+    else missing += 1;
+  }
+  if (missing) {
+    const who = missing === 1 ? "1 student" : `${missing} students`;
+    throw new PilotExportRefusedError(`This class has ${who} without a study code, so the data can't be exported anonymously. Ask an admin to give every resident a code account first.`);
+  }
+  return codes;
+}
 
 export const EXPORT_TIME_ZONE = "Asia/Singapore";
 
@@ -166,9 +198,7 @@ export function buildPilotExport(input: PilotExportInput): PilotExport {
   const assignments = new Map(input.assignments
     .filter((assignment) => assignment.classId === teachingClass.id)
     .map((assignment) => [assignment.id, assignment]));
-  const studentCodes = new Map(teachingClass.members
-    .filter((member) => member.role === "student")
-    .map((member) => [member.userId, member.user?.name]));
+  const studentCodes = studentCodesFor(teachingClass);
 
   const included = input.sessions.filter((bundle) =>
     bundle.session.assignmentId
@@ -187,7 +217,7 @@ export function buildPilotExport(input: PilotExportInput): PilotExport {
     attempts.set(bundle.session.id, attempt);
   }
 
-  const codeFor = (bundle: SessionBundle) => (studentCodes.get(bundle.session.studentId) ?? bundle.student.name).trim();
+  const codeFor = (bundle: SessionBundle) => studentCodes.get(bundle.session.studentId)!;
   const ordered = byStart.sort((a, b) =>
     codeCollator.compare(codeFor(a), codeFor(b))
     || a.session.createdAt.localeCompare(b.session.createdAt)

@@ -10,15 +10,17 @@ export const PROFESSOR_ID = "p1p1p1p1-0000-4000-8000-000000000001";
 export const OTHER_PROFESSOR_ID = "p2p2p2p2-0000-4000-8000-000000000002";
 export const ADMIN_ID = "adadadad-0000-4000-8000-000000000001";
 
-export const SECRET_EMAILS = ["r03.private@u.nus.edu", "r10.private@u.nus.edu", "r02.private@u.nus.edu", "prof.private@nus.edu.sg", "r99.private@u.nus.edu"];
-export const SECRET_NAMES = ["Alicia Tan", "Prof. Marcus Lim"];
+// Residents' only stable identifier is the hidden code email. Display names
+// are deliberately real-looking: the export must never use them.
+export const SECRET_EMAILS = ["r03@pilot.invalid", "r10@pilot.invalid", "r02@pilot.invalid", "prof.private@nus.edu.sg", "r99@pilot.invalid"];
+export const SECRET_NAMES = ["Alicia Tan", "Prof. Marcus Lim", "Benjamin Lee", "Chloe Wong", "Daniel Goh"];
 
 export const users: Record<string, DemoUser> = {
-  r03: { id: "u0300000-0000-4000-8000-000000000003", name: "R03", email: SECRET_EMAILS[0]!, role: "student", profile: { fullName: SECRET_NAMES[0] } },
-  r10: { id: "u1000000-0000-4000-8000-000000000010", name: "R10", email: SECRET_EMAILS[1]!, role: "student" },
-  r02: { id: "u0200000-0000-4000-8000-000000000002", name: "R02", email: SECRET_EMAILS[2]!, role: "student" },
+  r03: { id: "u0300000-0000-4000-8000-000000000003", name: SECRET_NAMES[0]!, email: SECRET_EMAILS[0]!, role: "student", profile: { fullName: SECRET_NAMES[0] } },
+  r10: { id: "u1000000-0000-4000-8000-000000000010", name: SECRET_NAMES[2]!, email: SECRET_EMAILS[1]!, role: "student" },
+  r02: { id: "u0200000-0000-4000-8000-000000000002", name: SECRET_NAMES[3]!, email: SECRET_EMAILS[2]!, role: "student" },
   prof: { id: PROFESSOR_ID, name: SECRET_NAMES[1]!, email: SECRET_EMAILS[3]!, role: "professor" },
-  r99: { id: "u9900000-0000-4000-8000-000000000099", name: "R99", email: SECRET_EMAILS[4]!, role: "student" },
+  r99: { id: "u9900000-0000-4000-8000-000000000099", name: SECRET_NAMES[4]!, email: SECRET_EMAILS[4]!, role: "student" },
 };
 
 export const PHASE_TITLES = [
