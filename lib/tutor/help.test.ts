@@ -5,6 +5,7 @@ import { InMemoryTutorRepository } from "@/lib/repository/memory";
 import { resetRepositoryForTests } from "@/lib/repository";
 import * as tutor from "@/lib/tutor";
 import * as support from "@/lib/tutor/support";
+import * as retrieval from "@/lib/materials/retrieval";
 import { studentView } from "@/lib/http";
 import {
   HELP_REQUEST_MARKER,
@@ -74,6 +75,32 @@ describe("ungraded Help turns", () => {
     expect(JSON.stringify(unchanged.session)).toBe(before);
     expect(studentView(unchanged).session.canRequestHelp).toBe(false);
     expect(generate).not.toHaveBeenCalled();
+  });
+
+  it("looks up the active hosted case version on Help before falling back to its source", async () => {
+    vi.spyOn(tutor, "getTutorMode").mockReturnValue("openai");
+    vi.spyOn(tutor, "evaluateWithFallback").mockResolvedValue(answerResult());
+    vi.spyOn(support, "generateTutorSupport").mockResolvedValue({
+      content: "Suppose this interpretation were incomplete. What would you challenge first?", source: "openai",
+    });
+    const started = await start();
+    const answered = await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "The finding is relevant.");
+    const sourceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const packageId = "a".repeat(64);
+    const getSession = repository.getSession.bind(repository);
+    vi.spyOn(repository, "getSession").mockImplementation(async (id) => {
+      const bundle = await getSession(id);
+      return bundle && id === answered.session.id
+        ? { ...bundle, case: { ...bundle.case, sourceCaseId: sourceId, teachingMaterialPackageId: packageId } }
+        : bundle;
+    });
+    const lookup = vi.spyOn(retrieval, "getTeachingContextWithTraceAsync").mockResolvedValue({
+      context: undefined, trace: { query: "", passages: [] },
+    });
+
+    const result = await submitTutorHelp(answered.session.id, DEMO_STUDENT_ID, "help-version-01");
+    expect(result.session.messages.at(-1)?.sender).toBe("ai");
+    expect(lookup).toHaveBeenCalledWith(started.case.id, expect.any(String), packageId, sourceId);
   });
 
   it("commits a tagged ungraded step, replays it, then reaches supported reveal", async () => {
