@@ -17,7 +17,7 @@ import type {
   TutorMessage,
   TutorTurnReview,
 } from "@/lib/domain";
-import { demoAssignment, demoAssignments, demoCases, demoClass, demoUsers, getDemoUser } from "@/lib/seed";
+import { demoAssignment, demoAssignments, demoCases, demoClass, demoUsers, getDemoUser, testClass } from "@/lib/seed";
 import { ArchivedCaseError, AssignmentIdempotencyConflictError, IdempotencyConflictError, SupersededCaseError, type CommitTurnInput, type SaveReviewInput, type TutorRepository } from "@/lib/repository/types";
 import { getCaseLineageId, getNextCaseVersion, getVersionedCaseTitle } from "@/lib/repository/case-version";
 import {
@@ -81,6 +81,14 @@ function createStore(): MemoryStore {
     className: demoClass.name,
     caseTitle: clinicalCase.title,
   })) : demoAssignments;
+  // Keep QA learners and their session history in a separate testing class.
+  const testAssignments: CaseAssignment[] = assignments.filter((item) => item.status === "open").map((item) => ({
+    ...item,
+    id: crypto.randomUUID(),
+    classId: testClass.id,
+    className: testClass.name,
+    idempotencyKey: `local-test-class:${item.caseId}`,
+  }));
   return {
     sessions: new Map(),
     turnRequests: new Map(),
@@ -88,9 +96,9 @@ function createStore(): MemoryStore {
     tutorTurnReviews: new Map(),
     sessionReviews: new Map(),
     users: new Map(demoUsers.map((item) => [item.id, clone(item)])),
-    classes: new Map([[demoClass.id, clone(demoClass)]]),
+    classes: new Map([[demoClass.id, clone(demoClass)], [testClass.id, clone(testClass)]]),
     cases: new Map(cases.map((item) => [item.id, clone(item)])),
-    assignments: new Map(assignments.map((item) => [item.id, clone(item)])),
+    assignments: new Map([...assignments, ...testAssignments].map((item) => [item.id, clone(item)])),
   };
 }
 
@@ -486,9 +494,9 @@ export class InMemoryTutorRepository implements TutorRepository {
     this.store.answerReviews.clear();
     this.store.tutorTurnReviews.clear();
     this.store.sessionReviews.clear();
-    this.store.users = new Map(demoUsers.map((item) => [item.id, clone(item)]));
-    this.store.classes = new Map([[demoClass.id, clone(demoClass)]]);
     const fresh = createStore();
+    this.store.users = fresh.users;
+    this.store.classes = fresh.classes;
     this.store.cases = fresh.cases;
     this.store.assignments = fresh.assignments;
   }
