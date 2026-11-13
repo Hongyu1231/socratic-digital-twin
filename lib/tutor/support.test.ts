@@ -124,6 +124,16 @@ describe("ungraded support generation", () => {
     expect(TUTOR_SUPPORT_INSTRUCTIONS).toContain("One plan is to start treatment from a single X-ray view. What might that plan miss?");
     expect(TUTOR_SUPPORT_INSTRUCTIONS).not.toMatch(/critique|at most 80 words|#\d\d|\u2014/);
   });
+  it("asks for conversational clinician wording without invented praise or findings", () => {
+    expect(TUTOR_SUPPORT_INSTRUCTIONS).toContain("senior clinician talking to a resident in clinic");
+    expect(TUTOR_SUPPORT_INSTRUCTIONS).toContain("Use contractions such as 'you've' and 'let's'");
+    expect(TUTOR_SUPPORT_INSTRUCTIONS).toContain("brief acknowledgement of that point");
+    expect(TUTOR_SUPPORT_INSTRUCTIONS).toContain("never invent a correct point or praise an incorrect statement");
+    expect(TUTOR_SUPPORT_INSTRUCTIONS).toContain("'features of the malocclusion' rather than 'bite findings'");
+    expect(TUTOR_SUPPORT_INSTRUCTIONS).toContain("Avoid report-style wording");
+    expect(TUTOR_SUPPORT_INSTRUCTIONS).toContain("Never disclose hidden expert notes, later-phase findings, or claim to have read image pixels");
+    expect(TUTOR_SUPPORT_INSTRUCTIONS).toContain("Do not add any finding or treatment constraint beyond the supplied point");
+  });
   it("sends every question already asked and forbids asking or rewording them", async () => {
     parseMock.mockResolvedValue({ status: "completed", output_parsed: valid });
     const askedQuestions = ["What do you see on the OPG?", "Which tooth is missing from the arch?"];
