@@ -126,6 +126,12 @@ export interface TutorRepository {
   /** Link an app user to a Supabase Auth user. */
   setAuthUserId(userId: string, authUserId: string): Promise<void>;
   listClasses(userId?: string): Promise<TeachingClass[]>;
+  /** One class with its members (and their users), or null. Reads nothing else. */
+  getClass(classId: string): Promise<TeachingClass | null>;
+  /** One class's assignments, filtered by class id in the store. */
+  listAssignmentsForClass(classId: string): Promise<CaseAssignment[]>;
+  /** Sessions for these assignments only, filtered by assignment id in the store. */
+  listSessionsForAssignments(assignmentIds: string[]): Promise<SessionBundle[]>;
   saveClass(input: Omit<TeachingClass, "id" | "createdAt" | "members"> & { id?: string }): Promise<TeachingClass>;
   setClassMembers(classId: string, members: ClassMembership[]): Promise<TeachingClass>;
   /** Admin-only view of persisted case validation problems; never use for student DTOs. */

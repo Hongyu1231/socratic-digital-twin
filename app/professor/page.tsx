@@ -17,6 +17,7 @@ import {
   School,
   UsersRound,
 } from "lucide-react";
+import { PilotExportButton } from "@/components/pilot-export-button";
 import type { CaseAssignment, ClinicalCase, StaffSessionPage, StaffSessionSummary, TeachingClass } from "@/lib/domain";
 import styles from "./professor.module.css";
 import FacultyReleaseApproval from "./faculty-release-approval";
@@ -300,7 +301,10 @@ export default function ProfessorDashboard() {
                 <div className={styles.cardTop}><span className={styles.classCode}>{item.code}</span>{isLead ? <span className={styles.leadBadge}><GraduationCap size={12} /> Lead professor</span> : null}</div>
                 <h3>{item.name}</h3><p>{item.term || "Current teaching term"}</p>
                 <div className={styles.classMetrics}><span><strong>{getClassStudents(item)}</strong> students</span><span><strong>{getClassProfessors(item)}</strong> faculty</span><span><strong>{itemAssignments.length || item.assignmentCount || 0}</strong> activities</span></div>
-                <button className={styles.textAction} type="button" onClick={() => { setTab("assignments"); setDraft((current) => ({ ...current, classId: item.id })); }}>Manage assignments <ChevronRight size={14} /></button>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                  <button className={styles.textAction} type="button" onClick={() => { setTab("assignments"); setDraft((current) => ({ ...current, classId: item.id })); }}>Manage assignments <ChevronRight size={14} /></button>
+                  <PilotExportButton classId={item.id} />
+                </div>
               </article>;
             })}</div>
           )}

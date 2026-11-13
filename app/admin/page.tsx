@@ -27,6 +27,7 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
+import { PilotExportButton } from "@/components/pilot-export-button";
 import FeedbackLab from "./feedback-lab";
 import { cloneElement, FormEvent, isValidElement, ReactNode, type ReactElement, useCallback, useEffect, useId, useRef, useState } from "react";
 import type { StaffReviewFilter, StaffSessionPage, StaffSessionSummary } from "@/lib/domain";
@@ -622,7 +623,7 @@ function Classes({ data, busy, mutate }: { data: DashboardData; busy: string; mu
           return <article key={item.id} className={`${panelClass} p-6`}>
             <div className="flex items-start justify-between gap-4"><div><span className="font-mono text-[10px] uppercase tracking-[.12em] text-[#de695c]">{item.code}</span><h3 className="mt-2 font-serif text-2xl">{item.name}</h3><p className="mt-1 text-xs text-[#726c73]">{item.term ?? item.semester ?? "Term not set"}</p></div><span className="status-badge">{item.status ?? "active"}</span></div>
             <div className="mt-6 grid grid-cols-2 gap-3"><div className="rounded-xl bg-[#f6f3ed] p-4"><UsersRound size={16} className="text-[#7f9d8f]" /><strong className="mt-2 block font-serif text-2xl">{studentCount}</strong><small className="text-[10px] uppercase tracking-[.1em] text-[#726c73]">Students</small></div><div className="rounded-xl bg-[#f6f3ed] p-4"><GraduationCap size={16} className="text-[#de695c]" /><strong className="mt-2 block font-serif text-2xl">{professorCount}</strong><small className="text-[10px] uppercase tracking-[.1em] text-[#726c73]">Professors</small></div></div>
-            <div className="mt-5 flex justify-end"><button type="button" className="secondary-button" onClick={() => { open(item); setDraft({ name: item.name, code: item.code, term: item.term ?? item.semester ?? "", status: item.status ?? "active" }); }}><UserCog size={15} /> Manage class</button></div>
+            <div className="mt-5 flex flex-wrap items-start justify-end gap-3"><PilotExportButton classId={item.id} /><button type="button" className="secondary-button" onClick={() => { open(item); setDraft({ name: item.name, code: item.code, term: item.term ?? item.semester ?? "", status: item.status ?? "active" }); }}><UserCog size={15} /> Manage class</button></div>
           </article>;
         })}
       </section>
