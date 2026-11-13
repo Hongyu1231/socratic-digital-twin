@@ -116,7 +116,15 @@ export interface TutorRepository {
   listSessions(): Promise<SessionBundle[]>;
   saveReview(input: SaveReviewInput): Promise<SessionBundle>;
   listUsers(): Promise<DemoUser[]>;
-  updateUser(userId: string, patch: Partial<Pick<DemoUser, "name" | "email" | "isActive">>): Promise<DemoUser>;
+  /** The app user linked to a Supabase Auth user (users.auth_user_id), if any. */
+  findUserByAuthUserId(authUserId: string): Promise<DemoUser | undefined>;
+  updateUser(userId: string, patch: Partial<Pick<DemoUser, "name" | "email" | "isActive" | "role">>): Promise<DemoUser>;
+  /** Create an app user, optionally linked to a Supabase Auth user. */
+  createUser(input: Pick<DemoUser, "name" | "email" | "role"> & { authUserId?: string | null }): Promise<DemoUser>;
+  /** The Supabase Auth user id linked to an app user (users.auth_user_id), or null. */
+  getAuthUserId(userId: string): Promise<string | null>;
+  /** Link an app user to a Supabase Auth user. */
+  setAuthUserId(userId: string, authUserId: string): Promise<void>;
   listClasses(userId?: string): Promise<TeachingClass[]>;
   saveClass(input: Omit<TeachingClass, "id" | "createdAt" | "members"> & { id?: string }): Promise<TeachingClass>;
   setClassMembers(classId: string, members: ClassMembership[]): Promise<TeachingClass>;

@@ -5,6 +5,7 @@ import {
   CASE_TITLE_MAX_LENGTH,
   MEDIA_URL_MAX_LENGTH,
 } from "@/lib/case-limits.mjs";
+import { validateAccountCode } from "@/lib/account-codes.mjs";
 
 export const classificationSchema = z.enum(["correct", "partial", "vague", "wrong"]);
 export const strategySchema = z.enum(["probe", "challenge", "clarify", "scaffold", "reflect"]);
@@ -51,7 +52,28 @@ export const userUpdateSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   email: z.string().email().optional(),
   isActive: z.boolean().optional(),
+  role: z.enum(["student", "professor", "admin"], { error: "Choose student, professor or admin." }).optional(),
 });
+
+/** Students are added by code; staff by name and real email. */
+export const userCreateSchema = z.discriminatedUnion("role", [
+  z.object({
+    role: z.literal("student"),
+    code: z.string().transform((value, context) => {
+      const result = validateAccountCode(value);
+      if (!result.ok) {
+        context.addIssue({ code: "custom", message: result.error });
+        return z.NEVER;
+      }
+      return result.code;
+    }),
+  }),
+  z.object({
+    role: z.enum(["professor", "admin"]),
+    name: z.string({ error: "Enter a name." }).trim().min(1, "Enter a name.").max(120, "Use a name under 120 characters."),
+    email: z.string({ error: "Enter an email address." }).trim().toLowerCase().pipe(z.email("Enter a valid email address.")),
+  }),
+], { error: "Choose student, professor or admin." });
 
 export const classInputSchema = z.object({
   id: z.string().uuid().optional(),

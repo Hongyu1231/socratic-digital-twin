@@ -22,6 +22,7 @@ import {
   Send,
   ShieldCheck,
   FlaskConical,
+  KeyRound,
   UserCog,
   UsersRound,
   X,
@@ -30,6 +31,7 @@ import FeedbackLab from "./feedback-lab";
 import { cloneElement, FormEvent, isValidElement, ReactNode, type ReactElement, useCallback, useEffect, useId, useRef, useState } from "react";
 import type { StaffReviewFilter, StaffSessionPage, StaffSessionSummary } from "@/lib/domain";
 import { describeRequestFailure, readJsonBody, requestSignal } from "@/lib/client-request";
+import { RESIDENT_EMAIL_DOMAIN } from "@/lib/account-codes.mjs";
 import {
   CASE_DESCRIPTION_MAX_LENGTH,
   CASE_TITLE_MAX_LENGTH,
@@ -259,8 +261,9 @@ export default function AdminDashboard() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  // A quiet reload keeps the current tab mounted, so its open dialogs survive.
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     setError("");
     const requests = await Promise.allSettled([
       api<unknown>("/api/admin/overview"),
@@ -348,7 +351,7 @@ export default function AdminDashboard() {
           {notice ? <div className="success-banner" role="status"><Check size={15} /> {notice}</div> : null}
           {loading ? <div className="empty-state"><LoaderCircle className="spin mx-auto" /><p>Loading administration data…</p></div> : null}
           {!loading && tab === "overview" ? <Overview data={data} setTab={setTab} /> : null}
-          {!loading && tab === "users" ? <Users data={data} busy={busy} mutate={mutate} /> : null}
+          {!loading && tab === "users" ? <Users data={data} busy={busy} reload={() => load(true)} /> : null}
           {!loading && tab === "classes" ? <Classes data={data} busy={busy} mutate={mutate} /> : null}
           {!loading && tab === "cases" ? <Cases data={data} busy={busy} mutate={mutate} setError={setError} /> : null}
           {!loading && tab === "activity" ? <ActivityView data={data} busy={busy} mutate={mutate} /> : null}
@@ -413,34 +416,105 @@ function Overview({ data, setTab }: { data: DashboardData; setTab: (tab: AdminTa
   );
 }
 
-function Users({ data, busy, mutate }: { data: DashboardData; busy: string; mutate: (label: string, action: () => Promise<unknown>, success: string) => Promise<boolean> }) {
+interface IssuedPassword { signInAs: string; password: string; user: AdminUser }
+const isResidentEmail = (email: string) => email.toLowerCase().endsWith(`@${RESIDENT_EMAIL_DOMAIN}`);
+type NewUserDraft = { role: Role; code: string; name: string; email: string };
+
+function Users({ data, busy, reload }: { data: DashboardData; busy: string; reload: () => Promise<void> }) {
   const [filter, setFilter] = useState<"all" | Role>("all");
   const [editing, setEditing] = useState<AdminUser | null>(null);
+  const [creating, setCreating] = useState<NewUserDraft | null>(null);
+  const [resetting, setResetting] = useState<AdminUser | null>(null);
+  const [issued, setIssued] = useState<IssuedPassword | null>(null);
+  const [working, setWorking] = useState(false);
+  const [dialogError, setDialogError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [copied, setCopied] = useState(false);
   const shown = data.users.filter((user) => filter === "all" || user.role === filter);
+  const locked = working || Boolean(busy);
+
+  async function run<T>(action: () => Promise<T>, onDone: (result: T) => void) {
+    setWorking(true);
+    setDialogError("");
+    setNotice("");
+    try {
+      const result = await action();
+      onDone(result);
+      await reload();
+    } catch (reason) {
+      setDialogError(reason instanceof Error ? reason.message : "The change could not be saved.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  function closeDialogs() {
+    setEditing(null);
+    setCreating(null);
+    setResetting(null);
+    setDialogError("");
+  }
+
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editing) return;
-    const ok = await mutate(`user-${editing.id}`, () => api("/api/admin/users", { method: "PATCH", body: JSON.stringify({ userId: editing.id, name: editing.name, email: editing.email, isActive: isActive(editing) }) }), "User profile updated.");
-    if (ok) setEditing(null);
+    const original = data.users.find((user) => user.id === editing.id);
+    // Send the email only when it changed: it moves the sign-in email too.
+    const emailChanged = original && editing.email.trim().toLowerCase() !== original.email.toLowerCase();
+    const body = { userId: editing.id, name: editing.name, isActive: isActive(editing), ...(emailChanged ? { email: editing.email } : {}), ...(original && original.role !== editing.role ? { role: editing.role } : {}) };
+    await run(() => api("/api/admin/users", { method: "PATCH", body: JSON.stringify(body) }), () => { closeDialogs(); setNotice("User updated."); });
   }
+
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!creating) return;
+    const body = creating.role === "student" ? { role: "student", code: creating.code } : { role: creating.role, name: creating.name, email: creating.email };
+    await run(() => api<IssuedPassword>("/api/admin/users", { method: "POST", body: JSON.stringify(body) }), (result) => { closeDialogs(); setCopied(false); setIssued(result); });
+  }
+
+  async function reset() {
+    if (!resetting) return;
+    const user = resetting;
+    await run(() => api<IssuedPassword>(`/api/admin/users/${user.id}/reset-password`, { method: "POST" }), (result) => { closeDialogs(); setCopied(false); setIssued(result); });
+  }
+
+  async function copyPassword() {
+    if (!issued) return;
+    try {
+      await navigator.clipboard.writeText(issued.password);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  const dialogErrorBanner = dialogError ? <div className="error-banner mb-4 mt-0" role="alert">{dialogError}</div> : null;
+
   return (
     <div className="grid gap-5">
+      {notice ? <div className="success-banner" role="status"><Check size={15} /> {notice}</div> : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2" role="group" aria-label="Filter users by role">
           {(["all", "student", "professor", "admin"] as const).map((role) => <button key={role} type="button" onClick={() => setFilter(role)} className={`rounded-full border px-3 py-2 text-[10px] font-extrabold uppercase tracking-[.1em] ${filter === role ? "border-[#4e263f] bg-[#4e263f] text-white" : "border-[#ded8d0] bg-white text-[#726c73]"}`}>{role}</button>)}
         </div>
-        <span className="text-xs text-[#726c73]">{shown.length} users</span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-[#726c73]">{shown.length} users</span>
+          <button type="button" className="primary-button" onClick={() => { setDialogError(""); setCreating({ role: "student", code: "", name: "", email: "" }); }} disabled={locked}><Plus size={15} /> Add user</button>
+        </div>
       </div>
       <section className={`${panelClass} overflow-x-auto`}>
-        <div className="min-w-[760px]">
-          <div className="grid grid-cols-[1.35fr_1.5fr_.7fr_.7fr_100px] gap-4 bg-[#ece7de] px-5 py-3 text-[9px] font-extrabold uppercase tracking-[.12em] text-[#726c73]"><span>User</span><span>Email</span><span>Role</span><span>Status</span><span>Action</span></div>
+        <div className="min-w-[860px]">
+          <div className="grid grid-cols-[1.35fr_1.5fr_.7fr_.7fr_200px] gap-4 bg-[#ece7de] px-5 py-3 text-[9px] font-extrabold uppercase tracking-[.12em] text-[#726c73]"><span>User</span><span>Email</span><span>Role</span><span>Status</span><span>Action</span></div>
           {shown.map((user) => (
-            <div key={user.id} className="grid min-h-20 grid-cols-[1.35fr_1.5fr_.7fr_.7fr_100px] items-center gap-4 border-t border-[#ded8d0] px-5 py-3 text-xs">
+            <div key={user.id} className="grid min-h-20 grid-cols-[1.35fr_1.5fr_.7fr_.7fr_200px] items-center gap-4 border-t border-[#ded8d0] px-5 py-3 text-xs">
               <div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-full bg-[#e5ede7] font-serif text-[#476555]">{user.name.slice(0, 1)}</span><div><strong className="font-serif text-sm">{user.name}</strong><small className="block text-[10px] text-[#726c73]">{user.classes?.map((item) => item.name).join(", ") || data.classes.filter((item) => memberships(item).some((member) => memberId(member) === user.id)).map((item) => item.name).join(", ") || "No class shown"}</small></div></div>
               <span className="text-[#726c73]">{user.email}</span>
               <span className="capitalize">{user.role}</span>
               <span className={`w-fit rounded-full px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[.1em] ${isActive(user) ? "bg-[#e5ede7] text-[#476555]" : "bg-[#ece7de] text-[#726c73]"}`}>{isActive(user) ? "Active" : "Inactive"}</span>
-              <button className="table-link inline-flex items-center gap-1" type="button" onClick={() => setEditing({ ...user, isActive: isActive(user) })}><PencilLine size={13} /> Edit</button>
+              <div className="flex flex-wrap gap-3">
+                <button className="table-link inline-flex items-center gap-1" type="button" onClick={() => { setDialogError(""); setEditing({ ...user, isActive: isActive(user) }); }}><PencilLine size={13} /> Edit</button>
+                <button className="table-link inline-flex items-center gap-1" type="button" onClick={() => { setDialogError(""); setResetting(user); }}><KeyRound size={13} /> Reset password</button>
+              </div>
             </div>
           ))}
         </div>
@@ -449,15 +523,63 @@ function Users({ data, busy, mutate }: { data: DashboardData; busy: string; muta
       {editing ? (
         <div className="fixed inset-0 z-[80] grid place-items-center bg-[#21172b]/45 p-4" role="dialog" aria-modal="true" aria-labelledby="edit-user-title">
           <form onSubmit={save} className={`${panelClass} w-full max-w-lg p-6`}>
-            <div className="mb-5 flex items-start justify-between"><div><span className="section-kicker">Profile</span><h3 id="edit-user-title" className="mt-1 font-serif text-2xl">Edit user</h3></div><button type="button" aria-label="Close" onClick={() => setEditing(null)}><X size={20} /></button></div>
+            <div className="mb-5 flex items-start justify-between"><div><span className="section-kicker">Profile</span><h3 id="edit-user-title" className="mt-1 font-serif text-2xl">Edit user</h3></div><button type="button" aria-label="Close" onClick={closeDialogs}><X size={20} /></button></div>
+            {dialogErrorBanner}
             <div className="grid gap-4">
               <Field label="Full name"><input className={inputClass} value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} required /></Field>
-              <Field label="Email address"><input className={inputClass} type="email" value={editing.email} onChange={(event) => setEditing({ ...editing, email: event.target.value })} required /></Field>
-              <Field label="Role"><input className={inputClass} value={editing.role} disabled /></Field>
-              <div className="flex items-center justify-between rounded-xl border border-[#ded8d0] p-4 text-xs font-bold"><span><strong>Account active</strong><small className="mt-1 block font-normal text-[#726c73]">Inactive identities cannot sign in or call protected APIs.</small></span><input type="checkbox" aria-label="Account active" className="size-4 accent-[#de695c]" checked={isActive(editing)} onChange={(event) => setEditing({ ...editing, isActive: event.target.checked })} /></div>
+              {isResidentEmail(data.users.find((user) => user.id === editing.id)?.email ?? editing.email)
+                ? <Field label="Sign-in code" hint="Residents sign in with their code, so it can't be changed here."><input className={inputClass} value={editing.email.split("@")[0].toUpperCase()} readOnly disabled /></Field>
+                : <Field label="Email address" hint="They sign in with this email. Changing it changes their sign-in too."><input className={inputClass} type="email" value={editing.email} onChange={(event) => setEditing({ ...editing, email: event.target.value })} required /></Field>}
+              <Field label="Role" hint="Takes effect on their next page load. You can't change your own role."><select className={inputClass} value={editing.role} onChange={(event) => setEditing({ ...editing, role: event.target.value as Role })}><option value="student">Student</option><option value="professor">Professor</option><option value="admin">Admin</option></select></Field>
+              <div className="flex items-center justify-between rounded-xl border border-[#ded8d0] p-4 text-xs font-bold"><span><strong>Account active</strong><small className="mt-1 block font-normal text-[#726c73]">Inactive users can't sign in. You can't deactivate yourself.</small></span><input type="checkbox" aria-label="Account active" className="size-4 accent-[#de695c]" checked={isActive(editing)} onChange={(event) => setEditing({ ...editing, isActive: event.target.checked })} /></div>
             </div>
-            <div className="mt-6 flex justify-end gap-2"><button type="button" className="secondary-button" onClick={() => setEditing(null)} disabled={Boolean(busy)}>Cancel</button><button className="primary-button" disabled={Boolean(busy)}>{busy === `user-${editing.id}` ? <LoaderCircle size={15} className="spin" /> : <Save size={15} />} {busy === `user-${editing.id}` ? "Saving…" : "Save user"}</button></div>
+            <div className="mt-6 flex justify-end gap-2"><button type="button" className="secondary-button" onClick={closeDialogs} disabled={locked}>Cancel</button><button className="primary-button" disabled={locked}>{working ? <LoaderCircle size={15} className="spin" /> : <Save size={15} />} {working ? "Saving…" : "Save user"}</button></div>
           </form>
+        </div>
+      ) : null}
+      {creating ? (
+        <div className="fixed inset-0 z-[80] grid place-items-center bg-[#21172b]/45 p-4" role="dialog" aria-modal="true" aria-labelledby="add-user-title">
+          <form onSubmit={create} className={`${panelClass} w-full max-w-lg p-6`}>
+            <div className="mb-5 flex items-start justify-between"><div><span className="section-kicker">New account</span><h3 id="add-user-title" className="mt-1 font-serif text-2xl">Add user</h3></div><button type="button" aria-label="Close" onClick={closeDialogs}><X size={20} /></button></div>
+            {dialogErrorBanner}
+            <div className="grid gap-4">
+              <Field label="Role"><select className={inputClass} value={creating.role} onChange={(event) => setCreating({ ...creating, role: event.target.value as Role })}><option value="student">Student (signs in with a code)</option><option value="professor">Professor</option><option value="admin">Admin</option></select></Field>
+              {creating.role === "student" ? (
+                <Field label="Code" hint="2 to 20 letters, digits or hyphens, e.g. R15. They sign in with this code."><input className={inputClass} value={creating.code} onChange={(event) => setCreating({ ...creating, code: event.target.value })} maxLength={20} autoComplete="off" required /></Field>
+              ) : (
+                <>
+                  <Field label="Full name"><input className={inputClass} value={creating.name} onChange={(event) => setCreating({ ...creating, name: event.target.value })} maxLength={120} required /></Field>
+                  <Field label="Email address" hint="They sign in with this email."><input className={inputClass} type="email" value={creating.email} onChange={(event) => setCreating({ ...creating, email: event.target.value })} required /></Field>
+                </>
+              )}
+              <p className="text-xs text-[#726c73]">A password is generated for them and shown once. They must choose a new one when they first sign in.</p>
+            </div>
+            <div className="mt-6 flex justify-end gap-2"><button type="button" className="secondary-button" onClick={closeDialogs} disabled={locked}>Cancel</button><button className="primary-button" disabled={locked}>{working ? <LoaderCircle size={15} className="spin" /> : <Plus size={15} />} {working ? "Creating…" : "Create account"}</button></div>
+          </form>
+        </div>
+      ) : null}
+      {resetting ? (
+        <div className="fixed inset-0 z-[80] grid place-items-center bg-[#21172b]/45 p-4" role="dialog" aria-modal="true" aria-labelledby="reset-user-title">
+          <div className={`${panelClass} w-full max-w-lg p-6`}>
+            <div className="mb-5 flex items-start justify-between"><div><span className="section-kicker">Password</span><h3 id="reset-user-title" className="mt-1 font-serif text-2xl">Reset password for {resetting.name}?</h3></div><button type="button" aria-label="Close" onClick={closeDialogs}><X size={20} /></button></div>
+            {dialogErrorBanner}
+            <p className="text-sm text-[#4e263f]">Their current password stops working straight away. You&apos;ll see the new one once, and they must change it when they next sign in.</p>
+            <div className="mt-6 flex justify-end gap-2"><button type="button" className="secondary-button" onClick={closeDialogs} disabled={locked}>Cancel</button><button type="button" className="primary-button" onClick={() => void reset()} disabled={locked}>{working ? <LoaderCircle size={15} className="spin" /> : <KeyRound size={15} />} {working ? "Resetting…" : "Reset password"}</button></div>
+          </div>
+        </div>
+      ) : null}
+      {issued ? (
+        <div className="fixed inset-0 z-[80] grid place-items-center bg-[#21172b]/45 p-4" role="dialog" aria-modal="true" aria-labelledby="issued-title">
+          <div className={`${panelClass} w-full max-w-lg p-6`}>
+            <span className="section-kicker">Shown once</span>
+            <h3 id="issued-title" className="mt-1 font-serif text-2xl">Password for {issued.signInAs}</h3>
+            <p className="mt-2 text-xs text-[#726c73]">Copy it now and pass it on securely. It won&apos;t be shown again. They&apos;ll choose their own password when they first sign in.</p>
+            <div className="mt-4 grid gap-2 rounded-xl bg-[#f6f3ed] p-4 text-sm">
+              <div><small className="block text-[10px] uppercase tracking-[.1em] text-[#726c73]">Sign in with</small><code>{issued.signInAs}</code></div>
+              <div><small className="block text-[10px] uppercase tracking-[.1em] text-[#726c73]">Temporary password</small><code data-testid="issued-password" className="break-all text-base">{issued.password}</code></div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2"><button type="button" className="secondary-button" onClick={() => void copyPassword()}>{copied ? <Check size={15} /> : <Copy size={15} />} {copied ? "Copied" : "Copy password"}</button><button type="button" className="primary-button" onClick={() => { setIssued(null); setCopied(false); }}>Done</button></div>
+          </div>
         </div>
       ) : null}
     </div>

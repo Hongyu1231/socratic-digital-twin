@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { AdminUserError } from "@/lib/admin-users";
 import { AuthError } from "@/lib/auth";
 import type { ClinicalCase, SessionBundle, SessionSummary, StudentCaseOffering } from "@/lib/domain";
 import type { StudentCase, StudentOffering, StudentSessionBundle } from "@/lib/student-contract";
@@ -12,6 +13,9 @@ export function errorResponse(error: unknown) {
   }
   if (error instanceof StaffSessionCursorError) {
     return NextResponse.json({ error: error.message, code: error.code }, { status: 400 });
+  }
+  if (error instanceof AdminUserError) {
+    return NextResponse.json({ error: error.message }, { status: error.status });
   }
   if (error instanceof AuthError) {
     return NextResponse.json({ error: error.message }, { status: error.status });
