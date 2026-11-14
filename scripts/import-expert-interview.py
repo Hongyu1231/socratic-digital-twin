@@ -59,7 +59,8 @@ UUID_RE = re.compile(
     re.IGNORECASE,
 )
 CASE_TITLE_RE = re.compile(r"^Case\s+(\d+)\s*-\s*.+$", re.IGNORECASE)
-COMMENTS_RE = re.compile(r"^Comments\s+on\s+Case\s+(\d+)$", re.IGNORECASE)
+# Case sections are headed "Comments on Case N" or "Case N commentary".
+COMMENTS_RE = re.compile(r"^(?:Comments\s+on\s+Case\s+(\d+)|Case\s+(\d+)\s+commentary)$", re.IGNORECASE)
 EXPERT_RE = re.compile(r"^Expert\s+(\d+)$", re.IGNORECASE)
 SPEAKER_RE = re.compile(r"^([A-Za-z][A-Za-z ]{1,48})\s*:\s*(.+)$")
 EXTERNAL_RELATION_RE = re.compile(r"TargetMode\s*=\s*['\"]External['\"]", re.IGNORECASE)
@@ -358,7 +359,7 @@ def _section_case_ids(heading: str, case_by_number: dict[int, str]) -> list[str]
     match = COMMENTS_RE.fullmatch(heading)
     if not match:
         return None
-    number = int(match.group(1))
+    number = int(match.group(1) or match.group(2))
     case_id = case_by_number.get(number)
     if case_id is None:
         raise ValueError(f"{heading} does not uniquely map to a case in the pack")
@@ -492,6 +493,10 @@ def parse_interview(data: bytes, filename: str, case_by_number: dict[int, str]) 
     current_expert: dict[str, Any] | None = None
     for record in records:
         level = record["level"]
+        # Some interviews mark experts with a plain "Expert N" paragraph
+        # rather than a Heading 3; treat that exact line as the expert heading.
+        if level is None and current_section is not None and EXPERT_RE.fullmatch(record["text"]):
+            level = 3
         if level == 2:
             if current_expert is not None:
                 sections[-1]["experts"].append(current_expert)

@@ -32,6 +32,7 @@ from draft_clinical_content import (  # noqa: E402
     clinical_content_sha256,
 )
 from case1_clinical_feedback import CASE1_TITLE, build_case1_feedback_phases  # noqa: E402
+from case_content import apply_content, load_content, verify_source_document  # noqa: E402
 
 
 NAMESPACE = uuid.UUID("3b7cb4f5-c8a1-4c3a-9bd8-04a0fb5f98e5")
@@ -171,11 +172,26 @@ def select_source_case(source: dict[str, Any], case_id: str) -> dict[str, Any]:
     return result
 
 
-def transform_manifest(source: dict[str, Any], *, case_id: str | None = None, case1_feedback: bool = False) -> tuple[dict[str, Any], dict[str, str]]:
+def transform_manifest(
+    source: dict[str, Any],
+    *,
+    case_id: str | None = None,
+    case1_feedback: bool = False,
+    content: dict[str, Any] | None = None,
+    source_docx: Path | None = None,
+) -> tuple[dict[str, Any], dict[str, str]]:
     if case1_feedback and not case_id:
         raise ValueError("Case 1 feedback requires an explicit --case-id")
+    if content is not None:
+        if case1_feedback:
+            raise ValueError("Use either --case1-feedback or --content, not both")
+        if not case_id or source_docx is None:
+            raise ValueError("--content requires --case-id and --source-docx")
     if case_id:
         source = select_source_case(source, case_id)
+    if content is not None:
+        # Bound by the source document's hash and text, never its filename.
+        verify_source_document(content, source["cases"][0], source_docx)
     if case1_feedback and Path(str(source["cases"][0].get("sourceDocument", ""))).name.lower() != "description of case 1.docx":
         raise ValueError("Case 1 feedback may only be applied to the supplied Case 1 document")
     source_cases = source["cases"]
@@ -185,6 +201,9 @@ def transform_manifest(source: dict[str, Any], *, case_id: str | None = None, ca
     revision_label = ("case1-clinical-feedback-v1:" + canonical_sha256(
         build_case1_feedback_phases("profile", lambda value: value)
     )) if case1_feedback else REVISION_LABEL
+    if content is not None:
+        # Any content change creates new case and phase IDs.
+        revision_label = f"content-v1:{content['id']}:{canonical_sha256(content)}"
     case_map: dict[str, str] = {}
     for entry in source_cases:
         if not isinstance(entry, dict) or not isinstance(entry.get("case"), dict):
@@ -241,6 +260,8 @@ def transform_manifest(source: dict[str, Any], *, case_id: str | None = None, ca
             findings = [finding for finding in findings if finding["id"] != palpation_id]
             findings.append({"id": palpation_id, "title": "Clinical palpation", "text": "A canine bulge is palpable on the palatal aspect of the #23 region.", "unlockPhase": 1, "unlockOnRequest": False})
             new_case["findings"] = findings
+        if content is not None:
+            new_case = apply_content(new_case, content, identity)
         cases.append({**copy.deepcopy(entry), "case": new_case})
 
     articles = copy.deepcopy(source["articles"])
@@ -341,7 +362,15 @@ def write_review_files(output: Path, manifest: dict[str, Any], source_package_id
     (output / "review.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def build(source_dir: Path, output_dir: Path, *, case_id: str | None = None, case1_feedback: bool = False) -> dict[str, Any]:
+def build(
+    source_dir: Path,
+    output_dir: Path,
+    *,
+    case_id: str | None = None,
+    case1_feedback: bool = False,
+    content_path: Path | None = None,
+    source_docx: Path | None = None,
+) -> dict[str, Any]:
     source = absolute_directory(source_dir, "Source pack")
     output = output_dir.expanduser().resolve()
     if output == source or source in output.parents:
@@ -350,7 +379,9 @@ def build(source_dir: Path, output_dir: Path, *, case_id: str | None = None, cas
         raise ValueError("Output directory already exists; refusing to overwrite it")
 
     source_manifest = load_manifest(source)
-    manifest, case_map = transform_manifest(source_manifest, case_id=case_id, case1_feedback=case1_feedback)
+    content = load_content(content_path) if content_path is not None else None
+    manifest, case_map = transform_manifest(
+        source_manifest, case_id=case_id, case1_feedback=case1_feedback, content=content, source_docx=source_docx)
     output.mkdir(parents=True)
     try:
         copy_media(source, output, manifest["media"])
@@ -379,8 +410,11 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True, help="New private output directory")
     parser.add_argument("--case-id", help="Revise only this source case; omit to prepare all cases")
     parser.add_argument("--case1-feedback", action="store_true", help="Apply Jessica's Case 1 feedback to the selected source case")
+    parser.add_argument("--content", type=Path, help="Apply a content file (e.g. content/second-molars/case-1.json) to the selected case")
+    parser.add_argument("--source-docx", type=Path, help="The case's 'Description of Case N.docx', checked against the content file's SHA-256")
     args = parser.parse_args()
-    print(json.dumps(build(args.source, args.output, case_id=args.case_id, case1_feedback=args.case1_feedback), ensure_ascii=False, indent=2))
+    print(json.dumps(build(args.source, args.output, case_id=args.case_id, case1_feedback=args.case1_feedback,
+                           content_path=args.content, source_docx=args.source_docx), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
