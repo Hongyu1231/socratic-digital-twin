@@ -181,9 +181,20 @@ def transform_manifest(
     content: dict[str, Any] | None = None,
     source_docx: Path | None = None,
     script_docx: Path | None = None,
+    new_lineage: bool = False,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     if case1_feedback and not case_id:
         raise ValueError("Case 1 feedback requires an explicit --case-id")
+    if new_lineage:
+        if case1_feedback:
+            raise ValueError("Use either --case1-feedback or --new-lineage, not both")
+        if not case_id:
+            raise ValueError("--new-lineage requires exactly one case selected with --case-id")
+    if content is not None and bool(content.get("newLineage", False)) != new_lineage:
+        # The content file records the lineage choice so a rebuild from the
+        # repo is repeatable; the flag must confirm it, never contradict it.
+        raise ValueError("The content file's newLineage and --new-lineage disagree; "
+                         + ("remove --new-lineage" if new_lineage else "pass --new-lineage"))
     if content is not None:
         if case1_feedback:
             raise ValueError("Use either --case1-feedback or --content, not both")
@@ -193,6 +204,8 @@ def transform_manifest(
         raise ValueError("--script-docx requires --content")
     if case_id:
         source = select_source_case(source, case_id)
+    if new_lineage and len(source["cases"]) != 1:
+        raise ValueError("--new-lineage requires exactly one selected case")
     if content is not None:
         # Bound by the source document's hash and text, never its filename.
         verify_source_document(content, source["cases"][0], source_docx)
@@ -209,6 +222,9 @@ def transform_manifest(
     if content is not None:
         # Any content change creates new case and phase IDs.
         revision_label = f"content-v1:{content['id']}:{canonical_sha256(content)}"
+    if new_lineage:
+        # A new lineage root must never share an ID with a revision build.
+        revision_label += ":new-lineage"
     case_map: dict[str, str] = {}
     for entry in source_cases:
         if not isinstance(entry, dict) or not isinstance(entry.get("case"), dict):
@@ -243,8 +259,13 @@ def transform_manifest(
             raise ValueError(f"Source case {old_id} has an invalid version")
         new_case = copy.deepcopy(old_case)
         new_case["id"] = new_id
-        new_case["sourceCaseId"] = previous_root
-        new_case["version"] = version + 1
+        if new_lineage:
+            # First published version of a new case series: a lineage root.
+            new_case["sourceCaseId"] = None
+            new_case["version"] = 1
+        else:
+            new_case["sourceCaseId"] = previous_root
+            new_case["version"] = version + 1
         new_case["status"] = "draft"
         new_case["publishedAt"] = None
         new_case["phases"] = (build_case1_feedback_phases if case1_feedback else build_draft_phases)(new_id, identity)
@@ -345,7 +366,8 @@ def write_review_files(output: Path, manifest: dict[str, Any], source_package_id
         "| --- | --- | --- | ---: |",
     ]
     for entry in entries:
-        lines.append(f"| `{entry['caseId']}` | `{entry['sourceCaseId']}` | `{entry['sourceDocument']}` | {entry['phaseCount']} |")
+        previous = "none (new lineage root)" if entry["sourceCaseId"] is None else f"`{entry['sourceCaseId']}`"
+        lines.append(f"| `{entry['caseId']}` | {previous} | `{entry['sourceDocument']}` | {entry['phaseCount']} |")
     lines.extend(["", "## Phase checklist", ""])
     for entry in manifest["cases"]:
         case = entry["case"]
@@ -379,6 +401,7 @@ def build(
     content_path: Path | None = None,
     source_docx: Path | None = None,
     script_docx: Path | None = None,
+    new_lineage: bool = False,
 ) -> dict[str, Any]:
     source = absolute_directory(source_dir, "Source pack")
     output = output_dir.expanduser().resolve()
@@ -391,7 +414,7 @@ def build(
     content = load_content(content_path) if content_path is not None else None
     manifest, case_map = transform_manifest(
         source_manifest, case_id=case_id, case1_feedback=case1_feedback, content=content, source_docx=source_docx,
-        script_docx=script_docx)
+        script_docx=script_docx, new_lineage=new_lineage)
     output.mkdir(parents=True)
     try:
         copy_media(source, output, manifest["media"])
@@ -423,10 +446,14 @@ def main() -> None:
     parser.add_argument("--content", type=Path, help="Apply a content file (e.g. content/second-molars/case-1.json) to the selected case")
     parser.add_argument("--source-docx", type=Path, help="The case's 'Description of Case N.docx', checked against the content file's SHA-256")
     parser.add_argument("--script-docx", type=Path, help="The clinician's tutor script, checked against the content file's scriptDocumentSha256")
+    parser.add_argument("--new-lineage", action="store_true",
+                        help="Output the selected case as a new lineage root (version 1, no sourceCaseId) instead of "
+                             "a revision; for a case series that has never been published. Requires --case-id; "
+                             "must match the content file's newLineage")
     args = parser.parse_args()
     print(json.dumps(build(args.source, args.output, case_id=args.case_id, case1_feedback=args.case1_feedback,
                            content_path=args.content, source_docx=args.source_docx,
-                           script_docx=args.script_docx), ensure_ascii=False, indent=2))
+                           script_docx=args.script_docx, new_lineage=args.new_lineage), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

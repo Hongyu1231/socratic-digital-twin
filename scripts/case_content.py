@@ -6,7 +6,9 @@ source "Description of Case N.docx" by SHA-256, never by filename, so the
 content can only be applied to the case it was written for. A content file
 may also pin the clinician's tutor script it was transcribed from
 (scriptDocument + scriptDocumentSha256), and may carry hidden tutor-only
-expert notes that are appended to the case's expertNotes.
+expert notes that are appended to the case's expertNotes. "newLineage": true
+records that the case starts a new, never-published series, so it must be
+built with --new-lineage as a lineage root (version 1, no sourceCaseId).
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ STRATEGIES = {"probe", "challenge", "clarify", "scaffold", "reflect"}
 
 CONTENT_KEYS = {"formatVersion", "id", "title", "sourceDocument", "sourceDocumentSha256", "correctionProbes",
                 "records", "findings", "phases", "authoringNotes", "scriptDocument", "scriptDocumentSha256",
-                "expertNotes"}
+                "expertNotes", "newLineage"}
 PHASE_KEYS = {"title", "goal", "starterQuestion", "exampleQuestions", "rubric", "acceptedExtras",
               "tutorGuidance", "tutorMoves", "noProgressLimit", "phaseCeiling"}
 
@@ -75,6 +77,8 @@ def validate_content(content: Any) -> dict[str, Any]:
         _text(content["scriptDocument"], "Content scriptDocument", 500)
         if not isinstance(content["scriptDocumentSha256"], str) or not SHA256_RE.fullmatch(content["scriptDocumentSha256"]):
             raise ValueError("Content scriptDocumentSha256 must be a lowercase SHA-256")
+    if "newLineage" in content and not isinstance(content["newLineage"], bool):
+        raise ValueError("Content newLineage must be true or false")
     if "expertNotes" in content:
         _text(content["expertNotes"], "Content expertNotes", MAX_TUTOR_EXPERT_NOTES)
     if content.get("correctionProbes") not in (1, 2):

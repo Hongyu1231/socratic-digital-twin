@@ -83,6 +83,8 @@ class MolarCase1ContentTests(unittest.TestCase):
         self.assertEqual(self.content["records"], {"defaultUnlockPhase": 1, "overrides": []})
         self.assertEqual([finding["unlockPhase"] for finding in self.content["findings"]], [1])
         self.assertEqual(self.content["correctionProbes"], 1)
+        # Never published: the first published version must be a lineage root.
+        self.assertIs(self.content["newLineage"], True)
 
     def test_all_ids_are_prefixed(self):
         for phase in self.content["phases"]:
@@ -146,6 +148,9 @@ class ContentGuardTests(unittest.TestCase):
             "Summary of the case:", entry["expertNotes"],
         ]))
         self.content = copy.deepcopy(case_content.load_content(MOLAR_CASE1))
+        # The revision-path guards below run without the lineage choice;
+        # the newLineage tests set it explicitly.
+        self.content.pop("newLineage", None)
         self.content["sourceDocumentSha256"] = hashlib.sha256(self.docx.read_bytes()).hexdigest()
         self.script = self.base / "tutor script.docx"
         self.script.write_bytes(synthetic_docx(["Synthetic tutor script."]))
@@ -208,6 +213,37 @@ class ContentGuardTests(unittest.TestCase):
         self.script.write_bytes(self.script.read_bytes() + b"\0")
         with self.assertRaisesRegex(ValueError, "scriptDocumentSha256"):
             self.build("b")
+
+    def write_content(self, **changes):
+        self.content.update(changes)
+        self.content_path.write_text(json.dumps(self.content), encoding="utf-8")
+
+    def test_content_new_lineage_with_flag_builds_a_version_1_root(self):
+        self.write_content(newLineage=True)
+        self.build("out", new_lineage=True)
+        case = json.loads((self.base / "out" / "manifest.json").read_text(encoding="utf-8"))["cases"][0]["case"]
+        self.assertIsNone(case["sourceCaseId"])
+        self.assertEqual(case["version"], 1)
+        self.assertEqual(case["title"], "Second molars: Case 1")
+
+    def test_content_and_flag_must_agree(self):
+        self.write_content(newLineage=True)
+        with self.assertRaisesRegex(ValueError, "pass --new-lineage"):
+            self.build("a")
+        self.write_content(newLineage=False)
+        with self.assertRaisesRegex(ValueError, "remove --new-lineage"):
+            self.build("b", new_lineage=True)
+        self.content.pop("newLineage")
+        self.write_content()
+        with self.assertRaisesRegex(ValueError, "remove --new-lineage"):
+            self.build("c", new_lineage=True)
+        self.assertFalse(any((self.base / name).exists() for name in "abc"))
+
+    def test_new_lineage_value_must_be_boolean(self):
+        bad = copy.deepcopy(self.content)
+        bad["newLineage"] = "yes"
+        with self.assertRaisesRegex(ValueError, "newLineage"):
+            case_content.validate_content(bad)
 
     def test_content_change_gives_new_case_ids(self):
         first = json.loads((self.base / "first" / "manifest.json").read_text()) if self.build("first") else None

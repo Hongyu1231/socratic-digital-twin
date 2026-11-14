@@ -1,6 +1,7 @@
 {
   "formatVersion": 1,
   "id": "second-molars-case-1",
+  "newLineage": true,
   "title": "Second molars: Case 1",
   "sourceDocument": "Description of Case 1.docx",
   "sourceDocumentSha256": "d9033e6645420d0d0017509ed16377af50633cabc8caa85bdb8b99b5d61d3a0a",

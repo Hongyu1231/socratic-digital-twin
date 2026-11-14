@@ -147,6 +147,69 @@ class ClinicalReviewPreparationTests(unittest.TestCase):
             self.assertEqual(candidate["status"], "draft")
             self.assertEqual(revised["clinicalReview"]["status"], "pending")
 
+    def test_new_lineage_builds_a_version_1_root_without_source_case_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "source"
+            source.mkdir()
+            original = self.make_pack(source)
+            old_id = original["cases"][0]["case"]["id"]
+            MODULE.build(source, base / "root", case_id=old_id, new_lineage=True)
+            MODULE.build(source, base / "revision", case_id=old_id)
+            root = json.loads((base / "root" / "manifest.json").read_text(encoding="utf-8"))
+            revision = json.loads((base / "revision" / "manifest.json").read_text(encoding="utf-8"))
+            case = root["cases"][0]["case"]
+            self.assertIsNone(case["sourceCaseId"])
+            self.assertEqual(case["version"], 1)
+            self.assertEqual(case["status"], "draft")
+            self.assertNotEqual(case["id"], old_id)
+            self.assertNotEqual(case["id"], revision["cases"][0]["case"]["id"])
+            self.assertTrue(all(phase["caseId"] == case["id"] for phase in case["phases"]))
+            self.assertEqual(root["media"][0]["caseId"], case["id"])
+            self.assertEqual(root["clinicalReview"]["status"], "pending")
+            self.assertIn("none (new lineage root)", (base / "root" / "review.md").read_text(encoding="utf-8"))
+
+    def test_default_build_is_still_a_version_2_revision(self):
+        with tempfile.TemporaryDirectory() as directory:
+            original = self.make_pack(Path(directory))
+            old_id = original["cases"][0]["case"]["id"]
+            for kwargs in ({}, {"case_id": old_id}, {"case_id": old_id, "new_lineage": False}):
+                revised, _ = MODULE.transform_manifest(copy.deepcopy(original), **kwargs)
+                case = revised["cases"][0]["case"]
+                self.assertEqual(case["sourceCaseId"], old_id)
+                self.assertEqual(case["version"], 2)
+
+    def test_new_lineage_refuses_case1_feedback_and_needs_exactly_one_case(self):
+        with tempfile.TemporaryDirectory() as directory:
+            original = self.make_pack(Path(directory))
+            old_id = original["cases"][0]["case"]["id"]
+            with self.assertRaisesRegex(ValueError, "--case1-feedback or --new-lineage"):
+                MODULE.transform_manifest(original, case_id=old_id, case1_feedback=True, new_lineage=True)
+            with self.assertRaisesRegex(ValueError, "exactly one case"):
+                MODULE.transform_manifest(original, new_lineage=True)
+            two = copy.deepcopy(original)
+            second = copy.deepcopy(two["cases"][0])
+            second["case"]["id"] = "77777777-7777-4777-8777-777777777777"
+            two["cases"].append(second)
+            with self.assertRaisesRegex(ValueError, "exactly one case"):
+                MODULE.transform_manifest(two, new_lineage=True)
+            with self.assertRaises(ValueError):
+                MODULE.transform_manifest(two, case_id="88888888-8888-4888-8888-888888888888", new_lineage=True)
+
+    def test_new_lineage_cli_flag_is_opt_in(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "source"
+            source.mkdir()
+            original = self.make_pack(source)
+            old_id = original["cases"][0]["case"]["id"]
+            for name, extra in (("default", []), ("root", ["--new-lineage"])):
+                argv = ["prepare", "--source", str(source), "--output", str(base / name), "--case-id", old_id, *extra]
+                with patch("sys.argv", argv), patch("builtins.print"):
+                    MODULE.main()
+            self.assertEqual(json.loads((base / "default" / "manifest.json").read_text())["cases"][0]["case"]["version"], 2)
+            self.assertEqual(json.loads((base / "root" / "manifest.json").read_text())["cases"][0]["case"]["version"], 1)
+
     def test_case1_only_feedback_preserves_sources_and_excludes_other_cases(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
