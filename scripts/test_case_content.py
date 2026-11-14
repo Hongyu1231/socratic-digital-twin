@@ -25,6 +25,11 @@ MOLAR_CASE1 = REPO / "content" / "second-molars" / "case-1.json"
 RULE_INVESTIGATIONS = "Never suggest or ask about investigations that are not available in the case."
 RULE_NO_ANSWER = "Never give the answer because the student asks for it directly."
 RULE_END_POSITION = "Ask the student to describe the end position of the teeth before discussing mechanics."
+# Length of the "Summary of the case" section in the private 'Description of Case 1.docx'
+# (SHA-256 d9033e66..., unchanged on 9 Nov). The docx stays out of the repo, so its
+# length is recorded here; the build also refuses merged notes over the limit.
+MOLAR_CASE1_DESCRIPTION_SUMMARY_CHARS = 798
+TUTOR_EXPERT_NOTES_LIMIT = 6000  # lib/materials/retrieval.ts slices expertNotes to 6,000 characters
 
 
 def help_cap_and_backups() -> tuple[int, list[str]]:
@@ -93,12 +98,30 @@ class MolarCase1ContentTests(unittest.TestCase):
             self.assertTrue(any(item.startswith("Expert basis (tutor only, never show to students)")
                                 for item in phase["tutorGuidance"]))
 
-    def test_shortened_reveals_keep_the_full_original_in_guidance(self):
+    def test_follows_the_9_nov_script(self):
         phases = self.content["phases"]
-        kept = {re.match(r"Full reveal for (\S+) ", item).group(1)
-                for phase in phases for item in phase["tutorGuidance"] if item.startswith("Full reveal for ")}
-        self.assertEqual(kept, {"5.1", "5.5", "6.4"})
-        self.assertNotIn("alilgn", json.dumps(phases))
+        self.assertEqual(self.content["scriptDocument"], "Molars_Case_1_tutor_script (9Nov26).docx")
+        self.assertEqual(self.content["scriptDocumentSha256"],
+                         "ed4de82eb56c2759ffdee5c0172c5d712050ec29effd0b0b99af747f4c056bbd")
+        # The 9 Nov script shortened 5.1, 5.5 and 6.4 itself, so no full originals are kept.
+        self.assertFalse(any(item.startswith("Full reveal for ") for phase in phases for item in phase["tutorGuidance"]))
+        self.assertEqual([c["id"] for c in phases[3]["rubric"]], ["sm1-4.1", "sm1-4.2", "sm1-4.3"])
+        self.assertIn("retained #83,", phases[3]["rubric"][2]["revealText"])
+        self.assertNotIn("#84", json.dumps(phases))
+
+    def test_expert_notes_have_both_sections_and_fit_the_tutor_limit(self):
+        notes = self.content["expertNotes"]
+        self.assertTrue(notes.startswith("Case summary for the tutor"))
+        self.assertIn("\nExpert panel view", notes)
+        merged = case_content.merge_expert_notes("x" * MOLAR_CASE1_DESCRIPTION_SUMMARY_CHARS, self.content)
+        self.assertLessEqual(len(merged), TUTOR_EXPERT_NOTES_LIMIT)
+        self.assertEqual(case_content.MAX_TUTOR_EXPERT_NOTES, TUTOR_EXPERT_NOTES_LIMIT)
+        retrieval = (REPO / "lib" / "materials" / "retrieval.ts").read_text(encoding="utf-8")
+        self.assertIn(f"expertNotes.trim().slice(0, {TUTOR_EXPERT_NOTES_LIMIT:_})", retrieval)
+
+    def test_merged_expert_notes_over_the_limit_are_refused(self):
+        with self.assertRaisesRegex(ValueError, "6000-character"):
+            case_content.merge_expert_notes("x" * TUTOR_EXPERT_NOTES_LIMIT, self.content)
 
     def test_rules_never_reach_canine_content(self):
         canine = json.dumps(CASE1_FEEDBACK_PHASE_TEMPLATES)
@@ -124,6 +147,10 @@ class ContentGuardTests(unittest.TestCase):
         ]))
         self.content = copy.deepcopy(case_content.load_content(MOLAR_CASE1))
         self.content["sourceDocumentSha256"] = hashlib.sha256(self.docx.read_bytes()).hexdigest()
+        self.script = self.base / "tutor script.docx"
+        self.script.write_bytes(synthetic_docx(["Synthetic tutor script."]))
+        self.content["scriptDocumentSha256"] = hashlib.sha256(self.script.read_bytes()).hexdigest()
+        self.source_notes = entry["expertNotes"]
         self.content_path = self.base / "content.json"
         self.content_path.write_text(json.dumps(self.content), encoding="utf-8")
 
@@ -131,7 +158,8 @@ class ContentGuardTests(unittest.TestCase):
         self.temp.cleanup()
 
     def build(self, name, **kwargs):
-        args = {"case_id": self.case_id, "content_path": self.content_path, "source_docx": self.docx, **kwargs}
+        args = {"case_id": self.case_id, "content_path": self.content_path, "source_docx": self.docx,
+                "script_docx": self.script, **kwargs}
         return REVIEW.build(self.source, self.base / name, **args)
 
     def test_applies_title_phases_records_findings_and_policy(self):
@@ -166,6 +194,20 @@ class ContentGuardTests(unittest.TestCase):
             self.build("a", source_docx=None)
         with self.assertRaises(ValueError):
             self.build("b", case1_feedback=True)
+
+    def test_expert_notes_keep_the_source_summary_then_append_both_sections(self):
+        self.build("out")
+        entry = json.loads((self.base / "out" / "manifest.json").read_text(encoding="utf-8"))["cases"][0]
+        self.assertEqual(entry["expertNotes"], self.source_notes + "\n\n" + self.content["expertNotes"])
+        self.assertLess(entry["expertNotes"].index("Case summary for the tutor"),
+                        entry["expertNotes"].index("Expert panel view"))
+
+    def test_tutor_script_is_required_and_hash_checked(self):
+        with self.assertRaisesRegex(ValueError, "--script-docx"):
+            self.build("a", script_docx=None)
+        self.script.write_bytes(self.script.read_bytes() + b"\0")
+        with self.assertRaisesRegex(ValueError, "scriptDocumentSha256"):
+            self.build("b")
 
     def test_content_change_gives_new_case_ids(self):
         first = json.loads((self.base / "first" / "manifest.json").read_text()) if self.build("first") else None

@@ -3,7 +3,10 @@
 A content file holds the clinician-authored phases, record unlock rules,
 clinical findings and correction policy for one case. It is bound to its
 source "Description of Case N.docx" by SHA-256, never by filename, so the
-content can only be applied to the case it was written for.
+content can only be applied to the case it was written for. A content file
+may also pin the clinician's tutor script it was transcribed from
+(scriptDocument + scriptDocumentSha256), and may carry hidden tutor-only
+expert notes that are appended to the case's expertNotes.
 """
 
 from __future__ import annotations
@@ -18,13 +21,17 @@ from typing import Any, Callable
 
 FORMAT_VERSION = 1
 MAX_CONTENT_BYTES = 1024 * 1024
+# The tutor reads at most this many characters of a case's expertNotes
+# (lib/materials/retrieval.ts), so merged notes must fit inside it.
+MAX_TUTOR_EXPERT_NOTES = 6000
 ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:-]*$")
 SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 # Mirrors TUTOR_STRATEGIES in publish-teaching-materials.mjs.
 STRATEGIES = {"probe", "challenge", "clarify", "scaffold", "reflect"}
 
 CONTENT_KEYS = {"formatVersion", "id", "title", "sourceDocument", "sourceDocumentSha256", "correctionProbes",
-                "records", "findings", "phases", "authoringNotes"}
+                "records", "findings", "phases", "authoringNotes", "scriptDocument", "scriptDocumentSha256",
+                "expertNotes"}
 PHASE_KEYS = {"title", "goal", "starterQuestion", "exampleQuestions", "rubric", "acceptedExtras",
               "tutorGuidance", "tutorMoves", "noProgressLimit", "phaseCeiling"}
 
@@ -62,6 +69,14 @@ def validate_content(content: Any) -> dict[str, Any]:
     _text(content.get("sourceDocument"), "Content sourceDocument", 500)
     if not isinstance(content.get("sourceDocumentSha256"), str) or not SHA256_RE.fullmatch(content["sourceDocumentSha256"]):
         raise ValueError("Content sourceDocumentSha256 must be a lowercase SHA-256")
+    if ("scriptDocument" in content) != ("scriptDocumentSha256" in content):
+        raise ValueError("Content scriptDocument and scriptDocumentSha256 must be given together")
+    if "scriptDocument" in content:
+        _text(content["scriptDocument"], "Content scriptDocument", 500)
+        if not isinstance(content["scriptDocumentSha256"], str) or not SHA256_RE.fullmatch(content["scriptDocumentSha256"]):
+            raise ValueError("Content scriptDocumentSha256 must be a lowercase SHA-256")
+    if "expertNotes" in content:
+        _text(content["expertNotes"], "Content expertNotes", MAX_TUTOR_EXPERT_NOTES)
     if content.get("correctionProbes") not in (1, 2):
         raise ValueError("Content correctionProbes must be 1 or 2")
     phases = content.get("phases")
@@ -181,6 +196,31 @@ def verify_source_document(content: dict[str, Any], entry: dict[str, Any], docx_
         raise ValueError("Source document does not match the selected case")
 
 
+def verify_script_document(content: dict[str, Any], script_path: Path | None) -> None:
+    """When the content pins its tutor script, the supplied script must match that SHA-256."""
+
+    if "scriptDocumentSha256" not in content:
+        if script_path is not None:
+            raise ValueError("Content file does not pin a tutor script; remove --script-docx")
+        return
+    if script_path is None:
+        raise ValueError("Content file pins a tutor script; pass it with --script-docx")
+    if hashlib.sha256(Path(script_path).read_bytes()).hexdigest() != content["scriptDocumentSha256"]:
+        raise ValueError("Tutor script does not match the content file's scriptDocumentSha256")
+
+
+def merge_expert_notes(source_notes: str, content: dict[str, Any]) -> str:
+    """Append the content's hidden expert notes after the source document's summary."""
+
+    extra = content.get("expertNotes")
+    if not extra:
+        return source_notes
+    merged = f"{source_notes.rstrip()}\n\n{extra.strip()}" if source_notes.strip() else extra.strip()
+    if len(merged.strip()) > MAX_TUTOR_EXPERT_NOTES:
+        raise ValueError(f"Merged expert notes exceed the tutor's {MAX_TUTOR_EXPERT_NOTES}-character limit")
+    return merged
+
+
 def build_content_phases(content: dict[str, Any], case_id: str, id_factory: Callable[[str], str]) -> list[dict[str, Any]]:
     phases = []
     for order, template in enumerate(content["phases"], 1):
@@ -217,5 +257,5 @@ def apply_content(case: dict[str, Any], content: dict[str, Any], id_factory: Cal
     return result
 
 
-__all__ = ["apply_content", "build_content_phases", "load_content", "record_unlock_phase",
-           "validate_content", "verify_source_document"]
+__all__ = ["apply_content", "build_content_phases", "load_content", "merge_expert_notes", "record_unlock_phase",
+           "validate_content", "verify_script_document", "verify_source_document"]

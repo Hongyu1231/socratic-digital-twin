@@ -4,6 +4,9 @@
   "title": "Second molars: Case 1",
   "sourceDocument": "Description of Case 1.docx",
   "sourceDocumentSha256": "d9033e6645420d0d0017509ed16377af50633cabc8caa85bdb8b99b5d61d3a0a",
+  "scriptDocument": "Molars_Case_1_tutor_script (9Nov26).docx",
+  "scriptDocumentSha256": "ed4de82eb56c2759ffdee5c0172c5d712050ec29effd0b0b99af747f4c056bbd",
+  "expertNotes": "Case summary for the tutor (not shown to the student)\nThis 13-year-old Chinese female has no relevant medical or dental history and no known drug allergies. Caries and periodontal disease are controlled.\nSkeletal. Class II div 1 malocclusion on an average-angle Class I skeletal base.\nOcclusion. Incisors Class II div 1, increased OJ 5 mm, increased OB 50%. Canines right ¼ unit Class III, left ¼ unit Class II. Molars right ½ unit Class III, left ¼ unit Class III. Crossbite #12/#83. Scissors bite at #14 and #27. No CR–MI slide (aka functional shift). Upper midline deviated 1 mm right, lower midline deviated 2 mm right of the facial midline.\nTeeth. Upper #17–#27 present; #17 partially erupted and #27 erupted, both erupting buccally. Lower #37–#47 present. Retained #83 with #43 erupted lingually (the patient's \"lower tooth growing inside\"). #37 partially erupted and mesially impacted. #47 more erupted than #37, with more crown visible, and also mesially impacted. All four third molars present and unerupted.\nArches. Both ovoid. Mild upper crowding with proclined upper incisors. Moderate lower crowding.\nOPG. #37 mesially angulated about 40–60° to #36, mesial marginal ridge locked under the distal bulge of #36 at CEJ level, roots two-thirds to almost complete with open apices; #38 developing (crown formed, roots starting) distal to the #37 roots, normal eruption direction. #47 mesially angulated about 30–40° to #46, locked in the same way at CEJ level, roots two-thirds to almost complete with open apices, and sitting more superiorly than #37; #48 developing like #38. #17 partially erupted, not impacted. #27 erupted. #18 and #28 present and developing.\nAnterior maxillary occlusal. No abnormal findings (no supernumerary or midline pathology).\nBitewings. #37 and #47 mesially impacted against the first molars. No caries seen on the distal surface of second molars.\nLateral ceph. SNA, SNB, ANB, FMA, MMA, LAFH, lower incisor inclination, L1–APog and lower lip to E-line within normal limits: Class I skeletal base, normodivergent, normal LAFH. Wits increased, upper incisor inclination increased, interincisal angle decreased.\nExpert panel view of Case 1 (tutor background)\nPrognosis: good for both second molars; #47 slightly better because it sits higher and shows more crown for bonding. All three experts agreed.\nKeep both second molars. No expert recommended extracting a second molar. At 13 the third molars' final morphology is unpredictable, so they are not a reliable replacement.\nSpace: the orthodontists favoured premolar extractions, so the first molars can be mesialised and the second molars uprighted. Expert 2 suggested upper first premolars, #44 and #35.\nThird molars: remove them if the second molars must be distalised and the third molars are in the way (Expert 1). The oral surgeon preferred removing the third molars over the second molars because of unpredictable third molar morphology.\nMechanics: bond a tube where possible; piggyback with open coil or an uprighting spring or lever arm; favour root mesialisation over crown distalisation where the third molars are close.\nWhere the experts differed: the oral surgeon thought the case could be managed non-extraction with third molar removal and distalisation. The orthodontists preferred extractions given the crowding and overjet.",
   "correctionProbes": 1,
   "records": {
     "defaultUnlockPhase": 1,
@@ -48,7 +51,7 @@
         {
           "id": "sm1-1.4",
           "text": "Checks the impaction sites for food trapping, caries and how well she can keep them clean, and uses this to judge urgency.",
-          "revealText": "A partially erupted, impacted molar traps food. However, there is no caries seen on the first molar and seems to be able to keep the are clean, so nothing is forcing urgent treatment."
+          "revealText": "A partially erupted, impacted molar traps food. However, there is no caries seen on the first molar and seems to be able to keep the area clean, so nothing is forcing urgent treatment."
         },
         {
           "id": "sm1-1.5",
@@ -64,7 +67,7 @@
       "acceptedExtras": [
         {
           "id": "sm1-p1-extra-1",
-          "text": "Reviews the whole OPG before the teeth: condyles, bone, sinuses, any pathology."
+          "text": "Review the whole OPG before the teeth: condyles, bone, sinuses, any pathology."
         },
         {
           "id": "sm1-p1-extra-2",
@@ -83,7 +86,7 @@
         "Keep the recorded context separate from interpretation: she is 13, 1.5 years post-menarche, with no relevant medical history, and caries and periodontally controlled.",
         "Before discussing prognosis or treatment, the student should record the retained #83 with lingual #43, both impacted second molars, and at least two occlusal findings.",
         "The case does not record her stated wish for comprehensive treatment, or the interocclusal clearance. If the student asks, accept it as a sensible question; say her complaint about her front teeth suggests she is open to full treatment, and do not invent a measurement.",
-        "The OPG alone can determine the reading of angulation and locking without anterior maxillary occlusal or bitewings radiographs.",
+        "The OPG is enough to describe angulation and locking; the bitewings add a clearer view of the contacts.",
         "No 3D imaging is available for this case. Never suggest or ask about it. If a student asks for it, say it isn't available and ask what the 2D records show.",
         "Expert basis (tutor only, never show to students): Experts 1 and 2 (orthodontists): patient's wish for comprehensive treatment, age relative to eruption timing, food trap / caries / hygiene setting urgency, crown exposure for bonding, #47 more crown visible. Expert 1: opposing occlusion and interocclusal clearance. Expert 3 (oral surgeon): holistic OPG review (bonus only).",
         "Never suggest or ask about investigations that are not available in the case. If a student requests one, say it isn't available and redirect to the records provided.",
@@ -94,15 +97,15 @@
       "phaseCeiling": 5
     },
     {
-      "title": "Characterize the impaction",
+      "title": "Characterise the impaction",
       "goal": "Use the records to describe exactly how each second molar is impacted, and what each record can and can't show you.",
-      "starterQuestion": "How would you describe the impaction of #37 and #47, and what does each record tell you about it and its surrounding?",
+      "starterQuestion": "How would you describe the impaction of #37 and #47, and what does each record tell you about it and its surroundings?",
       "exampleQuestions": [
-        "What do the xrays show about where the crowns of second molar is obstructed against?",
+        "What do the x-rays show the second molar crowns are caught against?",
         "Is this impaction mesioangular, horizontal or vertical? Why does that matter?",
         "Which molar sits deeper, and how does that affect treatment?",
-        "What do the roots of #37 and #47 tell you about its development?",
-        "What about the roots shape and position and how it links to any risks?",
+        "What do the roots of #37 and #47 tell you about their development?",
+        "How do the root shape and position affect the risks?",
         "Is there space available behind each second molar?",
         "If you moved the second molars back, what might they run into?"
       ],
@@ -130,7 +133,7 @@
         {
           "id": "sm1-2.5",
           "text": "Considers the space behind each second molar, including how close it is to the ascending ramus.",
-          "revealText": "Look at the space available behind each second molar crown and how near it is to the ramus. There’s some room to move the crowns distally in this case as the third molar teeth are developing in that area."
+          "revealText": "Look at the space available behind each second molar crown and how near it is to the ramus. There’s some room to move the crowns distally, but the third molars are developing in that area."
         }
       ],
       "acceptedExtras": [
@@ -154,6 +157,7 @@
       "tutorGuidance": [
         "Treat the bitewing and OPG findings in the case summary as the source-backed description. Never claim the model read image pixels.",
         "Keep angulation, vertical depth, root development and shape, third molar position and posterior space as separate descriptors.",
+        "Accept mesioangular. Do not accept horizontal or vertical.",
         "Root resorption risk cannot be predicted definitively from these records. If asked, the expected answer is to assume it may happen and consent the patient for it.",
         "The case summary does not report caries or resorption on the distal surfaces of #36 and #46. Do not invent findings there. If the student raises it, accept it as a sensible thing to check.",
         "No 3D imaging is available for this case. Do not suggest it. If asked, say it isn't available and redirect to the 2D records.",
@@ -170,7 +174,7 @@
       "goal": "Weigh what makes it more or less likely that each second molar can be uprighted into the arch, and what could go wrong.",
       "starterQuestion": "How likely is it that #37 and #47 can be uprighted into the arch, and what makes each more or less likely?",
       "exampleQuestions": [
-        "What about each molar that makes it easier or harder to upright?",
+        "What about each molar makes it easier or harder to upright?",
         "Why might #47 be easier than #37?",
         "How would your view change if she were 30 years old?",
         "Where could the space for uprighting come from?",
@@ -195,7 +199,7 @@
         },
         {
           "id": "sm1-3.4",
-          "text": "Recognises that keeping the second molars is preferable to replacing them with the third molars, because third molar size and shape  are still unpredictable at age 13.",
+          "text": "Recognises that keeping the second molars is preferable to replacing them with the third molars, because third molar size and shape are still unpredictable at age 13.",
           "revealText": "Second molars are valuable functional units. At 13 the wisdom teeth have barely started forming their roots, so we can't yet tell if they'd make a good replacement. That favours saving the second molars especially if their prognosis is not poor."
         },
         {
@@ -243,19 +247,19 @@
       ],
       "rubric": [
         {
-          "id": "sm1-4.2",
+          "id": "sm1-4.1",
           "text": "Identifies the dental Class II div 1 presentation: increased OJ, increased OB, proclined upper incisors, reduced interincisal angle.",
           "revealText": "The upper incisors are proclined, with increased overjet at 5 mm and increased overbite at 50%."
         },
         {
-          "id": "sm1-4.3",
+          "id": "sm1-4.2",
           "text": "Includes the impacted #37 and #47 and places them high, even though they are not her complaint.",
           "revealText": "The impacted second molars aren't what she's worried about, but they need to be planned for from the start, because they decide how you use space in the lower arch."
         },
         {
-          "id": "sm1-4.4",
+          "id": "sm1-4.3",
           "text": "Includes the retained #83 with lingual #43, crossbite #12/#83, scissors bites #14 and #27, crowding (upper mild, lower moderate) and non-coincident midlines.",
-          "revealText": "Also on the list: retained #84, #43 lingually displaced, crossbite, scissors bite, mild upper crowding, moderate lower crowding, and non-coincident midlines."
+          "revealText": "Also on the list: retained #83, #43 lingually displaced, crossbite, scissors bite, mild upper crowding, moderate lower crowding, and non-coincident midlines."
         }
       ],
       "acceptedExtras": [
@@ -292,12 +296,12 @@
         {
           "id": "sm1-5.1",
           "text": "Gives one justified plan addressing both arches: overjet, crowding, lingual #43, crossbite, scissors bites and midlines. An extraction plan is expected given the moderate lower crowding and her overjet concern.",
-          "revealText": "With moderate lower crowding and a 5 mm overjet she's worried about, extractions are likely. Taking out #14 and #24 reduces the overjet and removes the #14 scissors bite. In the lower arch, #44 or #45 on the right and #34 or #35 on the left are all reasonable."
+          "revealText": "With moderate lower crowding and a 5 mm overjet she’s worried about, extractions are likely. Taking out #14 and #24 reduces the overjet and removes the #14 scissors bite. In the lower arch, #44/45 on the right and #34/35 on the left are all reasonable."
         },
         {
           "id": "sm1-5.2",
           "text": "Links the lower extraction choice to the second molars: closing extraction space by moving the first molars forward frees room to upright the second molars.",
-          "revealText": "Extraction of #35 #45 allow mesialization of #36 #46 which will give more space to align the impacted second molars. Some may choose to extract"
+          "revealText": "Extraction of #35 #45 allow mesialization of #36 #46 which will give more space to align the impacted second molars. Some may choose to extract #44 instead, to align #43."
         },
         {
           "id": "sm1-5.3",
@@ -312,13 +316,13 @@
         {
           "id": "sm1-5.5",
           "text": "Describes appropriate uprighting mechanics for a partly erupted molar and how the attachment choice affects them.",
-          "revealText": "Bond a tube if there's enough crown, which is easier on #47. Then upright with a stiff base archwire plus a piggyback wire and open coil, or an uprighting spring. Aim to move the roots forward more than the crowns back."
+          "revealText": "If sufficient bonding surface is available, bond a tube (more feasible on #47). Uprighting can be achieved using a stiff base archwire with a piggyback wire, open coil spring, or uprighting spring. TAD (miniscrews) may also be considered, depending on retromolar space, mucosal conditions, and third molar position."
         }
       ],
       "acceptedExtras": [
         {
           "id": "sm1-p5-extra-1",
-          "text": "The part on TAD is bonus."
+          "text": "Mentions TADs (miniscrews) as an uprighting option and weighs their pros and cons. Pro: skeletal anchorage, so only the second molar moves and other teeth avoid reciprocal effects. Cons: an added procedure, loosening, discomfort, soft tissue covering the TAD in the retromolar area, extra cost, and the developing third molars in the way, which may need removing and are then lost as a backup."
         },
         {
           "id": "sm1-p5-extra-2",
@@ -339,15 +343,11 @@
       ],
       "tutorGuidance": [
         "Require one justified plan covering both arches. A second plan is a bonus.",
-        "The orthodontic experts favoured an extraction plan: upper first premolars plus lower premolar extractions, with #44 on the right and #35 (or #34) on the left, using first molar mesialisation to help uprighting. Accept other premolar choices when the student justifies them.",
+        "The orthodontic experts favoured an extraction plan: upper first premolars plus lower premolar extractions, with #44 or #45 on the right and #34 or #35 on the left, using first molar mesialisation to help uprighting. Accept other premolar choices when the student justifies them.",
         "A non-extraction plan with third molar removal and distalisation was suggested by the oral surgeon. Accept it only if the student explains how the moderate lower crowding and the overjet will be corrected; probe this, since the orthodontists did not favour it.",
         "Do not accept extraction of either second molar as the preferred option without challenge. Ask the student to weigh third molar unpredictability at age 13 against keeping a sound second molar and the long term monitoring required.",
         "Accept either keeping or removing the lower third molars when the reasoning ties to the mechanics (root mesialisation vs crown distalisation) and the space available.",
         "Carry forward the Phase 2 findings without adding new ones. No 3D imaging is available for this case.",
-        "Full reveal for 5.1 as written by the clinical lead; students see a shortened version (tutor only, never show to students), part 1 of 2: With moderate lower crowding and a 5 mm overjet she's worried about, extractions may be needed to create space. Extraction of upper first premolars (#14 and #24) help with reduction of overjet while also immediately removing the problem of #14 scissors bite.",
-        "Full reveal for 5.1 as written by the clinical lead; students see a shortened version (tutor only, never show to students), part 2 of 2: Some may extract #44 to relieve lower right quadrant crowding and align #43, or #45 to help align the impacted #47. Lower left quadrant can be #35 or #34.",
-        "Full reveal for 5.5 as written by the clinical lead; students see a shortened version (tutor only, never show to students), part 1 of 2: Bond a tube if there's enough crown, which is easier on #47. Then upright using, for example, a stiff base archwire with a piggyback wire and open coil, or an uprighting spring. Aim for more root movement forward and less crown movement back.",
-        "Full reveal for 5.5 as written by the clinical lead; students see a shortened version (tutor only, never show to students), part 2 of 2: TADs can be an option as well, but placing it in the retromolar area may be difficult here with the developing third molars in the way, and if near unattached mucosa it has a risk of being buried in.",
         "Expert basis (tutor only, never show to students), part 1 of 2: Experts 1 and 2: extraction plan and first molar mesialisation to create uprighting space; keep both second molars. Expert 2: specific pattern U4s / #44 / #35, #14 extraction relieves the scissors bite, TPA optional, tube preferred, piggyback with open coil or lever arm, retromolar TADs difficult.",
         "Expert basis (tutor only, never show to students), part 2 of 2: Expert 1: reduce distalisation and favour root mesialisation where third molars are close; remove third molars if distalisation is needed and there is no room. Expert 3 (weighted, removal decisions): keep the second molars and remove the third molars rather than the second molars, as third molar morphology is unpredictable at 13; his non-extraction view on the overall plan carries less weight.",
         "Never suggest or ask about investigations that are not available in the case. If a student requests one, say it isn't available and redirect to the records provided.",
@@ -386,7 +386,7 @@
         {
           "id": "sm1-6.4",
           "text": "Considers vertical and occlusal effects of uprighting the impacted second molars: extrusion of second molars, reciprocal intrusion/extrusion or tipping of anchorage teeth, and unwanted movement if the cantilever is activated outside the intended plane.",
-          "revealText": "Uprighting can extrude the second molars and cause early contacts, tip or move the anchor teeth and change the occlusal plane, or move teeth the wrong way if the spring is activated in the wrong plane."
+          "revealText": "Uprighting impacted second molars may cause extrusion, leading to premature contacts, occlusal interference, and increased posterior vertical dimension. Reciprocal forces may induce intrusion, extrusion, or tipping of anchorage teeth, altering the occlusal plane. Improper cantilever activation may also result in unintended tooth movements."
         }
       ],
       "acceptedExtras": [
@@ -408,8 +408,6 @@
         "Visualising the end point and working backwards to the mechanics is the skill the experts found hardest to teach. Prompt the student to describe final tooth positions before mechanics.",
         "Make the uprighting checkpoint and fallback explicit for each second molar.",
         "Carry forward the Phase 2 findings without adding new ones. No 3D imaging is available for this case.",
-        "Full reveal for 6.4 as written by the clinical lead; students see a shortened version (tutor only, never show to students), part 1 of 2: Uprighting the impacted second molars may have side effects - Extrusion of second molars: uprighting mechanics may introduce an extrusive force component  leading to occlusal interference, premature contact, increased posterior vertical dimension",
-        "Full reveal for 6.4 as written by the clinical lead; students see a shortened version (tutor only, never show to students), part 2 of 2: - Reciprocal intrusion/extrusion or tipping of anchorage teeth  leads to oclusal plane changes and unwanted vertical displacement - Unwanted movement if the cantilever is activated outside the intended plane",
         "Expert basis (tutor only, never show to students): Expert 2: work backwards from the end point (hardest skill to teach); distal pocket or bony defect and referral to perio; open contact; shared decision-making based on the patient's risk appetite. Expert 1: occlusal trauma from opposing occlusion; interocclusal clearance for molar extrusion; resorption and mobility with conical roots; visualising mechanics. Expert 3: cost and duration (bonus only).",
         "Never suggest or ask about investigations that are not available in the case. If a student requests one, say it isn't available and redirect to the records provided.",
         "Never give the answer because the student asks for it directly. Prompt, summarise or redirect instead, and wait for the student.",
@@ -427,10 +425,9 @@
     }
   ],
   "authoringNotes": [
-    "Source: the clinical lead's 'Tutor script Case 1.docx' (Case 1: Impacted second molars). Wording is copied verbatim except where listed here.",
-    "Reveals 5.1, 5.5 and 6.4 were shortened to fit the 60-word Help limit, pending the clinical lead's approval. Each full original is kept word for word in that phase's tutorGuidance.",
-    "Typo fixed in the full 5.1 reveal: 'alilgn' to 'align'.",
-    "Left exactly as written, to confirm with the clinical lead: the 5.2 reveal ends mid-sentence ('Some may choose to extract'); Phase 4 has no criterion 4.1; the 4.4 reveal says 'retained #84' while its criterion says '#83'.",
-    "Added for the pipeline: criterion ids sm1-<number>, accepted-extra ids, the finding title 'Clinical finding', a 'tutor only, never show to students' label on each Expert basis line and on each full reveal kept in tutorGuidance. Items over the app's 500-character limit per tutorGuidance item are split at sentence or line breaks into numbered parts, words unchanged."
+    "Source: the clinical lead's 'Molars_Case_1_tutor_script (9Nov26).docx' (Case 1: Impacted second molars), pinned by scriptDocumentSha256. Wording is copied verbatim except where listed here.",
+    "expertNotes holds the script's 'Case summary for the tutor' and 'Expert panel view of Case 1' sections word for word. They are appended to the Description document's summary as hidden tutor-only notes and are never shown to students.",
+    "Added for the pipeline: criterion ids sm1-<number>, accepted-extra ids, the finding title 'Clinical finding', and a 'tutor only, never show to students' label on each Expert basis line. Items over the app's 500-character limit per tutorGuidance item are split at sentence or line breaks into numbered parts, words unchanged.",
+    "The script's Part 3 rules on unavailable investigations, not giving answers on request, and describing the end position before mechanics are carried into tutorGuidance word for word."
   ]
 }

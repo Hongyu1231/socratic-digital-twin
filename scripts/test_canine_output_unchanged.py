@@ -163,11 +163,12 @@ def synthetic_review_pack(root: Path) -> str:
 REVIEW_FILES = ["manifest.json", "draft-review.json", "review.md"]
 IMPORT_FILES = ["manifest.json", "draft-review.json"]
 
-# Recorded from master (d259b11) before the content loader existed.
+# Recorded from master (d259b11) before the content loader existed; review_case1_feedback
+# refreshed for the 13 Nov Case 1 clinical feedback edits (8987702).
 EXPECTED = {
     "import": "d2379bfa414de63dd97eca2e9173529764ad1928d2342b951648e2da54f2b29a",
     "review_generic": "e5261656ff78f0c48b7fd8cea9285902805c4c5defbb80f866b24f695b5c3936",
-    "review_case1_feedback": "a145865b717f6d3a3ff5ebbc4e091fa8bf9afc24bad5e810c114cc74453df335",
+    "review_case1_feedback": "8297825e368996f289cbfa88eb7da88e3ed963b10c6cd1a2bdbafea51f38d08e",
 }
 
 

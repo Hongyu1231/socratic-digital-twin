@@ -32,7 +32,8 @@ from draft_clinical_content import (  # noqa: E402
     clinical_content_sha256,
 )
 from case1_clinical_feedback import CASE1_TITLE, build_case1_feedback_phases  # noqa: E402
-from case_content import apply_content, load_content, verify_source_document  # noqa: E402
+from case_content import (  # noqa: E402
+    apply_content, load_content, merge_expert_notes, verify_script_document, verify_source_document)
 
 
 NAMESPACE = uuid.UUID("3b7cb4f5-c8a1-4c3a-9bd8-04a0fb5f98e5")
@@ -179,6 +180,7 @@ def transform_manifest(
     case1_feedback: bool = False,
     content: dict[str, Any] | None = None,
     source_docx: Path | None = None,
+    script_docx: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     if case1_feedback and not case_id:
         raise ValueError("Case 1 feedback requires an explicit --case-id")
@@ -187,11 +189,14 @@ def transform_manifest(
             raise ValueError("Use either --case1-feedback or --content, not both")
         if not case_id or source_docx is None:
             raise ValueError("--content requires --case-id and --source-docx")
+    elif script_docx is not None:
+        raise ValueError("--script-docx requires --content")
     if case_id:
         source = select_source_case(source, case_id)
     if content is not None:
         # Bound by the source document's hash and text, never its filename.
         verify_source_document(content, source["cases"][0], source_docx)
+        verify_script_document(content, script_docx)
     if case1_feedback and Path(str(source["cases"][0].get("sourceDocument", ""))).name.lower() != "description of case 1.docx":
         raise ValueError("Case 1 feedback may only be applied to the supplied Case 1 document")
     source_cases = source["cases"]
@@ -262,7 +267,10 @@ def transform_manifest(
             new_case["findings"] = findings
         if content is not None:
             new_case = apply_content(new_case, content, identity)
-        cases.append({**copy.deepcopy(entry), "case": new_case})
+        new_entry = {**copy.deepcopy(entry), "case": new_case}
+        if content is not None:
+            new_entry["expertNotes"] = merge_expert_notes(str(entry.get("expertNotes", "")), content)
+        cases.append(new_entry)
 
     articles = copy.deepcopy(source["articles"])
     for article in articles:
@@ -370,6 +378,7 @@ def build(
     case1_feedback: bool = False,
     content_path: Path | None = None,
     source_docx: Path | None = None,
+    script_docx: Path | None = None,
 ) -> dict[str, Any]:
     source = absolute_directory(source_dir, "Source pack")
     output = output_dir.expanduser().resolve()
@@ -381,7 +390,8 @@ def build(
     source_manifest = load_manifest(source)
     content = load_content(content_path) if content_path is not None else None
     manifest, case_map = transform_manifest(
-        source_manifest, case_id=case_id, case1_feedback=case1_feedback, content=content, source_docx=source_docx)
+        source_manifest, case_id=case_id, case1_feedback=case1_feedback, content=content, source_docx=source_docx,
+        script_docx=script_docx)
     output.mkdir(parents=True)
     try:
         copy_media(source, output, manifest["media"])
@@ -412,9 +422,11 @@ def main() -> None:
     parser.add_argument("--case1-feedback", action="store_true", help="Apply Jessica's Case 1 feedback to the selected source case")
     parser.add_argument("--content", type=Path, help="Apply a content file (e.g. content/second-molars/case-1.json) to the selected case")
     parser.add_argument("--source-docx", type=Path, help="The case's 'Description of Case N.docx', checked against the content file's SHA-256")
+    parser.add_argument("--script-docx", type=Path, help="The clinician's tutor script, checked against the content file's scriptDocumentSha256")
     args = parser.parse_args()
     print(json.dumps(build(args.source, args.output, case_id=args.case_id, case1_feedback=args.case1_feedback,
-                           content_path=args.content, source_docx=args.source_docx), ensure_ascii=False, indent=2))
+                           content_path=args.content, source_docx=args.source_docx,
+                           script_docx=args.script_docx), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
