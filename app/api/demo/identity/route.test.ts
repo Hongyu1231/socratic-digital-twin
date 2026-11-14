@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { demoUsers, DEMO_ADMIN_ID } from "@/lib/seed";
+import { demoUsers, DEMO_ADMIN_ID, TEST_STUDENT_1_ID } from "@/lib/seed";
 
 const mocks = vi.hoisted(() => ({
   cookieSet: vi.fn(),
@@ -38,13 +38,15 @@ describe("demo identity API", () => {
     const body = await response.json();
 
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(body.users).toHaveLength(6);
+    expect(body.users).toHaveLength(9);
+    expect(body.users).toContainEqual({ id: TEST_STUDENT_1_ID, name: "Test Student 01", role: "student" });
     expect(body.users[0]).toEqual({
       id: demoUsers[0].id,
       name: demoUsers[0].name,
       role: demoUsers[0].role,
     });
     expect(JSON.stringify(body)).not.toContain("@u.nus.edu");
+    expect(JSON.stringify(body)).not.toContain("@example.invalid");
     expect(body.identity).not.toHaveProperty("email");
     expect(body.identity).not.toHaveProperty("profile");
   });

@@ -34,9 +34,21 @@ describe("human tutor prompt contract", () => {
     expect(TUTOR_INSTRUCTIONS).toContain("Never join two asks with 'and' or 'while'");
     expect(TUTOR_INSTRUCTIONS).toContain("Never copy the phase goal, the criteria, the rubric");
     expect(TUTOR_INSTRUCTIONS).toContain("Never use a meta setup");
-    expect(TUTOR_INSTRUCTIONS).toContain("How might the position of #23 affect the prognosis of #22?");
-    expect(TUTOR_INSTRUCTIONS).toContain("what would you look for on the available imaging, and what are the limitations of the information provided?");
-    expect(TUTOR_INSTRUCTIONS).toContain("your output must still ask exactly one");
+    expect(TUTOR_INSTRUCTIONS).toContain("features of the malocclusion");
+    expect(TUTOR_INSTRUCTIONS).toContain("ask one thing at a time");
+  });
+
+  it("uses a conversational clinical tone without praising incorrect or unsupported claims", () => {
+    expect(TUTOR_PROMPT_VERSION).toBe("scripted-v14-clinical-conversation");
+    expect(TUTOR_INSTRUCTIONS).toContain("like a senior clinician talking to a resident in clinic");
+    expect(TUTOR_INSTRUCTIONS).toContain("natural contractions such as 'you've' and 'let's'");
+    expect(TUTOR_INSTRUCTIONS).toContain("brief, specific praise for that supported point");
+    expect(TUTOR_INSTRUCTIONS).toContain("If nothing can be praised accurately");
+    expect(TUTOR_INSTRUCTIONS).toContain("Never affirm a wrong claim");
+    expect(TUTOR_INSTRUCTIONS).toContain("never invent a finding or praise an incorrect claim");
+    expect(TUTOR_INSTRUCTIONS).toContain("Avoid report-style phrasing such as 'you weighed', 'placed X against Y', or 'what evidence would support'");
+    expect(TUTOR_INSTRUCTIONS).toContain("use 'features of the malocclusion' rather than 'bite findings'");
+    expect(TUTOR_INSTRUCTIONS).toContain("Never claim to have personally read an OPG, CBCT or photograph");
   });
 
   it("asks for plain summary notes that never echo internal wording", () => {

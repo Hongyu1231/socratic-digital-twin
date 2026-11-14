@@ -302,13 +302,19 @@ export async function getTeachingContextWithTraceAsync(
   caseId: string,
   query: string,
   teachingMaterialPackageId?: string,
+  sourceCaseId?: string,
 ): Promise<TeachingContextWithTrace> {
   if (!teachingMaterialPackageId) return getTeachingContextWithTrace(caseId, query);
 
   const { getHostedMaterialPack } = await import("@/lib/materials/hosted");
   try {
     const pack = await getHostedMaterialPack(teachingMaterialPackageId);
-    const result = getTeachingContextWithTraceFromPack(pack, caseId, query);
+    let result = getTeachingContextWithTraceFromPack(pack, caseId, query);
+    // Older case versions may deliberately share their source case's pack.
+    // Prefer the exact version when the package contains its own material.
+    if (!result.context && sourceCaseId && sourceCaseId !== caseId) {
+      result = getTeachingContextWithTraceFromPack(pack, sourceCaseId, query);
+    }
     if (!result.context) throw new Error(HOSTED_CONTEXT_ERROR);
     return result;
   } catch (error) {

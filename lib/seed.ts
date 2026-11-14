@@ -5,6 +5,10 @@ export const DEMO_PROFESSOR_ID = "22222222-2222-4222-8222-222222222222";
 export const DEMO_PROFESSOR_2_ID = "22222222-2222-4222-8222-222222222223";
 export const DEMO_STUDENT_2_ID = "11111111-1111-4111-8111-111111111112";
 export const DEMO_STUDENT_3_ID = "11111111-1111-4111-8111-111111111113";
+export const TEST_STUDENT_1_ID = "f0c28ab2-a11e-4489-883f-8c20a4af2053";
+export const TEST_STUDENT_2_ID = "fb8f5fa4-9e1c-46ca-92f2-9db694fadf67";
+export const TEST_STUDENT_3_ID = "544fc03c-ee0b-487e-889a-f16830897444";
+export const TEST_CLASS_ID = "5a24a593-5bec-434c-80ff-2ffb88d72822";
 export const DEMO_ADMIN_ID = "99999999-9999-4999-8999-999999999999";
 export const IMPACTED_CANINE_CASE_ID = "33333333-3333-4333-8333-333333333333";
 export const ACUTE_TOOTH_PAIN_CASE_ID = "33333333-3333-4333-8333-333333333334";
@@ -31,6 +35,9 @@ export const demoUsers: DemoUser[] = [
   },
   { id: DEMO_STUDENT_2_ID, name: "Benjamin Lee", email: "benjamin.lee@u.nus.edu", role: "student", isActive: true },
   { id: DEMO_STUDENT_3_ID, name: "Chloe Wong", email: "chloe.wong@u.nus.edu", role: "student", isActive: true },
+  { id: TEST_STUDENT_1_ID, name: "Test Student 01", email: "test-student-01@example.invalid", role: "student", isActive: true },
+  { id: TEST_STUDENT_2_ID, name: "Test Student 02", email: "test-student-02@example.invalid", role: "student", isActive: true },
+  { id: TEST_STUDENT_3_ID, name: "Test Student 03", email: "test-student-03@example.invalid", role: "student", isActive: true },
   { id: DEMO_PROFESSOR_2_ID, name: "Prof. Sarah Ng", email: "sarah.ng@nus.edu.sg", role: "professor", isActive: true },
   { id: DEMO_ADMIN_ID, name: "Dr. Elaine Koh", email: "elaine.koh@nus.edu.sg", role: "admin", isActive: true },
 ];
@@ -425,6 +432,23 @@ export const demoClass: TeachingClass = {
     { classId: DEMO_CLASS_ID, userId: DEMO_STUDENT_ID, role: "student", isLead: false },
     { classId: DEMO_CLASS_ID, userId: DEMO_STUDENT_2_ID, role: "student", isLead: false },
     { classId: DEMO_CLASS_ID, userId: DEMO_STUDENT_3_ID, role: "student", isLead: false },
+  ],
+};
+
+/** Synthetic identities are isolated from teaching cohorts and pilot data. */
+export const testClass: TeachingClass = {
+  id: TEST_CLASS_ID,
+  name: "Tutor QA (test only)",
+  code: "TUTOR-QA-ONLY",
+  term: "Testing only",
+  status: "active",
+  createdBy: DEMO_ADMIN_ID,
+  createdAt: "2026-11-10T00:00:00.000Z",
+  members: [
+    { classId: TEST_CLASS_ID, userId: DEMO_PROFESSOR_ID, role: "professor", isLead: true },
+    ...[TEST_STUDENT_1_ID, TEST_STUDENT_2_ID, TEST_STUDENT_3_ID].map((userId) => ({
+      classId: TEST_CLASS_ID, userId, role: "student" as const, isLead: false,
+    })),
   ],
 };
 

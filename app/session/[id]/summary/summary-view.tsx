@@ -77,7 +77,7 @@ export function SessionSummaryView({ sessionId }: { sessionId: string }) {
         <InsightCard icon={<Target />} title="Reasoning gaps" items={summary.weaknesses} emptyMessage="No specific gaps were recorded in this session. Keep making each step of your reasoning explicit so the tutor has something to test." />
         <InsightCard icon={<Compass />} title="Next steps" items={summary.nextSteps} emptyMessage="No next steps were generated for this session. Revisit the case, or ask your professor which part of the reasoning to practise first." />
       </div>
-      <div className="summary-actions"><Link className="secondary-button" href="/">Choose another case</Link></div>
+      <div className="summary-actions"><Link className="secondary-button" href={`/session/${sessionId}/transcript`}>View conversation</Link><Link className="secondary-button" href="/">Choose another case</Link></div>
     </div>
   );
 }
