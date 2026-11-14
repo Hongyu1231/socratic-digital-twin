@@ -219,6 +219,77 @@ class ExpertInterviewImportTests(unittest.TestCase):
             article = next(item for item in json.loads((output / "manifest.json").read_text(encoding="utf-8"))["articles"] if item.get("sourceType") == "expert_interview")
             self.assertNotIn("example.invalid", json.dumps(article))
 
+    def test_commentary_headings_and_plain_expert_lines_tag_each_case(self):
+        # The second-molar panel uses "Case N commentary" headings and plain
+        # "Expert N" paragraphs. Each answer carries a marker naming its case.
+        paragraphs = [
+            (2, "Experts’ general approach to managing impacted second molars cases"),
+            (None, "Expert 1"),
+            (None, "Interviewer: What do you look at first?"),
+            (None, "Orthodontist: GENERAL_MARKER angulation, depth and space."),
+            (2, "Case 1 commentary"),
+            (None, "Expert 1"),
+            (None, "Interviewer: What would you do here?"),
+            (None, "Orthodontist: CASE1_MARKER_A keep both second molars."),
+            (None, "Expert 3"),
+            (None, "Interviewer: And the third molars?"),
+            (None, "Oral Surgeon: CASE1_MARKER_B remove the third molars."),
+            (2, "Case 2 commentary"),
+            (None, "Expert 2"),
+            (None, "Interviewer: Case two?"),
+            (None, "Orthodontist: CASE2_MARKER the lower molar is impacted."),
+            (2, "Comments on Case 3"),
+            (3, "Expert 1"),
+            (None, "Interviewer: Case three?"),
+            (None, "Orthodontist: CASE3_MARKER older format still works."),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "pack"
+            root.mkdir()
+            manifest = self.make_pack(root)
+            case_ids = {number: manifest["cases"][number - 1]["case"]["id"] for number in (1, 2, 3)}
+            doc = Path(directory) / "panel.docx"
+            doc.write_bytes(self.make_document(paragraphs))
+            output = Path(directory) / "revision"
+            MODULE.build(doc, root, output)
+            result = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+            pages = next(item for item in result["articles"] if item.get("sourceType") == "expert_interview")["pages"]
+
+            def pages_with(marker):
+                found = [page for page in pages if marker in page["text"]]
+                self.assertTrue(found, marker)
+                return found
+
+            for page in pages_with("GENERAL_MARKER"):
+                self.assertNotIn("caseIds", page)
+            for marker in ("CASE1_MARKER_A", "CASE1_MARKER_B"):
+                for page in pages_with(marker):
+                    self.assertEqual(page["caseIds"], [case_ids[1]])
+            for page in pages_with("CASE2_MARKER"):
+                self.assertEqual(page["caseIds"], [case_ids[2]])
+            for page in pages_with("CASE3_MARKER"):
+                self.assertEqual(page["caseIds"], [case_ids[3]])
+            self.assertEqual({page["expert"] for page in pages_with("CASE1_MARKER_B")}, {"Expert 3"})
+            # Case-specific text never sits in an untagged page or a page for another case.
+            markers = {"CASE1_MARKER": 1, "CASE2_MARKER": 2, "CASE3_MARKER": 3}
+            for page in pages:
+                for marker, number in markers.items():
+                    if marker in page["text"]:
+                        self.assertEqual(page.get("caseIds"), [case_ids[number]])
+                if "caseIds" not in page:
+                    self.assertFalse(any(marker in page["text"] for marker in markers))
+
+    def test_commentary_heading_for_a_missing_case_is_rejected(self):
+        paragraphs = [(2, "Case 9 commentary"), (None, "Expert 1"), (None, "Orthodontist: text.")]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "pack"
+            root.mkdir()
+            self.make_pack(root)
+            doc = Path(directory) / "panel.docx"
+            doc.write_bytes(self.make_document(paragraphs))
+            with self.assertRaises(ValueError):
+                MODULE.build(doc, root, Path(directory) / "revision")
+
 
 if __name__ == "__main__":
     unittest.main()
