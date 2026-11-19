@@ -2,14 +2,41 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { GraduationCap, LoaderCircle, ShieldCheck, UserRound } from "lucide-react";
+import { GraduationCap, LoaderCircle, LogOut, ShieldCheck, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
+import { signOut } from "@/app/auth-actions";
 import type { PublicDemoIdentity, UserRole } from "@/lib/domain";
 
-export function SiteHeader() {
+type HeaderIdentity = Pick<PublicDemoIdentity, "name" | "role">;
+
+function RoleIcon({ role, size }: { role?: UserRole; size: number }) {
+  return role === "admin" ? <ShieldCheck size={size} /> : role === "professor" ? <GraduationCap size={size} /> : <UserRound size={size} />;
+}
+
+export function SiteHeader({ demoMode, identity }: { demoMode: boolean; identity: HeaderIdentity | null }) {
   const pathname = usePathname();
   const onProfessorPage = pathname.startsWith("/professor");
   const onAdminPage = pathname.startsWith("/admin");
+  return (
+    <header className="site-header">
+      <Link href={onAdminPage ? "/admin" : onProfessorPage ? "/professor" : "/"} className="brand" aria-label="Socratic Digital Twin home">
+        <span className="brand-mark">S</span>
+        <span><strong>Socratic</strong><small>Digital Twin Tutor</small></span>
+      </Link>
+      <div className="institution"><span>NUS</span><small>Faculty of Dentistry · POC</small></div>
+      {demoMode ? <DemoIdentitySwitcher onAdminPage={onAdminPage} onProfessorPage={onProfessorPage} /> : identity ? (
+        <nav className="header-actions" aria-label="Account">
+          <span className="signed-in-name"><RoleIcon role={identity.role} size={17} />{identity.name}</span>
+          <form action={signOut}>
+            <button className="sign-out-button" type="submit"><LogOut size={15} /> Sign out</button>
+          </form>
+        </nav>
+      ) : <span />}
+    </header>
+  );
+}
+
+function DemoIdentitySwitcher({ onAdminPage, onProfessorPage }: { onAdminPage: boolean; onProfessorPage: boolean }) {
   const [open, setOpen] = useState(false);
   const [users, setUsers] = useState<PublicDemoIdentity[]>([]);
   const [identity, setIdentity] = useState<PublicDemoIdentity | null>(null);
@@ -41,12 +68,6 @@ export function SiteHeader() {
   }
 
   return (
-    <header className="site-header">
-      <Link href={onAdminPage ? "/admin" : onProfessorPage ? "/professor" : "/"} className="brand" aria-label="Socratic Digital Twin home">
-        <span className="brand-mark">S</span>
-        <span><strong>Socratic</strong><small>Digital Twin Tutor</small></span>
-      </Link>
-      <div className="institution"><span>NUS</span><small>Faculty of Dentistry · POC</small></div>
       <nav className="header-actions" aria-label="Demo identity selector">
         <div className="role-menu">
           <button className="role-trigger" type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-label={identity?.name ?? "Choose demo identity"}>
@@ -62,6 +83,5 @@ export function SiteHeader() {
           ) : null}
         </div>
       </nav>
-    </header>
   );
 }
