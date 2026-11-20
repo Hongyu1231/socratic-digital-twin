@@ -1,3 +1,4 @@
+import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 import { NextRequest, type NextResponse } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,7 +9,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@supabase/ssr", () => ({ createServerClient: mocks.createServerClient }));
 
-import { middleware } from "@/middleware";
+import { config, middleware } from "@/middleware";
 
 type CookieMethods = {
   getAll: () => { name: string; value: string }[];
@@ -16,7 +17,7 @@ type CookieMethods = {
 };
 
 function setEnv(values: Record<string, string | undefined>) {
-  for (const name of ["SITE_GATE_PASSWORD", "VERCEL", "VERCEL_ENV", "VERCEL_URL", "SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY"]) {
+  for (const name of ["SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY"]) {
     vi.stubEnv(name, values[name] ?? "");
   }
 }
@@ -34,14 +35,6 @@ describe("middleware session refresh", () => {
   it("skips the refresh when Supabase env vars are missing", async () => {
     setEnv({});
     await expect(middleware(new NextRequest("https://app.test/"))).resolves.toBeUndefined();
-    expect(mocks.createServerClient).not.toHaveBeenCalled();
-  });
-
-  it("runs the site gate first and does not touch Supabase when it refuses", async () => {
-    // On Vercel with no password the gate locks the site (503).
-    setEnv({ ...supabaseEnv, VERCEL: "1" });
-    const response = await middleware(new NextRequest("https://app.test/"));
-    expect(response?.status).toBe(503);
     expect(mocks.createServerClient).not.toHaveBeenCalled();
   });
 
@@ -115,5 +108,41 @@ describe("middleware must-change-password", () => {
     setEnv(supabaseEnv);
     mocks.getClaims.mockResolvedValue({ data: { claims: { sub: "user", app_metadata: { must_change_password: false } } }, error: null });
     expect(((await middleware(new NextRequest("https://app.test/admin"))) as NextResponse).status).toBe(200);
+  });
+});
+
+describe("middleware matcher", () => {
+  // Mirrors Next.js: the middleware only runs when the matcher matches.
+  async function visit(path: string) {
+    const url = `https://app.test${path}`;
+    if (unstable_doesMiddlewareMatch({ config, url })) await middleware(new NextRequest(url));
+  }
+
+  it("refreshes the session on pages and API routes", async () => {
+    setEnv(supabaseEnv);
+    for (const path of ["/", "/admin", "/session/abc", "/api/cases", "/api/session/speech"]) {
+      mocks.createServerClient.mockClear();
+      await visit(path);
+      expect(mocks.createServerClient, path).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("skips build assets, the image optimiser, /media and public files", async () => {
+    setEnv(supabaseEnv);
+    for (const path of [
+      "/_next/static/chunks/main.js",
+      "/_next/image?url=%2Fmedia%2Fx.png&w=640&q=75",
+      "/favicon.svg",
+      "/media/case-1/xray.png",
+      "/media/case-1/captions.vtt",
+      "/og.png",
+      "/icons/logo.svg",
+      "/photo.jpg",
+      "/fonts/inter.woff2",
+      "/apple-touch-icon.ico",
+    ]) {
+      await visit(path);
+      expect(mocks.createServerClient, path).not.toHaveBeenCalled();
+    }
   });
 });

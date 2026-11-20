@@ -665,7 +665,7 @@ These answers are for Case 1. Cases 2 and 3 use the same defaults until the clin
 | A | Draft Case 1 phase content from the expert interviews | Arshin |
 | A | Check the admin case editor: fields exposed, versioning behaviour | Arshin |
 | A | Security PR (Next 15.5.26, sharp 0.35.4, `npm audit fix`) | Arshin |
-| A | Shared-password gate in front of the whole live site | Arshin |
+| A | Shared-password gate in front of the whole live site (done, since replaced by individual Supabase sign-in) | Arshin |
 | B | Real individual accounts (Supabase Auth, with roles). Prerequisite for real patient materials, see below | Bruce |
 | B | Engine changes, sections 3.1 to 3.6 and 3.9, and the engine side of the help button (3.12) | Bruce |
 | B | Migrations, sections 3.7, 3.8, 3.11 and the ungraded Help commit/replay path in 3.12 | Bruce |
@@ -683,7 +683,7 @@ These answers are for Case 1. Cases 2 and 3 use the same defaults until the clin
 
 Dependencies: 3.2, 3.3, 3.5 and 3.9 need 3.1's criterion IDs. 3.12 needs the ladder in 3.3 and the typed, atomic commit/replay contract in 3.8. The professor Help timeline depends on the section 4 turn union, not on synthetic evaluations. Frontend work in stage B builds against section 4 and can start as soon as this spec merges.
 
-**Hard prerequisite: real accounts before real patient materials.** No real patient materials are introduced until real individual accounts (Supabase Auth, with roles) ship. In the meantime, the whole live site sits behind a shared-password gate. Under today's demo identity switcher (`app/api/demo/identity/route.ts`), anyone can become any user. So the ownership checks in 3.7 and 3.8 are correct to build now, but they only become real protection once real accounts exist.
+**Hard prerequisite: real accounts before real patient materials.** No real patient materials are introduced until real individual accounts (Supabase Auth, with roles) ship. Real accounts have now shipped: everyone signs in with their own Supabase account, and the shared-password gate has been removed. The demo identity switcher (`app/api/demo/identity/route.ts`) only works in local demo mode, so the ownership checks in 3.7 and 3.8 are now real protection.
 
 **Rollout sequence.**
 
