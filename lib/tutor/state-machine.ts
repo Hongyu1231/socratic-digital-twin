@@ -168,7 +168,7 @@ export async function submitTutorHelp(
   const askedQuestions = askedTutorQuestions(bundle.session.messages);
   const query = `${currentQuestion ?? ""} ${phase.goal}`.trim();
   const retrieval = bundle.case.teachingMaterialPackageId
-    ? await getTeachingContextWithTraceAsync(bundle.case.sourceCaseId ?? bundle.case.id, query, bundle.case.teachingMaterialPackageId)
+    ? await getTeachingContextWithTraceAsync(bundle.case.id, query, bundle.case.teachingMaterialPackageId, bundle.case.sourceCaseId ?? undefined)
     : getTeachingContextWithTrace(bundle.case.sourceCaseId ?? bundle.case.id, query);
   const caseContext = {
     title: bundle.case.title,
@@ -316,7 +316,7 @@ async function performStudentAnswer(
   const query = `${content} ${currentQuestion ?? ""} ${phase.goal}`;
   const retrieval = isReflectionAnswer ? { context: undefined, trace: { query: "", passages: [] } }
     : bundle.case.teachingMaterialPackageId
-      ? await getTeachingContextWithTraceAsync(bundle.case.sourceCaseId ?? bundle.case.id, query, bundle.case.teachingMaterialPackageId)
+      ? await getTeachingContextWithTraceAsync(bundle.case.id, query, bundle.case.teachingMaterialPackageId, bundle.case.sourceCaseId ?? undefined)
       : getTeachingContextWithTrace(bundle.case.sourceCaseId ?? bundle.case.id, query);
   const caseContext = {
     title: bundle.case.title,

@@ -5,6 +5,7 @@ import { InMemoryTutorRepository } from "@/lib/repository/memory";
 import { resetRepositoryForTests } from "@/lib/repository";
 import * as tutor from "@/lib/tutor";
 import * as support from "@/lib/tutor/support";
+import * as retrieval from "@/lib/materials/retrieval";
 import { askedTutorQuestions, submitStudentAnswer } from "@/lib/tutor/state-machine";
 import { studentCaseView, studentView } from "@/lib/http";
 
@@ -66,6 +67,26 @@ describe("v2 end-to-end tutor state", () => {
     expect(JSON.stringify(evaluate.mock.calls[0][0].caseContext)).not.toContain("LOCKED_");
     expect(JSON.stringify(studentView(partial))).not.toContain("private-observation");
     expect(studentCaseView(started.case).attachments).toEqual([]);
+  });
+
+  it("requests hosted materials for the active case version before its source", async () => {
+    const started = await start();
+    const sourceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const packageId = "a".repeat(64);
+    const getSession = repository.getSession.bind(repository);
+    vi.spyOn(repository, "getSession").mockImplementation(async (id) => {
+      const bundle = await getSession(id);
+      return bundle && id === started.session.id
+        ? { ...bundle, case: { ...bundle.case, sourceCaseId: sourceId, teachingMaterialPackageId: packageId } }
+        : bundle;
+    });
+    const lookup = vi.spyOn(retrieval, "getTeachingContextWithTraceAsync").mockResolvedValue({
+      context: undefined, trace: { query: "", passages: [] },
+    });
+    vi.spyOn(tutor, "evaluateWithFallback").mockResolvedValue(result());
+
+    await submitStudentAnswer(started.session.id, DEMO_STUDENT_ID, "I see crowding.");
+    expect(lookup).toHaveBeenCalledWith(started.case.id, expect.any(String), packageId, sourceId);
   });
 
   it("records optional observations without delaying support, and completes on required evidence alone", async () => {

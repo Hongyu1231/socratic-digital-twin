@@ -183,7 +183,7 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
 
     def test_wording_follow_up_guidance_is_added_exactly(self):
         focus = "Keep the focus on #23 and its prognosis. There is no root resorption of #22 or #24, so do not keep returning to it."
-        ranked = "Accept a numbered list. If the student has already ranked the problems, treat that order as their prioritisation and do not ask them to rank again; ask about the reasoning behind the order instead."
+        ranked = "Ask for a prioritised problem list, but accept the student's clinically reasonable ordering as subjective. Once they have ranked the list, do not ask them to rank it again or specify the number of an individual malocclusion problem."
         self.assertEqual(self.phases[1]["tutorGuidance"][-1], focus)
         self.assertEqual(self.phases[2]["tutorGuidance"][3], focus)
         self.assertIn(ranked, self.phases[3]["tutorGuidance"])
@@ -203,6 +203,18 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
         self.assertIn("#23 is palatally located", guidance)
         self.assertIn("no #22/#24 root resorption is recorded", guidance)
         self.assertIn("A mid-alveolar relationship or crown orientation", guidance)
+
+    def test_problem_list_prioritisation_does_not_require_a_separate_chief_complaint(self):
+        phase = self.phases[3]
+        criteria = {item["id"]: item["text"].lower() for item in phase["rubric"]}
+        self.assertIn("p4-both-arch-crowding", criteria)
+        self.assertNotIn("p4-patient-concerns", criteria)
+        self.assertIn("prioritised order", criteria["p4-prioritised-list"])
+        self.assertIn("without requiring a particular numerical position", criteria["p4-prioritised-list"])
+        guidance = " ".join(phase["tutorGuidance"]).lower()
+        self.assertIn("do not require a separate item", guidance)
+        self.assertIn("do not ask them to rank it again", guidance)
+        self.assertIn("specify the number of an individual malocclusion problem", guidance)
 
     def test_closing_reflection_and_palatal_exposure_guidance(self):
         self.assertEqual([phase["tutorMoves"] for phase in self.phases[:5]], [[]] * 5)
@@ -226,20 +238,20 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
             "p2-crown-buccal-surface": "The crown's buccal surface faces buccally.",
             "p2-not-rotated": "So the crown isn't rotated. Where a tooth sits and which way it faces are separate things: #23 sits palatally but faces the normal way.",
             "p2-no-22-24-resorption": "There's no root resorption on #22 or #24.",
-            "p3-local-prognosis": "The #23 crown tip sits at the #22 CEJ, overlapping only the distal half of the #22 root. Its apex lies between the #22 and #24 apices, its angulation to the midline is under 30 degrees, its morphology is normal and there's no pathology, so #23 has a good prognosis.",
+            "p3-local-prognosis": "The #23 crown tip is located at the #22 CEJ, overlapping only the distal half of the #22 root. Its apex lies between the #22 and #24 apices, its angulation to the midline is under 30 degrees, its morphology is normal and there's no pathology, so #23 has a good prognosis.",
             "p3-adult-ankylosis": "At 22 the eruptive potential is lower than in an adolescent, and the tooth could be ankylosed, so whether it can move needs testing early.",
             "p3-test-movement": "Before extracting #24, expose #23 and apply an orthodontic force to check it moves. If it doesn't move, remove #23 and keep #24 instead.",
             "p3-crowding-final-space": "The severe upper crowding means space will be needed to bring #23 into its final position, but only after you've confirmed it can move.",
             "p4-skeletal-classiii-lowangle": "Skeletally, she's Class III on a low-angle base because of a retrusive maxilla.",
             "p4-incisor-compensation": "Her incisors have compensated for the skeletal pattern: the uppers are proclined and the lowers upright.",
             "p4-both-arch-crowding": "There's severe crowding in the upper arch and moderate crowding in the lower, and each needs addressing.",
-            "p4-occlusion": "The bite problems to address include the Class III incisor relationship, the crossbite at #22/#33 and the lateral open bites.",
-            "p4-patient-concerns": "Her main concern is crooked teeth, so your problem list should connect back to that.",
+            "p4-occlusion": "The malocclusion includes the Class III incisor relationship, the crossbite at #22/#33 and the lateral open bites.",
+            "p4-prioritised-list": "A prioritised problem list puts the important problems in an order you can explain; more than one reasonable order is possible.",
             "p5-both-arch-plan": "Given the crowding in both arches, a plan needs two extractions in the upper arch and two premolar extractions in the lower.",
             "p5-upper-extraction-choice": "In the upper left, either keep #23 and extract #24, or remove #23 and keep #24. #24 is positioned where #23 should be and is similar in width and colour to #13, but its gingival margin level won't match #13, so her smile line needs checking.",
             "p5-remaining-premolar-choice": "The remaining three extractions are premolars, for example #14, #34 and #44. First or second premolars are acceptable; explaining why is optional.",
             "p5-movement-before-24": "If you keep #23, test that it moves before extracting #24. If it doesn't move, remove #23 and keep #24.",
-            "p6-anticipated-outcome": "In carrying out the plan, the main challenges are getting #23 to move, keeping the extraction spaces to relieve the severe crowding, and, if #24 takes #23's place, matching its gingival margin level to #13.",
+            "p6-anticipated-outcome": "In carrying out the plan, the main challenges are the mechanics in moving and aligning #23, and, if #24 takes #23's place, camouflaging the #24 as a #23 by ensuring the gingival margin and shape of #24 matches that of #13, and ensuring that the overbite does not reduce further.",
             "p6-checkpoint-reconsideration": "The key checkpoint is that #23 might not be movable, so it is preferable to test whether #23 moves before deciding whether to keep it. The premolar hasn't been extracted yet at that point, so if #23 doesn't move you can still switch to removing it and keeping #24.",
             "p6-evidence-tradeoffs": "The main uncertainty is whether #23 will move, given her age and the risk of ankylosis. For the removal plan, it's how the uneven gingival margin level of #24 looks when she smiles.",
         }
@@ -270,7 +282,7 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
                 "What do the ceph findings tell you about her skeletal pattern?",
                 "How have her incisors compensated for the skeletal pattern?",
                 "Beyond the impacted canine, what other features of the malocclusion would your plan have to address?",
-                "Of these problems, which matters most to her?",
+                "What else from the records would you add to your list?",
                 "Although the extraoral photos are not provided in this case, how do you think her soft-tissue profile would affect your treatment considerations?",
             ],
             [
@@ -283,7 +295,7 @@ class Case1ClinicalFeedbackTests(unittest.TestCase):
                 "How would you decide on the method of surgical exposure of the canine: open or closed?",
             ],
             [
-                "Which of these challenges would you plan for before you start, and how?",
+                "How do you plan to overcome these challenges?",
                 "What would tell you partway through that the plan isn't working?",
                 "If #23 doesn't move when you test it, what would you do next?",
                 "What's the main uncertainty in your plan?",
