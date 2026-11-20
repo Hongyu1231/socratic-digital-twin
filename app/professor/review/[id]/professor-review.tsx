@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Check, Eye, LoaderCircle, LockKeyhole, Save, ShieldCheck } from "lucide-react";
 import type { Classification, SessionBundle, TutorQualityFailureTag } from "@/lib/domain";
+import { reviewPhaseOutcome } from "@/lib/phase-outcomes";
 import { projectProfessorTranscript } from "@/lib/professor/transcript";
 import styles from "./review.module.css";
 
@@ -220,9 +221,9 @@ export function ProfessorReview({ sessionId }: { sessionId: string }) {
           <section aria-label="Phase completion" className="memory-list">
             <span className="sidebar-label">Phase completion</span>
             <ul>{(bundle.case.phases ?? []).map((phase) => {
-              const progress = bundle.session.state.phaseProgress?.[String(phase.order)];
-              return <li key={phase.id}><strong>{phase.title}</strong><p>{progress?.completed
-                ? progress.completedWithSupport ? "Completed with tutor support" : "Completed independently"
+              const outcome = reviewPhaseOutcome(bundle.session.state.phaseProgress?.[String(phase.order)]);
+              return <li key={phase.id}><strong>{phase.title}</strong><p>{outcome === "with_support" ? "Completed with tutor support"
+                : outcome === "independent" ? "Completed independently"
                 : "No completion recorded"}</p></li>;
             })}</ul>
           </section>

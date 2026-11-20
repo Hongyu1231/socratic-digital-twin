@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { phaseCompletionLabel } from "@/lib/phase-outcomes";
+import { phaseCompletionLabel, reviewPhaseOutcome } from "@/lib/phase-outcomes";
 import type { SessionSummary } from "@/lib/domain";
 
 const phase = { id: "p", order: 1, title: "Observe", goal: "Describe the record." };
@@ -20,5 +20,14 @@ describe("phase outcome presentation", () => {
   });
   it("retains a completed supported phase when the learner ends before reflection", () => {
     expect(phaseCompletionLabel(phase, 1, { ...summary, completedAllPhases: false, supportedPhases: [1] })).toBe("Completed with tutor support");
+  });
+});
+
+describe("review page phase outcome", () => {
+  it("only counts phases the tutor recorded as completed", () => {
+    expect(reviewPhaseOutcome(undefined)).toBe("not_completed");
+    expect(reviewPhaseOutcome({ completed: false, completedWithSupport: true })).toBe("not_completed");
+    expect(reviewPhaseOutcome({ completed: true, completedWithSupport: true })).toBe("with_support");
+    expect(reviewPhaseOutcome({ completed: true, completedWithSupport: false })).toBe("independent");
   });
 });
