@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { AlertCircle, ArrowUp, BookOpen, Check, CircleHelp, Info, LoaderCircle, Mic, MicOff, PauseCircle, Play, RotateCw, Volume2, VolumeX, X } from "lucide-react";
 import type { TutorMessage } from "@/lib/domain";
 import type { StudentSessionBundle as SessionBundle } from "@/lib/student-contract";
@@ -43,7 +44,7 @@ type SpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
 type SessionPendingAction = "message" | "pause" | "resume" | "end";
 type PendingMessageKind = "answer" | "help";
 
-export function SocraticChat({ sessionId }: { sessionId: string }) {
+export function SocraticChat({ sessionId, readOnly = false }: { sessionId: string; readOnly?: boolean }) {
   const router = useRouter();
   const [bundle, setBundle] = useState<SessionBundle | null>(null);
   const [answer, setAnswer] = useState("");
@@ -232,12 +233,13 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
       })
       .then((data) => {
         setBundle(data);
-        if (data.session.status === "completed") router.replace(`/session/${sessionId}/summary`);
+        if (data.session.status === "completed" && !readOnly) router.replace(`/session/${sessionId}/summary`);
       })
       .catch((reason) => setError(describeRequestFailure(reason, "Session could not be loaded.", "The session is taking longer than expected to load.")));
-  }, [router, sessionId]);
+  }, [router, sessionId, readOnly]);
 
   useEffect(() => {
+    if (readOnly) return;
     const list = messageListRef.current;
     const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
     // On the desktop layout the list is its own scroll container; on the narrow
@@ -247,7 +249,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
       return;
     }
     bottomRef.current?.scrollIntoView({ block: "end", behavior });
-  }, [bundle?.session.messages.length, optimisticMessage?.id, failedSend, failedHelp, pending]);
+  }, [bundle?.session.messages.length, optimisticMessage?.id, failedSend, failedHelp, pending, readOnly]);
 
   useEffect(() => {
     if (!autoRead || pending || !bundle || !speechOutputAvailable) return;
@@ -563,7 +565,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
   return (
     <div className="session-shell">
       <aside className="session-sidebar" aria-label="Case information">
-        <span className="sidebar-label">Active case</span>
+        <span className="sidebar-label">{readOnly ? "Case transcript" : "Active case"}</span>
         <h2>{clinicalCase.title}</h2>
         <p>{clinicalCase.description}</p>
         <ul className="goal-list" aria-label="Learning phases">
@@ -580,7 +582,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
 
       <section className="chat-panel" aria-label="Socratic conversation">
         <header className="chat-topbar">
-          <div><span className="sidebar-label">Phase {session.currentPhase} of {clinicalCase.phases.length}</span><br /><strong>{currentPhase.title}</strong>{currentPhase.phaseProgress ? <small className="criterion-progress" role="status">{currentPhase.phaseProgress.criteriaMet} of {currentPhase.phaseProgress.criteriaTotal} criteria evidenced{currentPhase.phaseProgress.completedWithSupport ? " · With tutor support" : ""}</small> : null}</div>
+          <div><span className="sidebar-label">{readOnly ? "Conversation transcript" : `Phase ${session.currentPhase} of ${clinicalCase.phases.length}`}</span><br /><strong>{readOnly ? "Read-only session" : currentPhase.title}</strong>{!readOnly && currentPhase.phaseProgress ? <small className="criterion-progress" role="status">{currentPhase.phaseProgress.criteriaMet} of {currentPhase.phaseProgress.criteriaTotal} criteria evidenced{currentPhase.phaseProgress.completedWithSupport ? " · With tutor support" : ""}</small> : null}</div>
           <div className="session-top-actions">
             <button
               ref={mobileCaseTriggerRef}
@@ -592,8 +594,8 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
             >
               <BookOpen size={14} /><span>Case</span>
             </button>
-            <button className="mobile-pause-button" type="button" aria-label="Pause session" onClick={pauseSession} disabled={pending || Boolean(session.pausedAt)}>{pendingAction === "pause" ? <LoaderCircle className="spin" size={14} /> : <PauseCircle size={14} />}<span>{pendingAction === "pause" ? "Pausing…" : "Pause"}</span></button>
-            <button className="mobile-end-button" type="button" onClick={endSession} disabled={pending}>{pendingAction === "end" ? <><LoaderCircle className="spin" size={13} /> Ending…</> : "End"}</button>
+            {!readOnly ? <><button className="mobile-pause-button" type="button" aria-label="Pause session" onClick={pauseSession} disabled={pending || Boolean(session.pausedAt)}>{pendingAction === "pause" ? <LoaderCircle className="spin" size={14} /> : <PauseCircle size={14} />}<span>{pendingAction === "pause" ? "Pausing…" : "Pause"}</span></button>
+            <button className="mobile-end-button" type="button" onClick={endSession} disabled={pending}>{pendingAction === "end" ? <><LoaderCircle className="spin" size={13} /> Ending…</> : "End"}</button></> : null}
             <button className="voice-toggle" type="button" aria-pressed={autoRead && speechOutputAvailable} onClick={toggleTutorVoice} disabled={!speechOutputAvailable} title={speechOutputAvailable ? "Turn automatic tutor voice replies on or off" : "Tutor voice is not supported by this browser"}>
               {autoRead && speechOutputAvailable ? <Volume2 size={14} /> : <VolumeX size={14} />} <span>{!speechOutputAvailable ? "Voice unavailable" : preparingVoiceMessageId ? "Preparing voice" : speakingMessageId ? "Tutor speaking" : autoRead ? "Tutor voice on" : "Tutor voice off"}</span>
             </button>
@@ -655,7 +657,7 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
           {pendingAction === "message" ? <article className="message"><div className="message-avatar">S</div><div><div className="message-bubble thinking"><i /><i /><i /></div><span className="message-meta">{pendingMessageKind === "help" ? "Preparing more help" : "Examining your reasoning"}</span></div></article> : null}
           <div ref={bottomRef} />
         </div>
-        {session.pausedAt ? <div className="paused-session-card"><PauseCircle size={28} /><span className="section-kicker">Session paused</span><h2>Your progress is safely saved</h2><p>Resume when you are ready to continue from this exact phase and conversation.</p><button type="button" className="primary-button" onClick={resumeSession} disabled={pending}>{pendingAction === "resume" ? <LoaderCircle className="spin" size={16} /> : <Play size={16} />} {pendingAction === "resume" ? "Resuming…" : "Resume session"}</button>{error ? <div className="error-banner" role="alert">{error}</div> : null}</div> : <form className="chat-composer" onSubmit={submit}>
+        {readOnly ? <div className="chat-composer"><p role="status">This conversation is read-only. Your session and answers have not changed.</p><Link className="secondary-button" href={session.status === "completed" ? `/session/${sessionId}/summary` : `/session/${sessionId}`}>{session.status === "completed" ? "Back to summary" : "Back to session"}</Link></div> : session.pausedAt ? <div className="paused-session-card"><PauseCircle size={28} /><span className="section-kicker">Session paused</span><h2>Your progress is safely saved</h2><p>Resume when you are ready to continue from this exact phase and conversation.</p><button type="button" className="primary-button" onClick={resumeSession} disabled={pending}>{pendingAction === "resume" ? <LoaderCircle className="spin" size={16} /> : <Play size={16} />} {pendingAction === "resume" ? "Resuming…" : "Resume session"}</button>{error ? <div className="error-banner" role="alert">{error}</div> : null}</div> : <form className="chat-composer" onSubmit={submit}>
           {error ? <div className="error-banner" role="alert">{error}</div> : null}
           <div className="composer-box">
             <textarea
@@ -705,9 +707,9 @@ export function SocraticChat({ sessionId }: { sessionId: string }) {
         <div className="progress-orbit" style={{ "--progress": `${progress}%` } as React.CSSProperties}><div><strong>{progress}%</strong><small>Complete</small></div></div>
         <div className="phase-card"><span>Current goal</span><strong>{currentPhase.title}</strong><p>{currentPhase.goal}</p></div>
         <div className="session-control-stack">
-          {session.pausedAt ? <button className="pause-session" onClick={resumeSession} disabled={pending}>{pendingAction === "resume" ? <LoaderCircle className="spin" size={16} /> : <Play size={16} />} {pendingAction === "resume" ? "Resuming…" : "Resume session"}</button> : <button className="pause-session" onClick={pauseSession} disabled={pending}>{pendingAction === "pause" ? <LoaderCircle className="spin" size={16} /> : <PauseCircle size={16} />} {pendingAction === "pause" ? "Pausing…" : "Pause & return to cases"}</button>}
+          {readOnly ? <Link className="secondary-button" href={session.status === "completed" ? `/session/${sessionId}/summary` : `/session/${sessionId}`}>{session.status === "completed" ? "Back to summary" : "Back to session"}</Link> : <>{session.pausedAt ? <button className="pause-session" onClick={resumeSession} disabled={pending}>{pendingAction === "resume" ? <LoaderCircle className="spin" size={16} /> : <Play size={16} />} {pendingAction === "resume" ? "Resuming…" : "Resume session"}</button> : <button className="pause-session" onClick={pauseSession} disabled={pending}>{pendingAction === "pause" ? <LoaderCircle className="spin" size={16} /> : <PauseCircle size={16} />} {pendingAction === "pause" ? "Pausing…" : "Pause & return to cases"}</button>}
           <button className="end-session" onClick={endSession} disabled={pending}>{pendingAction === "end" ? <LoaderCircle className="spin" size={16} /> : null}{pendingAction === "end" ? "Ending session…" : "End session & view summary"}</button>
-          {endNotice ? <p className="loading-notice" role="status">{endNotice}</p> : null}
+          {endNotice ? <p className="loading-notice" role="status">{endNotice}</p> : null}</>}
         </div>
       </aside>
       {mobileCaseOpen ? (

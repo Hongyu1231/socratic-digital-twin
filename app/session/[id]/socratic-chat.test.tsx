@@ -157,14 +157,14 @@ describe("student More help interaction", () => {
     vi.unstubAllGlobals();
   });
 
-  async function renderChat(initial = makeBundle()) {
+  async function renderChat(initial = makeBundle(), readOnly = false) {
     fetchMock.mockImplementationOnce((input: RequestInfo | URL) => {
       if (String(input) === SESSION_URL) return Promise.resolve(jsonResponse(initial));
       return Promise.reject(new Error(`Unexpected fetch: ${String(input)}`));
     });
     root = createRoot(container);
     await act(async () => {
-      root.render(createElement(SocraticChat, { sessionId: SESSION_ID }));
+      root.render(createElement(SocraticChat, { sessionId: SESSION_ID, readOnly }));
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -180,6 +180,29 @@ describe("student More help interaction", () => {
   function helpButton() {
     return container.querySelector<HTMLButtonElement>(".more-help-button")!;
   }
+
+  it("shows completed conversations read-only without redirecting or offering session actions", async () => {
+    const initial = makeBundle({ status: "completed", messages: [...makeBundle().session.messages, ...helpPair()] });
+    await renderChat(initial, true);
+
+    expect(router.replace).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Read-only session");
+    expect(container.textContent).toContain("I would start by comparing the supplied findings.");
+    expect(container.textContent).toContain("What evidence would you use first?");
+    expect(container.textContent).toContain("More help requested");
+    expect(container.textContent).toContain("Imagine a colleague proposed a plan.");
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(container.querySelector(".more-help-button")).toBeNull();
+    expect(container.querySelector(".end-session")).toBeNull();
+    expect(container.querySelector(".pause-session")).toBeNull();
+    expect(container.querySelector(`a[href='/session/${SESSION_ID}/summary']`)).not.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues redirecting completed sessions from the interactive page to the summary", async () => {
+    await renderChat(makeBundle({ status: "completed" }));
+    expect(router.replace).toHaveBeenCalledWith(`/session/${SESSION_ID}/summary`);
+  });
 
   async function click(element: Element) {
     await act(async () => {

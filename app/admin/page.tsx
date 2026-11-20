@@ -374,7 +374,7 @@ function Overview({ data, setTab }: { data: DashboardData; setTab: (tab: AdminTa
   const completionRate = data.overview.completionRate ?? 0;
   const roleCounts = typeof data.overview.users === "object" ? data.overview.users : undefined;
   const cards = [
-    { label: "Active users", value: counts.users, icon: UsersRound, note: roleCounts ? `${roleCounts.student ?? 0} students · ${roleCounts.professor ?? 0} faculty` : "Across all teaching roles" },
+    { label: "User profiles", value: counts.users, icon: UsersRound, note: roleCounts ? `${roleCounts.student ?? 0} students · ${roleCounts.professor ?? 0} faculty` : "Includes active and inactive profiles" },
     { label: "Teaching classes", value: counts.classes, icon: School, note: "Active and archived cohorts" },
     { label: "Open assignments", value: counts.assignments, icon: BookOpen, note: "Available to enrolled students" },
     { label: "Learning sessions", value: counts.sessions, icon: GraduationCap, note: `${completionRate}% completion rate` },
