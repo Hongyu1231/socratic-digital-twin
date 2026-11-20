@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getTeachingContextAsync } from "@/lib/materials/retrieval";
+import { getTeachingContextAsync, getTeachingContextWithTraceAsync } from "@/lib/materials/retrieval";
 import {
   HOSTED_PACK_CACHE_SIZE,
   HOSTED_DOWNLOAD_TIMEOUT_MS,
@@ -172,6 +172,23 @@ describe("hosted teaching materials", () => {
     ]);
 
     await expect(getTeachingContextAsync(OTHER_CASE_ID, "evidence", PACKAGE_ID))
+      .rejects.toThrow(hostedMaterialErrorMessage);
+  });
+
+  it("prefers a version's own hosted material and falls back only to its source", async () => {
+    const ownPack = manifest();
+    const sourcePack = manifest(PACKAGE_ID, OTHER_CASE_ID);
+    sourcePack.cases[0].expertNotes = "SOURCE_NOTE";
+    ownPack.cases.push(sourcePack.cases[0]);
+    globalThis.fetch = vi.fn(async () => responseFor(ownPack)) as typeof fetch;
+
+    const exact = await getTeachingContextWithTraceAsync(CASE_ID, "canine", PACKAGE_ID, OTHER_CASE_ID);
+    expect(exact.context?.expertNotes).toBe("HOSTED_PRIVATE_NOTE");
+    resetHostedMaterialCacheForTests();
+    globalThis.fetch = vi.fn(async () => responseFor(sourcePack)) as typeof fetch;
+    const inherited = await getTeachingContextWithTraceAsync(CASE_ID, "canine", PACKAGE_ID, OTHER_CASE_ID);
+    expect(inherited.context?.expertNotes).toBe("SOURCE_NOTE");
+    await expect(getTeachingContextWithTraceAsync(CASE_ID, "canine", PACKAGE_ID, "dddddddd-dddd-4ddd-8ddd-dddddddddddd"))
       .rejects.toThrow(hostedMaterialErrorMessage);
   });
 

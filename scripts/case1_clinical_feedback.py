@@ -134,7 +134,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             _criterion(
                 "p3-local-prognosis",
                 "Assesses prognosis from the local canine, its root, and adjacent teeth rather than from age alone.",
-                "The #23 crown tip sits at the #22 CEJ, overlapping only the distal half of the #22 root. Its apex lies between the #22 and #24 apices, its angulation to the midline is under 30 degrees, its morphology is normal and there's no pathology, so #23 has a good prognosis.",
+                "The #23 crown tip is located at the #22 CEJ, overlapping only the distal half of the #22 root. Its apex lies between the #22 and #24 apices, its angulation to the midline is under 30 degrees, its morphology is normal and there's no pathology, so #23 has a good prognosis.",
             ),
             _criterion(
                 "p3-adult-ankylosis",
@@ -193,12 +193,12 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             _criterion(
                 "p4-occlusion",
                 "Includes relevant occlusion, such as Class III incisors, bilateral Class I molars, #22/#33 crossbite, or a lateral open bite.",
-                "The bite problems to address include the Class III incisor relationship, the crossbite at #22/#33 and the lateral open bites.",
+                "The malocclusion includes the Class III incisor relationship, the crossbite at #22/#33 and the lateral open bites.",
             ),
             _criterion(
-                "p4-patient-concerns",
-                "Includes the patient's concern about crooked teeth and links the proposed priorities to patient concerns.",
-                "Her main concern is crooked teeth, so your problem list should connect back to that.",
+                "p4-prioritised-list",
+                "Presents the problems in a prioritised order. Accept a clinically reasonable ordering without requiring a particular numerical position for any individual problem.",
+                "A prioritised problem list puts the important problems in an order you can explain; more than one reasonable order is possible.",
             ),
         ],
         "starterQuestion": "Can you organise a prioritised problem list for this patient, numbered from most to least important?",
@@ -206,14 +206,14 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
             "What do the ceph findings tell you about her skeletal pattern?",
             "How have her incisors compensated for the skeletal pattern?",
             "Beyond the impacted canine, what other features of the malocclusion would your plan have to address?",
-            "Of these problems, which matters most to her?",
+            "What else from the records would you add to your list?",
             "Although the extraoral photos are not provided in this case, how do you think her soft-tissue profile would affect your treatment considerations?",
         ],
         "tutorGuidance": [
             "Keep the source Class III, low-angle retrusive-maxilla pattern distinct from incisor compensation and the occlusal findings.",
-            "Include severe upper and moderate lower crowding, relevant occlusion, and the patient's crooked-teeth concern in one integrated list.",
+            "Include severe upper and moderate lower crowding and relevant occlusal findings in the problem list. Crowding already addresses the patient's concern about crooked teeth; do not require a separate item for that concern.",
             "Third-molar status is a useful bonus context only and is not a required problem-list item.",
-            "Accept a numbered list. If the student has already ranked the problems, treat that order as their prioritisation and do not ask them to rank again; ask about the reasoning behind the order instead.",
+            "Ask for a prioritised problem list, but accept the student's clinically reasonable ordering as subjective. Once they have ranked the list, do not ask them to rank it again or specify the number of an individual malocclusion problem.",
             "Carry forward the supplied Phase 2 finding: #23 is palatally located, its crown buccal surface faces buccally, it is not rotated, and no #22/#24 root resorption is recorded. A mid-alveolar relationship or crown orientation in a reference is not evidence against that confirmed bucco-palatal location. Do not mark a palatal #23 problem-list item wrong or return the discussion to #22 resorption.",
         ],
         "acceptedExtras": [
@@ -297,8 +297,8 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
         "rubric": [
             _criterion(
                 "p6-anticipated-outcome",
-                "Names at least one practical challenge in carrying out the chosen plan and links it to the case findings, such as moving #23, holding the extraction spaces in the crowded arches, or the #24 gingival margin.",
-                "In carrying out the plan, the main challenges are getting #23 to move, keeping the extraction spaces to relieve the severe crowding, and, if #24 takes #23's place, matching its gingival margin level to #13.",
+                "Names at least one practical challenge in carrying out the chosen plan and links it to the case findings, such as moving #23, camouflaging #24 as #23, or managing the minimal overbite.",
+                "In carrying out the plan, the main challenges are the mechanics in moving and aligning #23, and, if #24 takes #23's place, camouflaging the #24 as a #23 by ensuring the gingival margin and shape of #24 matches that of #13, and ensuring that the overbite does not reduce further.",
             ),
             _criterion(
                 "p6-checkpoint-reconsideration",
@@ -313,7 +313,7 @@ CASE1_FEEDBACK_PHASE_TEMPLATES = [
         ],
         "starterQuestion": "Picture the end of treatment under your plan. What challenges will you anticipate?",
         "exampleQuestions": [
-            "Which of these challenges would you plan for before you start, and how?",
+            "How do you plan to overcome these challenges?",
             "What would tell you partway through that the plan isn't working?",
             "If #23 doesn't move when you test it, what would you do next?",
             "What's the main uncertainty in your plan?",
