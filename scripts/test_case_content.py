@@ -6,6 +6,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -17,6 +18,7 @@ REPO = SCRIPTS.parent
 sys.path.insert(0, str(SCRIPTS))
 
 import case_content  # noqa: E402
+import script_text  # noqa: E402
 from case1_clinical_feedback import CASE1_FEEDBACK_PHASE_TEMPLATES  # noqa: E402
 from test_canine_output_unchanged import REVIEW, synthetic_docx, synthetic_review_pack  # noqa: E402
 
@@ -30,6 +32,63 @@ RULE_END_POSITION = "Ask the student to describe the end position of the teeth b
 # length is recorded here; the build also refuses merged notes over the limit.
 MOLAR_CASE1_DESCRIPTION_SUMMARY_CHARS = 798
 TUTOR_EXPERT_NOTES_LIMIT = 6000  # lib/materials/retrieval.ts slices expertNotes to 6,000 characters
+# The private 9 Nov tutor script docx stays out of the repo; its plain-text extract (made by
+# scripts/script_text.py) is committed next to the content file, so the fidelity test runs everywhere.
+# When the docx is available (MOLAR_CASE1_SCRIPT_DOCX or the default private folder), the test also
+# confirms the extract was generated from it exactly.
+MOLAR_CASE1_SCRIPT_EXTRACT = REPO / "content" / "second-molars" / "case-1.script-9nov.txt"
+MOLAR_CASE1_SCRIPT_DIR = Path.home() / "socratic-molar-source" / "2026-11-09"
+CARLA_21_NOV = "Dr Carla Andreina, email of 21 Nov 2026"
+# Content fields that are pipeline metadata, not script wording.
+NON_SCRIPT_FIELDS = {"formatVersion", "id", "newLineage", "title", "sourceDocument", "sourceDocumentSha256",
+                     "scriptDocument", "scriptDocumentSha256", "correctionProbes", "records",
+                     "authoringNotes", "approvedScriptDifferences"}
+EXPERT_BASIS_LABEL = re.compile(r"^Expert basis \(tutor only, never show to students\)(?:, part (\d+) of (\d+))?: ")
+
+
+def normalise(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def script_texts(content: dict) -> dict[str, str]:
+    """Map a JSON Pointer to every content string that should be the script's wording.
+
+    Ids are pipeline additions. Expert basis items carry a pipeline label instead of the
+    script's "Expert basis:" and may be split into numbered parts, so their parts are
+    rejoined and the script's label restored under the pointer of part 1.
+    """
+
+    texts: dict[str, str] = {}
+
+    def walk(value, pointer):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key != "id":
+                    walk(item, f"{pointer}/{key}")
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                walk(item, f"{pointer}/{index}")
+        elif isinstance(value, str):
+            texts[pointer] = value
+        elif not isinstance(value, (int, bool)):
+            raise AssertionError(f"Unexpected value at {pointer}")
+
+    for key, value in content.items():
+        if key not in NON_SCRIPT_FIELDS:
+            walk(value, f"/{key}")
+    for phase_index, phase in enumerate(content["phases"]):
+        parts = []
+        for index, item in enumerate(phase["tutorGuidance"]):
+            match = EXPERT_BASIS_LABEL.match(item)
+            if match:
+                parts.append((index, match, item[match.end():]))
+                del texts[f"/phases/{phase_index}/tutorGuidance/{index}"]
+        numbers = [(int(m.group(1)) if m.group(1) else None, int(m.group(2)) if m.group(2) else None)
+                   for _, m, _ in parts]
+        expected = [(None, None)] if len(parts) == 1 else [(n, len(parts)) for n in range(1, len(parts) + 1)]
+        assert numbers == expected, f"Phase {phase_index + 1} Expert basis parts are {numbers}"
+        texts[f"/phases/{phase_index}/tutorGuidance/{parts[0][0]}"] = "Expert basis: " + " ".join(p for *_, p in parts)
+    return texts
 
 
 def help_cap_and_backups() -> tuple[int, list[str]]:
@@ -111,6 +170,16 @@ class MolarCase1ContentTests(unittest.TestCase):
         self.assertIn("retained #83,", phases[3]["rubric"][2]["revealText"])
         self.assertNotIn("#84", json.dumps(phases))
 
+    def test_records_exactly_the_two_approved_script_differences(self):
+        differences = self.content["approvedScriptDifferences"]
+        self.assertEqual([d["location"] for d in differences],
+                         ["/phases/0/rubric/3/revealText", "/phases/4/tutorGuidance/2"])
+        self.assertEqual({d["source"] for d in differences}, {CARLA_21_NOV})
+        self.assertEqual(self.content["phases"][0]["rubric"][3]["id"], "sm1-1.4")
+        self.assertIn("no caries seen on the distal surfaces of the second molars", differences[0]["newText"])
+        self.assertTrue(differences[1]["newText"].startswith("Extraction is the expected main plan."))
+        self.assertNotIn("first molar", self.content["phases"][0]["rubric"][3]["revealText"])
+
     def test_expert_notes_have_both_sections_and_fit_the_tutor_limit(self):
         notes = self.content["expertNotes"]
         self.assertTrue(notes.startswith("Case summary for the tutor"))
@@ -129,6 +198,78 @@ class MolarCase1ContentTests(unittest.TestCase):
         canine = json.dumps(CASE1_FEEDBACK_PHASE_TEMPLATES)
         for rule in (RULE_INVESTIGATIONS, RULE_NO_ANSWER, RULE_END_POSITION):
             self.assertNotIn(rule, canine)
+
+
+class ApprovedScriptDifferenceValidationTests(unittest.TestCase):
+    def setUp(self):
+        self.content = copy.deepcopy(case_content.load_content(MOLAR_CASE1))
+
+    def assert_refused(self, message):
+        with self.assertRaisesRegex(ValueError, message):
+            case_content.validate_content(self.content)
+
+    def test_location_must_hold_the_new_text(self):
+        self.content["phases"][0]["rubric"][3]["revealText"] = self.content["approvedScriptDifferences"][0]["oldText"]
+        self.assert_refused("is not its newText")
+
+    def test_location_must_resolve(self):
+        self.content["approvedScriptDifferences"][0]["location"] = "/phases/0/rubric/99/revealText"
+        self.assert_refused("does not point into the content file")
+
+    def test_entries_need_exactly_the_four_fields(self):
+        del self.content["approvedScriptDifferences"][0]["source"]
+        self.assert_refused("must have exactly")
+
+    def test_locations_are_unique(self):
+        self.content["approvedScriptDifferences"].append(copy.deepcopy(self.content["approvedScriptDifferences"][0]))
+        self.assert_refused("repeats location")
+
+    def test_needs_a_pinned_script(self):
+        del self.content["scriptDocument"], self.content["scriptDocumentSha256"]
+        self.assert_refused("pinned scriptDocument")
+
+
+class MolarCase1ScriptFidelityTests(unittest.TestCase):
+    """The content matches the pinned 9 Nov tutor script word for word, except at the approved differences."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.content = case_content.load_content(MOLAR_CASE1)
+        cls.source, cls.source_sha256, body = script_text.read_extract(MOLAR_CASE1_SCRIPT_EXTRACT)
+        cls.script = normalise(body)
+
+    def test_extract_is_of_the_pinned_script(self):
+        self.assertEqual(self.source, self.content["scriptDocument"])
+        self.assertEqual(self.source_sha256, self.content["scriptDocumentSha256"])
+
+    def test_extract_matches_the_docx_when_it_is_available(self):
+        docx = Path(os.environ.get("MOLAR_CASE1_SCRIPT_DOCX") or MOLAR_CASE1_SCRIPT_DIR / self.content["scriptDocument"])
+        if not docx.is_file():
+            self.skipTest(f"private tutor script not found at {docx}; the committed extract is used alone")
+        self.assertEqual(hashlib.sha256(docx.read_bytes()).hexdigest(), self.content["scriptDocumentSha256"],
+                         f"{docx} does not match the content file's scriptDocumentSha256")
+        self.assertEqual(MOLAR_CASE1_SCRIPT_EXTRACT.read_text(encoding="utf-8"), script_text.extract(docx),
+                         "the committed extract is not exactly what scripts/script_text.py makes from the docx")
+
+    def test_no_docx_is_committed_beside_the_content(self):
+        self.assertEqual(list((REPO / "content").glob("**/*.docx")), [])
+
+    def test_content_differs_from_the_script_only_where_recorded(self):
+        approved = {d["location"]: d for d in self.content["approvedScriptDifferences"]}
+        texts = script_texts(self.content)
+        self.assertLessEqual(set(approved), set(texts), "an approved difference points outside the script wording")
+        unrecorded = [pointer for pointer, text in texts.items()
+                      if pointer not in approved and normalise(text) not in self.script]
+        self.assertEqual(unrecorded, [], "content differs from the 9 Nov script without an approvedScriptDifferences entry")
+        for pointer, difference in approved.items():
+            self.assertIn(normalise(difference["oldText"]), self.script, f"{pointer} oldText is not the script's wording")
+            self.assertNotIn(normalise(difference["newText"]), self.script, f"{pointer} is not a difference from the script")
+
+    def test_an_unrecorded_change_is_caught(self):
+        content = copy.deepcopy(self.content)
+        content["phases"][2]["rubric"][0]["revealText"] += " Extra words."
+        texts = script_texts(content)
+        self.assertNotIn(normalise(texts["/phases/2/rubric/0/revealText"]), self.script)
 
 
 class ContentGuardTests(unittest.TestCase):

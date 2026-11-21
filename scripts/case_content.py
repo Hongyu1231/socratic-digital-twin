@@ -9,6 +9,14 @@ may also pin the clinician's tutor script it was transcribed from
 expert notes that are appended to the case's expertNotes. "newLineage": true
 records that the case starts a new, never-published series, so it must be
 built with --new-lineage as a lineage root (version 1, no sourceCaseId).
+
+"approvedScriptDifferences" lists every place where the content knowingly
+departs from the pinned tutor script, each approved by the clinician. Every
+entry names its location as a JSON Pointer into the content file (RFC 6901,
+for example "/phases/0/rubric/3/revealText"), the script's oldText, the
+content's newText and the source of the approval. The validator checks that
+each location holds exactly its newText; scripts/test_case_content.py checks
+that the content matches the script everywhere else.
 """
 
 from __future__ import annotations
@@ -33,7 +41,8 @@ STRATEGIES = {"probe", "challenge", "clarify", "scaffold", "reflect"}
 
 CONTENT_KEYS = {"formatVersion", "id", "title", "sourceDocument", "sourceDocumentSha256", "correctionProbes",
                 "records", "findings", "phases", "authoringNotes", "scriptDocument", "scriptDocumentSha256",
-                "expertNotes", "newLineage"}
+                "expertNotes", "newLineage", "approvedScriptDifferences"}
+SCRIPT_DIFFERENCE_KEYS = {"location", "oldText", "newText", "source"}
 PHASE_KEYS = {"title", "goal", "starterQuestion", "exampleQuestions", "rubric", "acceptedExtras",
               "tutorGuidance", "tutorMoves", "noProgressLimit", "phaseCeiling"}
 
@@ -77,6 +86,8 @@ def validate_content(content: Any) -> dict[str, Any]:
         _text(content["scriptDocument"], "Content scriptDocument", 500)
         if not isinstance(content["scriptDocumentSha256"], str) or not SHA256_RE.fullmatch(content["scriptDocumentSha256"]):
             raise ValueError("Content scriptDocumentSha256 must be a lowercase SHA-256")
+    if "approvedScriptDifferences" in content:
+        _script_differences(content)
     if "newLineage" in content and not isinstance(content["newLineage"], bool):
         raise ValueError("Content newLineage must be true or false")
     if "expertNotes" in content:
@@ -155,6 +166,50 @@ def validate_content(content: Any) -> dict[str, Any]:
         if not isinstance(phase.get("phaseCeiling"), int) or not 2 <= phase["phaseCeiling"] <= 12:
             raise ValueError(f"{label} phaseCeiling must be 2 to 12")
     return content
+
+
+def resolve_pointer(content: Any, pointer: Any) -> Any:
+    """Return the value at an RFC 6901 JSON Pointer, or raise ValueError if there is none."""
+
+    if not isinstance(pointer, str) or not pointer.startswith("/"):
+        raise ValueError(f"{pointer!r} is not a JSON Pointer")
+    value = content
+    for token in pointer[1:].split("/"):
+        token = token.replace("~1", "/").replace("~0", "~")
+        if isinstance(value, dict) and token in value:
+            value = value[token]
+        elif isinstance(value, list) and token.isdigit() and (token == "0" or not token.startswith("0")) \
+                and int(token) < len(value):
+            value = value[int(token)]
+        else:
+            raise ValueError(f"{pointer!r} does not point into the content file")
+    return value
+
+
+def _script_differences(content: dict[str, Any]) -> None:
+    if "scriptDocumentSha256" not in content:
+        raise ValueError("Content approvedScriptDifferences needs a pinned scriptDocument")
+    differences = content["approvedScriptDifferences"]
+    if not isinstance(differences, list) or not differences:
+        raise ValueError("Content approvedScriptDifferences must be a non-empty list")
+    locations: set[str] = set()
+    for index, difference in enumerate(differences, 1):
+        label = f"Approved script difference {index}"
+        if not isinstance(difference, dict) or set(difference) != SCRIPT_DIFFERENCE_KEYS:
+            raise ValueError(f"{label} must have exactly {sorted(SCRIPT_DIFFERENCE_KEYS)}")
+        for key in ("oldText", "newText"):
+            _text(difference[key], f"{label} {key}", MAX_TUTOR_EXPERT_NOTES)
+        _text(difference["source"], f"{label} source", 500)
+        location = difference["location"]
+        if location in locations:
+            raise ValueError(f"{label} repeats location {location!r}")
+        locations.add(location)
+        if location == "/approvedScriptDifferences" or location.startswith("/approvedScriptDifferences/"):
+            raise ValueError(f"{label} cannot point at approvedScriptDifferences")
+        if resolve_pointer(content, location) != difference["newText"]:
+            raise ValueError(f"{label}: the content at {location} is not its newText")
+        if difference["oldText"] == difference["newText"]:
+            raise ValueError(f"{label}: oldText and newText are the same")
 
 
 def _list(value: Any, label: str, limit: int) -> list[Any]:
@@ -262,4 +317,4 @@ def apply_content(case: dict[str, Any], content: dict[str, Any], id_factory: Cal
 
 
 __all__ = ["apply_content", "build_content_phases", "load_content", "merge_expert_notes", "record_unlock_phase",
-           "validate_content", "verify_script_document", "verify_source_document"]
+           "resolve_pointer", "validate_content", "verify_script_document", "verify_source_document"]

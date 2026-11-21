@@ -7,6 +7,20 @@
   "sourceDocumentSha256": "d9033e6645420d0d0017509ed16377af50633cabc8caa85bdb8b99b5d61d3a0a",
   "scriptDocument": "Molars_Case_1_tutor_script (9Nov26).docx",
   "scriptDocumentSha256": "ed4de82eb56c2759ffdee5c0172c5d712050ec29effd0b0b99af747f4c056bbd",
+  "approvedScriptDifferences": [
+    {
+      "location": "/phases/0/rubric/3/revealText",
+      "oldText": "A partially erupted, impacted molar traps food. However, there is no caries seen on the first molar and seems to be able to keep the area clean, so nothing is forcing urgent treatment.",
+      "newText": "A partially erupted, impacted molar traps food. However, there is no caries seen on the distal surfaces of the second molars and she seems to be able to keep the area clean, so nothing is forcing urgent treatment.",
+      "source": "Dr Carla Andreina, email of 21 Nov 2026"
+    },
+    {
+      "location": "/phases/4/tutorGuidance/2",
+      "oldText": "A non-extraction plan with third molar removal and distalisation was suggested by the oral surgeon. Accept it only if the student explains how the moderate lower crowding and the overjet will be corrected; probe this, since the orthodontists did not favour it.",
+      "newText": "Extraction is the expected main plan. A non-extraction plan with third molar removal and distalisation, suggested by the oral surgeon, is acceptable only as a second option. If the student proposes it as their main plan, ask how they would correct the moderate lower crowding and the overjet, and guide them back to an extraction plan, since the orthodontists did not favour it.",
+      "source": "Dr Carla Andreina, email of 21 Nov 2026"
+    }
+  ],
   "expertNotes": "Case summary for the tutor (not shown to the student)\nThis 13-year-old Chinese female has no relevant medical or dental history and no known drug allergies. Caries and periodontal disease are controlled.\nSkeletal. Class II div 1 malocclusion on an average-angle Class I skeletal base.\nOcclusion. Incisors Class II div 1, increased OJ 5 mm, increased OB 50%. Canines right ¼ unit Class III, left ¼ unit Class II. Molars right ½ unit Class III, left ¼ unit Class III. Crossbite #12/#83. Scissors bite at #14 and #27. No CR–MI slide (aka functional shift). Upper midline deviated 1 mm right, lower midline deviated 2 mm right of the facial midline.\nTeeth. Upper #17–#27 present; #17 partially erupted and #27 erupted, both erupting buccally. Lower #37–#47 present. Retained #83 with #43 erupted lingually (the patient's \"lower tooth growing inside\"). #37 partially erupted and mesially impacted. #47 more erupted than #37, with more crown visible, and also mesially impacted. All four third molars present and unerupted.\nArches. Both ovoid. Mild upper crowding with proclined upper incisors. Moderate lower crowding.\nOPG. #37 mesially angulated about 40–60° to #36, mesial marginal ridge locked under the distal bulge of #36 at CEJ level, roots two-thirds to almost complete with open apices; #38 developing (crown formed, roots starting) distal to the #37 roots, normal eruption direction. #47 mesially angulated about 30–40° to #46, locked in the same way at CEJ level, roots two-thirds to almost complete with open apices, and sitting more superiorly than #37; #48 developing like #38. #17 partially erupted, not impacted. #27 erupted. #18 and #28 present and developing.\nAnterior maxillary occlusal. No abnormal findings (no supernumerary or midline pathology).\nBitewings. #37 and #47 mesially impacted against the first molars. No caries seen on the distal surface of second molars.\nLateral ceph. SNA, SNB, ANB, FMA, MMA, LAFH, lower incisor inclination, L1–APog and lower lip to E-line within normal limits: Class I skeletal base, normodivergent, normal LAFH. Wits increased, upper incisor inclination increased, interincisal angle decreased.\nExpert panel view of Case 1 (tutor background)\nPrognosis: good for both second molars; #47 slightly better because it sits higher and shows more crown for bonding. All three experts agreed.\nKeep both second molars. No expert recommended extracting a second molar. At 13 the third molars' final morphology is unpredictable, so they are not a reliable replacement.\nSpace: the orthodontists favoured premolar extractions, so the first molars can be mesialised and the second molars uprighted. Expert 2 suggested upper first premolars, #44 and #35.\nThird molars: remove them if the second molars must be distalised and the third molars are in the way (Expert 1). The oral surgeon preferred removing the third molars over the second molars because of unpredictable third molar morphology.\nMechanics: bond a tube where possible; piggyback with open coil or an uprighting spring or lever arm; favour root mesialisation over crown distalisation where the third molars are close.\nWhere the experts differed: the oral surgeon thought the case could be managed non-extraction with third molar removal and distalisation. The orthodontists preferred extractions given the crowding and overjet.",
   "correctionProbes": 1,
   "records": {
@@ -52,7 +66,7 @@
         {
           "id": "sm1-1.4",
           "text": "Checks the impaction sites for food trapping, caries and how well she can keep them clean, and uses this to judge urgency.",
-          "revealText": "A partially erupted, impacted molar traps food. However, there is no caries seen on the first molar and seems to be able to keep the area clean, so nothing is forcing urgent treatment."
+          "revealText": "A partially erupted, impacted molar traps food. However, there is no caries seen on the distal surfaces of the second molars and she seems to be able to keep the area clean, so nothing is forcing urgent treatment."
         },
         {
           "id": "sm1-1.5",
@@ -345,7 +359,7 @@
       "tutorGuidance": [
         "Require one justified plan covering both arches. A second plan is a bonus.",
         "The orthodontic experts favoured an extraction plan: upper first premolars plus lower premolar extractions, with #44 or #45 on the right and #34 or #35 on the left, using first molar mesialisation to help uprighting. Accept other premolar choices when the student justifies them.",
-        "A non-extraction plan with third molar removal and distalisation was suggested by the oral surgeon. Accept it only if the student explains how the moderate lower crowding and the overjet will be corrected; probe this, since the orthodontists did not favour it.",
+        "Extraction is the expected main plan. A non-extraction plan with third molar removal and distalisation, suggested by the oral surgeon, is acceptable only as a second option. If the student proposes it as their main plan, ask how they would correct the moderate lower crowding and the overjet, and guide them back to an extraction plan, since the orthodontists did not favour it.",
         "Do not accept extraction of either second molar as the preferred option without challenge. Ask the student to weigh third molar unpredictability at age 13 against keeping a sound second molar and the long term monitoring required.",
         "Accept either keeping or removing the lower third molars when the reasoning ties to the mechanics (root mesialisation vs crown distalisation) and the space available.",
         "Carry forward the Phase 2 findings without adding new ones. No 3D imaging is available for this case.",
@@ -426,7 +440,7 @@
     }
   ],
   "authoringNotes": [
-    "Source: the clinical lead's 'Molars_Case_1_tutor_script (9Nov26).docx' (Case 1: Impacted second molars), pinned by scriptDocumentSha256. Wording is copied verbatim except where listed here.",
+    "Source: the clinical lead's 'Molars_Case_1_tutor_script (9Nov26).docx' (Case 1: Impacted second molars), pinned by scriptDocumentSha256. Wording is copied verbatim except where listed here. The clinician-approved differences from the script are listed in approvedScriptDifferences.",
     "expertNotes holds the script's 'Case summary for the tutor' and 'Expert panel view of Case 1' sections word for word. They are appended to the Description document's summary as hidden tutor-only notes and are never shown to students.",
     "Added for the pipeline: criterion ids sm1-<number>, accepted-extra ids, the finding title 'Clinical finding', and a 'tutor only, never show to students' label on each Expert basis line. Items over the app's 500-character limit per tutorGuidance item are split at sentence or line breaks into numbered parts, words unchanged.",
     "The script's Part 3 rules on unavailable investigations, not giving answers on request, and describing the end position before mechanics are carried into tutorGuidance word for word."
