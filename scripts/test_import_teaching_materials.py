@@ -1,6 +1,8 @@
 """Synthetic-only regression tests for the local source importer."""
 import importlib.util
 import io
+import json
+import sys
 from pathlib import Path
 import tempfile
 import unittest
@@ -106,6 +108,25 @@ class ImportTests(unittest.TestCase):
                 z.writestr('__MACOSX/._source.pdf', b'ignored')
                 z.writestr('folder/source.pdf', b'content')
             self.assertEqual(module.entries(archive, {'.pdf'}), {'folder/source.pdf': b'content'})
+
+
+    def test_series_without_articles_sets_title_and_objectives(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from test_canine_output_unchanged import write_synthetic_zips
+        with tempfile.TemporaryDirectory() as directory:
+            cases, articles = write_synthetic_zips(Path(directory))
+            molar = Path(directory) / 'molar'
+            module.build(cases, None, molar, 'Second molars')
+            manifest = json.loads((molar / 'manifest.json').read_text(encoding='utf-8'))
+            self.assertEqual(manifest['articles'], [])
+            self.assertEqual([c['case']['title'] for c in manifest['cases']], ['Case 1 - Second molars', 'Case 2 - Second molars'])
+            self.assertTrue(all(c['case']['learningObjectives'] == module.SERIES['Second molars'] for c in manifest['cases']))
+            canine = Path(directory) / 'canine'
+            module.build(cases, articles, canine)
+            canine_ids = {c['case']['id'] for c in json.loads((canine / 'manifest.json').read_text(encoding='utf-8'))['cases']}
+            self.assertFalse(canine_ids & {c['case']['id'] for c in manifest['cases']})
+            with self.assertRaises(ValueError):
+                module.build(cases, None, Path(directory) / 'bad', 'Unknown series')
 
 
 if __name__ == '__main__':
