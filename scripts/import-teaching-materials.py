@@ -27,6 +27,20 @@ from draft_clinical_content import build_clinical_review, build_draft_phases, bu
 logging.getLogger('pdfminer').setLevel(logging.ERROR)
 NAMESPACE = uuid.UUID('4c8740eb-bbc0-4198-8bc7-c35b5ba42e0c')
 MAX_ARCHIVE_BYTES = 250 * 1024 * 1024
+DEFAULT_SERIES = 'Canine assessment'
+# Each series names its cases and supplies the learner-facing objectives.
+SERIES = {
+    DEFAULT_SERIES: [
+        'Describe and localise findings using the supplied records.',
+        'Assess adjacent root risk and justify a provisional plan.',
+        'Evaluate published evidence with its limitations.',
+    ],
+    'Second molars': [
+        'Describe the impacted second molars and the wider malocclusion from the supplied records.',
+        'Judge the prognosis of each impacted second molar and build a prioritised problem list.',
+        'Justify a treatment plan for both arches and the checkpoints that would change it.',
+    ],
+}
 
 
 def identity(value):
@@ -73,17 +87,24 @@ def phases(case_id):
     return build_draft_phases(case_id, identity)
 
 
-def build(cases_zip, articles_zip, output):
+def build(cases_zip, articles_zip, output, series=DEFAULT_SERIES):
     output = output.resolve()
     # Private source material must never become a Next.js public asset.
     repo = Path(__file__).resolve().parents[1]
     if output == repo or repo / 'public' == output or repo / 'public' in output.parents:
         raise ValueError('Choose a private output directory, e.g. work/teaching-materials')
+    if series not in SERIES:
+        raise ValueError(f'Unknown series; choose one of: {", ".join(sorted(SERIES))}')
     case_files = entries(cases_zip, {'.docx', '.png', '.jpg', '.jpeg'})
-    article_files = entries(articles_zip, {'.pdf'})
-    if not case_files or not article_files:
+    # Reference articles are optional. Without them the tutor still gets the
+    # case summary and any expert interview added later.
+    article_files = entries(articles_zip, {'.pdf'}) if articles_zip is not None else {}
+    if not case_files or (articles_zip is not None and not article_files):
         raise ValueError('Both archives must contain the expected documents')
-    package_id = digest(Path(cases_zip).read_bytes() + Path(articles_zip).read_bytes())
+    source_bytes_for_id = Path(cases_zip).read_bytes() + (Path(articles_zip).read_bytes() if articles_zip is not None else b'')
+    # The series is part of a non-canine package identity so the same records
+    # imported under another series never share case IDs.
+    package_id = digest(source_bytes_for_id if series == DEFAULT_SERIES else source_bytes_for_id + b'\0series:' + series.encode('utf-8'))
     cases, media, articles = [], [], []
     source_bytes = 0
     converted_bytes = 0
@@ -122,15 +143,11 @@ def build(cases_zip, articles_zip, output):
                 url=f'/api/materials/{media_id}', sourceLabel=f'Provided teaching records - {label}'))
         if not attachments or not any('(OPG)' in a['title'] for a in attachments):
             raise ValueError('Every case must include its own OPG')
-        clinical_case = dict(id=case_id, title=f'{label} - Canine assessment', description=description,
+        clinical_case = dict(id=case_id, title=f'{label} - {series}', description=description,
             # The local pack loader intentionally exposes imported cases as
             # available for private testing, but the source manifest remains a
             # draft and is accompanied by an explicit clinician-review sidecar.
-            difficulty='advanced', status='draft', learningObjectives=[
-                'Describe and localise findings using the supplied records.',
-                'Assess adjacent root risk and justify a provisional plan.',
-                'Evaluate published evidence with its limitations.',
-            ], phases=phases(case_id), sourceCaseId=None, version=1, publishedAt=None,
+            difficulty='advanced', status='draft', learningObjectives=list(SERIES[series]), phases=phases(case_id), sourceCaseId=None, version=1, publishedAt=None,
             attachments=attachments, isTestFixture=False)
         cases.append(dict(case=clinical_case, expertNotes=background, sourceDocument=PurePosixPath(name).name))
     if not cases:
@@ -182,7 +199,9 @@ def build(cases_zip, articles_zip, output):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cases', type=Path, required=True)
-    parser.add_argument('--articles', type=Path, required=True)
+    parser.add_argument('--articles', type=Path, help='Optional ZIP of reference PDFs')
+    parser.add_argument('--series', default=DEFAULT_SERIES, choices=sorted(SERIES),
+                        help='Case series: sets the title suffix and learning objectives')
     parser.add_argument('--output', type=Path, default=Path('work/teaching-materials'))
     args = parser.parse_args()
-    build(args.cases, args.articles, args.output)
+    build(args.cases, args.articles, args.output, args.series)

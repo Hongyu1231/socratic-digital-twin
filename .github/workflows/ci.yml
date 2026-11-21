@@ -44,6 +44,10 @@ jobs:
         run: python scripts/test_prepare_clinical_review.py
       - name: Test Case 1 clinical-feedback content contract
         run: python scripts/test_case1_clinical_feedback.py
+      - name: Test case content files and the 60-word Help cap
+        run: python scripts/test_case_content.py
+      - name: Test canine import and review output are unchanged
+        run: python scripts/test_canine_output_unchanged.py
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
