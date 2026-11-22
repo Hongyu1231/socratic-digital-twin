@@ -1,7 +1,10 @@
 {
   "formatVersion": 1,
   "id": "second-molars-case-1",
-  "newLineage": true,
+  "revisionOf": {
+    "caseId": "6fc7718f-0093-51c9-adc1-b78a5e7580bb",
+    "version": 1
+  },
   "title": "Second molars: Case 1",
   "sourceDocument": "Description of Case 1.docx",
   "sourceDocumentSha256": "d9033e6645420d0d0017509ed16377af50633cabc8caa85bdb8b99b5d61d3a0a",
@@ -19,6 +22,85 @@
       "oldText": "A non-extraction plan with third molar removal and distalisation was suggested by the oral surgeon. Accept it only if the student explains how the moderate lower crowding and the overjet will be corrected; probe this, since the orthodontists did not favour it.",
       "newText": "Extraction is the expected main plan. A non-extraction plan with third molar removal and distalisation, suggested by the oral surgeon, is acceptable only as a second option. If the student proposes it as their main plan, ask how they would correct the moderate lower crowding and the overjet, and guide them back to an extraction plan, since the orthodontists did not favour it.",
       "source": "Dr Carla Andreina, email of 21 Nov 2026"
+    },
+    {
+      "location": "/phases/0/rubric/1/text",
+      "oldText": "Links the \"lower tooth growing inside\" to the retained #83 with #43 erupted lingually.",
+      "newText": "Links the \"lower tooth growing inside\" to #43 erupted lingually. The retained #83 is not required.",
+      "source": "Dr Carla Andreina, WhatsApp of 22 Nov 2026"
+    },
+    {
+      "location": "/phases/0/tutorGuidance/1",
+      "oldText": "Before discussing prognosis or treatment, the student should record the retained #83 with lingual #43, both impacted second molars, and at least two occlusal findings.",
+      "newText": "Before age or growth, the student should talk about the impacted second molars first. If they don't get there, ask: \"What other findings can you see in the posterior area?\" Before discussing prognosis or treatment, the student should record the lingual #43, both impacted second molars, and at least two occlusal findings.",
+      "source": "Dr Carla Andreina, WhatsApp of 22 Nov 2026"
+    },
+    {
+      "location": "/phases/0/exampleQuestions/5",
+      "newText": "How does growth link to your decision on whether this is a true impaction or late eruption?",
+      "source": "Dr Carla Andreina, WhatsApp of 22 Nov 2026"
+    },
+    {
+      "location": "/phases/1/rubric/0/text",
+      "oldText": "Describes the angulation of each molar, classifies it as mesioangular (not horizontal or vertical), and identifies #37 as the more tipped.",
+      "newText": "Describes the angulation of each molar and identifies #37 as the more tipped. Accept mesially impacted, mesially angulated, impacted second molar, impacted lower molar, mesioangular or nearly horizontal.",
+      "source": "Dr Carla Andreina, WhatsApp of 22 Nov 2026"
+    },
+    {
+      "location": "/phases/1/tutorGuidance/2",
+      "oldText": "Accept mesioangular. Do not accept horizontal or vertical.",
+      "newText": "Accept any of these descriptions: mesially impacted, mesially angulated, impacted second molar, impacted lower molar, mesioangular or nearly horizontal. Do not probe for an exact term.",
+      "source": "Dr Carla Andreina, WhatsApp of 22 Nov 2026"
+    },
+    {
+      "location": "/phases/1/exampleQuestions/1",
+      "oldText": "Is this impaction mesioangular, horizontal or vertical? Why does that matter?",
+      "newText": "Can you describe more about the impaction and its surroundings, for example the marginal ridge lock, the CEJ level, root development and the wisdom tooth?",
+      "source": "Dr Carla Andreina, WhatsApp of 22 Nov 2026"
+    },
+    {
+      "location": "/phases/1/rubric/2/text",
+      "oldText": "Records root development (about two-thirds to almost complete, apices open) and considers root shape and root position.",
+      "newText": "Records root development (about two-thirds to almost complete, apices open) and relates the open apices to her age, growth and eruption potential.",
+      "source": "Dr Carla Andreina, WhatsApp of 22 Nov 2026"
+    },
+    {
+      "location": "/phases/1/rubric/2/revealText",
+      "oldText": "Both roots are two-thirds to almost formed with open ends. There is higher risk to mobility and root resorption for root shape that is short or conical, and root position that is located far distally.",
+      "newText": "Both roots are two-thirds to almost formed with open ends, which fits her age and growth and means they still have eruption potential.",
+      "source": "Dr Carla Andreina, WhatsApp of 22 Nov 2026"
+    },
+    {
+      "location": "/phases/3/rubric/0/text",
+      "oldText": "Identifies the dental Class II div 1 presentation: increased OJ, increased OB, proclined upper incisors, reduced interincisal angle.",
+      "newText": "Identifies the increased overjet and increased overbite. Exact measurements, the full Class II div 1 description and the interincisal angle are not required.",
+      "source": "Dr Carla Andreina, WhatsApp of 22 Nov 2026"
+    },
+    {
+      "location": "/phases/5/tutorGuidance/1",
+      "oldText": "Visualising the end point and working backwards to the mechanics is the skill the experts found hardest to teach. Prompt the student to describe final tooth positions before mechanics.",
+      "source": "Dr Carla Andreina, WhatsApp of 22 Nov 2026"
+    },
+    {
+      "location": "/phases/5/tutorGuidance/7",
+      "oldText": "Ask the student to describe the end position of the teeth before discussing mechanics.",
+      "source": "Dr Carla Andreina, WhatsApp of 22 Nov 2026"
+    },
+    {
+      "location": "/phases/5/exampleQuestions/0",
+      "oldText": "Where will each lower molar end up at the end of treatment?",
+      "source": "Dr Carla Andreina, WhatsApp of 22 Nov 2026"
+    },
+    {
+      "location": "/phases/5/rubric/0/revealText",
+      "oldText": "At the end, both second molars should be upright in occlusion behind first molars that have moved forward, the overjet reduced, and #43 aligned.",
+      "source": "Dr Carla Andreina, WhatsApp of 22 Nov 2026"
+    },
+    {
+      "location": "/phases/5/rubric/0/text",
+      "oldText": "Describes the end point and works backwards from it: where each molar, premolar and canine ends up, and the movements needed to get there.",
+      "movedTo": "/phases/5/acceptedExtras/3/text",
+      "source": "Dr Carla Andreina, WhatsApp of 22 Nov 2026"
     }
   ],
   "expertNotes": "Case summary for the tutor (not shown to the student)\nThis 13-year-old Chinese female has no relevant medical or dental history and no known drug allergies. Caries and periodontal disease are controlled.\nSkeletal. Class II div 1 malocclusion on an average-angle Class I skeletal base.\nOcclusion. Incisors Class II div 1, increased OJ 5 mm, increased OB 50%. Canines right ¼ unit Class III, left ¼ unit Class II. Molars right ½ unit Class III, left ¼ unit Class III. Crossbite #12/#83. Scissors bite at #14 and #27. No CR–MI slide (aka functional shift). Upper midline deviated 1 mm right, lower midline deviated 2 mm right of the facial midline.\nTeeth. Upper #17–#27 present; #17 partially erupted and #27 erupted, both erupting buccally. Lower #37–#47 present. Retained #83 with #43 erupted lingually (the patient's \"lower tooth growing inside\"). #37 partially erupted and mesially impacted. #47 more erupted than #37, with more crown visible, and also mesially impacted. All four third molars present and unerupted.\nArches. Both ovoid. Mild upper crowding with proclined upper incisors. Moderate lower crowding.\nOPG. #37 mesially angulated about 40–60° to #36, mesial marginal ridge locked under the distal bulge of #36 at CEJ level, roots two-thirds to almost complete with open apices; #38 developing (crown formed, roots starting) distal to the #37 roots, normal eruption direction. #47 mesially angulated about 30–40° to #46, locked in the same way at CEJ level, roots two-thirds to almost complete with open apices, and sitting more superiorly than #37; #48 developing like #38. #17 partially erupted, not impacted. #27 erupted. #18 and #28 present and developing.\nAnterior maxillary occlusal. No abnormal findings (no supernumerary or midline pathology).\nBitewings. #37 and #47 mesially impacted against the first molars. No caries seen on the distal surface of second molars.\nLateral ceph. SNA, SNB, ANB, FMA, MMA, LAFH, lower incisor inclination, L1–APog and lower lip to E-line within normal limits: Class I skeletal base, normodivergent, normal LAFH. Wits increased, upper incisor inclination increased, interincisal angle decreased.\nExpert panel view of Case 1 (tutor background)\nPrognosis: good for both second molars; #47 slightly better because it sits higher and shows more crown for bonding. All three experts agreed.\nKeep both second molars. No expert recommended extracting a second molar. At 13 the third molars' final morphology is unpredictable, so they are not a reliable replacement.\nSpace: the orthodontists favoured premolar extractions, so the first molars can be mesialised and the second molars uprighted. Expert 2 suggested upper first premolars, #44 and #35.\nThird molars: remove them if the second molars must be distalised and the third molars are in the way (Expert 1). The oral surgeon preferred removing the third molars over the second molars because of unpredictable third molar morphology.\nMechanics: bond a tube where possible; piggyback with open coil or an uprighting spring or lever arm; favour root mesialisation over crown distalisation where the third molars are close.\nWhere the experts differed: the oral surgeon thought the case could be managed non-extraction with third molar removal and distalisation. The orthodontists preferred extractions given the crowding and overjet.",
@@ -45,7 +127,8 @@
         "At 13, which teeth would you expect to be fully erupted well into the arch that aren't?",
         "Which second molar shows more crown in the mouth, and why does that matter?",
         "Is there anything about the impaction area that would make you treat it sooner?",
-        "How would you describe her bite? Note some occlusal findings."
+        "How would you describe her bite? Note some occlusal findings.",
+        "How does growth link to your decision on whether this is a true impaction or late eruption?"
       ],
       "rubric": [
         {
@@ -55,7 +138,7 @@
         },
         {
           "id": "sm1-1.2",
-          "text": "Links the \"lower tooth growing inside\" to the retained #83 with #43 erupted lingually.",
+          "text": "Links the \"lower tooth growing inside\" to #43 erupted lingually. The retained #83 is not required.",
           "revealText": "The lower right primary canine #83, is still there, so #43 has erupted lingually. That's the tooth she's noticed."
         },
         {
@@ -99,7 +182,7 @@
       ],
       "tutorGuidance": [
         "Keep the recorded context separate from interpretation: she is 13, 1.5 years post-menarche, with no relevant medical history, and caries and periodontally controlled.",
-        "Before discussing prognosis or treatment, the student should record the retained #83 with lingual #43, both impacted second molars, and at least two occlusal findings.",
+        "Before age or growth, the student should talk about the impacted second molars first. If they don't get there, ask: \"What other findings can you see in the posterior area?\" Before discussing prognosis or treatment, the student should record the lingual #43, both impacted second molars, and at least two occlusal findings.",
         "The case does not record her stated wish for comprehensive treatment, or the interocclusal clearance. If the student asks, accept it as a sensible question; say her complaint about her front teeth suggests she is open to full treatment, and do not invent a measurement.",
         "The OPG is enough to describe angulation and locking; the bitewings add a clearer view of the contacts.",
         "No 3D imaging is available for this case. Never suggest or ask about it. If a student asks for it, say it isn't available and ask what the 2D records show.",
@@ -117,7 +200,7 @@
       "starterQuestion": "How would you describe the impaction of #37 and #47, and what does each record tell you about it and its surroundings?",
       "exampleQuestions": [
         "What do the x-rays show the second molar crowns are caught against?",
-        "Is this impaction mesioangular, horizontal or vertical? Why does that matter?",
+        "Can you describe more about the impaction and its surroundings, for example the marginal ridge lock, the CEJ level, root development and the wisdom tooth?",
         "Which molar sits deeper, and how does that affect treatment?",
         "What do the roots of #37 and #47 tell you about their development?",
         "How do the root shape and position affect the risks?",
@@ -127,7 +210,7 @@
       "rubric": [
         {
           "id": "sm1-2.1",
-          "text": "Describes the angulation of each molar, classifies it as mesioangular (not horizontal or vertical), and identifies #37 as the more tipped.",
+          "text": "Describes the angulation of each molar and identifies #37 as the more tipped. Accept mesially impacted, mesially angulated, impacted second molar, impacted lower molar, mesioangular or nearly horizontal.",
           "revealText": "Both #37 and #47 are impacted with mesial inclination, although #37 has more severe angulation thus impaction. Mesioangular is a more favourable pattern than horizontal."
         },
         {
@@ -137,8 +220,8 @@
         },
         {
           "id": "sm1-2.3",
-          "text": "Records root development (about two-thirds to almost complete, apices open) and considers root shape and root position.",
-          "revealText": "Both roots are two-thirds to almost formed with open ends. There is higher risk to mobility and root resorption for root shape that is short or conical, and root position that is located far distally."
+          "text": "Records root development (about two-thirds to almost complete, apices open) and relates the open apices to her age, growth and eruption potential.",
+          "revealText": "Both roots are two-thirds to almost formed with open ends, which fits her age and growth and means they still have eruption potential."
         },
         {
           "id": "sm1-2.4",
@@ -172,7 +255,7 @@
       "tutorGuidance": [
         "Treat the bitewing and OPG findings in the case summary as the source-backed description. Never claim the model read image pixels.",
         "Keep angulation, vertical depth, root development and shape, third molar position and posterior space as separate descriptors.",
-        "Accept mesioangular. Do not accept horizontal or vertical.",
+        "Accept any of these descriptions: mesially impacted, mesially angulated, impacted second molar, impacted lower molar, mesioangular or nearly horizontal. Do not probe for an exact term.",
         "Root resorption risk cannot be predicted definitively from these records. If asked, the expected answer is to assume it may happen and consent the patient for it.",
         "The case summary does not report caries or resorption on the distal surfaces of #36 and #46. Do not invent findings there. If the student raises it, accept it as a sensible thing to check.",
         "No 3D imaging is available for this case. Do not suggest it. If asked, say it isn't available and redirect to the 2D records.",
@@ -263,7 +346,7 @@
       "rubric": [
         {
           "id": "sm1-4.1",
-          "text": "Identifies the dental Class II div 1 presentation: increased OJ, increased OB, proclined upper incisors, reduced interincisal angle.",
+          "text": "Identifies the increased overjet and increased overbite. Exact measurements, the full Class II div 1 description and the interincisal angle are not required.",
           "revealText": "The upper incisors are proclined, with increased overjet at 5 mm and increased overbite at 50%."
         },
         {
@@ -377,17 +460,11 @@
       "goal": "Picture where treatment should end up, work back from that end point, and name the challenges you expect and what would make you change course.",
       "starterQuestion": "Picture the end of treatment under your plan. What challenges do you anticipate getting there?",
       "exampleQuestions": [
-        "Where will each lower molar end up at the end of treatment?",
         "Working back from that end point, is there anything you'd change?",
         "What would you do if the molar isn't responding?",
         "How would you explain the risks of uprighting to her?"
       ],
       "rubric": [
-        {
-          "id": "sm1-6.1",
-          "text": "Describes the end point and works backwards from it: where each molar, premolar and canine ends up, and the movements needed to get there.",
-          "revealText": "At the end, both second molars should be upright in occlusion behind first molars that have moved forward, the overjet reduced, and #43 aligned."
-        },
         {
           "id": "sm1-6.2",
           "text": "States a reassessment checkpoint for each second molar and what triggers the fallback.",
@@ -416,17 +493,19 @@
         {
           "id": "sm1-p6-extra-3",
           "text": "Mentions treatment duration and cost as factors in her choice."
+        },
+        {
+          "id": "sm1-p6-extra-4",
+          "text": "Describes the end point and works backwards from it: where each molar, premolar and canine ends up, and the movements needed to get there."
         }
       ],
       "tutorGuidance": [
         "Defend an anticipated outcome rather than promising a guaranteed result. Link it to the chosen plan, the evidence and the patient's concerns.",
-        "Visualising the end point and working backwards to the mechanics is the skill the experts found hardest to teach. Prompt the student to describe final tooth positions before mechanics.",
         "Make the uprighting checkpoint and fallback explicit for each second molar.",
         "Carry forward the Phase 2 findings without adding new ones. No 3D imaging is available for this case.",
         "Expert basis (tutor only, never show to students): Expert 2: work backwards from the end point (hardest skill to teach); distal pocket or bony defect and referral to perio; open contact; shared decision-making based on the patient's risk appetite. Expert 1: occlusal trauma from opposing occlusion; interocclusal clearance for molar extrusion; resorption and mobility with conical roots; visualising mechanics. Expert 3: cost and duration (bonus only).",
         "Never suggest or ask about investigations that are not available in the case. If a student requests one, say it isn't available and redirect to the records provided.",
-        "Never give the answer because the student asks for it directly. Prompt, summarise or redirect instead, and wait for the student.",
-        "Ask the student to describe the end position of the teeth before discussing mechanics."
+        "Never give the answer because the student asks for it directly. Prompt, summarise or redirect instead, and wait for the student."
       ],
       "tutorMoves": [
         {
@@ -443,6 +522,7 @@
     "Source: the clinical lead's 'Molars_Case_1_tutor_script (9Nov26).docx' (Case 1: Impacted second molars), pinned by scriptDocumentSha256. Wording is copied verbatim except where listed here. The clinician-approved differences from the script are listed in approvedScriptDifferences.",
     "expertNotes holds the script's 'Case summary for the tutor' and 'Expert panel view of Case 1' sections word for word. They are appended to the Description document's summary as hidden tutor-only notes and are never shown to students.",
     "Added for the pipeline: criterion ids sm1-<number>, accepted-extra ids, the finding title 'Clinical finding', and a 'tutor only, never show to students' label on each Expert basis line. Items over the app's 500-character limit per tutorGuidance item are split at sentence or line breaks into numbered parts, words unchanged.",
-    "The script's Part 3 rules on unavailable investigations, not giving answers on request, and describing the end position before mechanics are carried into tutorGuidance word for word."
+    "The script's Part 3 rules on unavailable investigations and not giving answers on request are carried into tutorGuidance word for word.",
+    "Version 2 revises the published version 1 case (revisionOf) and applies Dr Carla Andreina's changes of 22 Nov 2026, each listed in approvedScriptDifferences. Criterion 6.1 (describing the end point and working backwards) is now a bonus extra, sm1-p6-extra-4, so Phase 6 requires 6.2, 6.3 and 6.4."
   ]
 }

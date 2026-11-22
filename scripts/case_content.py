@@ -9,14 +9,29 @@ may also pin the clinician's tutor script it was transcribed from
 expert notes that are appended to the case's expertNotes. "newLineage": true
 records that the case starts a new, never-published series, so it must be
 built with --new-lineage as a lineage root (version 1, no sourceCaseId).
+"revisionOf": {"caseId": "<uuid>", "version": <int>} records that the case
+revises an already published case, so the build gets that caseId as its
+sourceCaseId and version + 1 as its version. A content file may set
+newLineage or revisionOf, never both.
 
 "approvedScriptDifferences" lists every place where the content knowingly
 departs from the pinned tutor script, each approved by the clinician. Every
-entry names its location as a JSON Pointer into the content file (RFC 6901,
-for example "/phases/0/rubric/3/revealText"), the script's oldText, the
-content's newText and the source of the approval. The validator checks that
-each location holds exactly its newText; scripts/test_case_content.py checks
-that the content matches the script everywhere else.
+entry names a location as a JSON Pointer (RFC 6901, for example
+"/phases/0/rubric/3/revealText") and the source of the approval. Its fields
+give its kind:
+- replaced (location, oldText, newText): the location holds exactly newText,
+  in place of the script's oldText.
+- added (location, newText): the location holds exactly newText, which is not
+  in the script.
+- removed (location, oldText): the script's oldText appears nowhere in the
+  content. The location is where it was in the previous content version, so
+  it is not resolved.
+- moved (location, oldText, movedTo): the script's oldText now sits at the
+  movedTo pointer, which must hold exactly oldText. The location is where it
+  was in the previous content version.
+The validator checks the content side of each entry;
+scripts/test_case_content.py checks each entry against the script and that the
+content matches the script everywhere else.
 """
 
 from __future__ import annotations
@@ -27,6 +42,7 @@ import importlib.util
 import json
 from pathlib import Path
 import re
+import uuid
 from typing import Any, Callable
 
 FORMAT_VERSION = 1
@@ -41,8 +57,16 @@ STRATEGIES = {"probe", "challenge", "clarify", "scaffold", "reflect"}
 
 CONTENT_KEYS = {"formatVersion", "id", "title", "sourceDocument", "sourceDocumentSha256", "correctionProbes",
                 "records", "findings", "phases", "authoringNotes", "scriptDocument", "scriptDocumentSha256",
-                "expertNotes", "newLineage", "approvedScriptDifferences"}
-SCRIPT_DIFFERENCE_KEYS = {"location", "oldText", "newText", "source"}
+                "expertNotes", "newLineage", "revisionOf", "approvedScriptDifferences"}
+# Each approved script difference kind is identified by exactly these fields.
+SCRIPT_DIFFERENCE_KINDS = {
+    frozenset({"location", "oldText", "newText", "source"}): "replaced",
+    frozenset({"location", "newText", "source"}): "added",
+    frozenset({"location", "oldText", "source"}): "removed",
+    frozenset({"location", "oldText", "movedTo", "source"}): "moved",
+}
+# Content fields that are pipeline metadata or difference records, never content wording.
+NON_WORDING_FIELDS = {"approvedScriptDifferences", "authoringNotes"}
 PHASE_KEYS = {"title", "goal", "starterQuestion", "exampleQuestions", "rubric", "acceptedExtras",
               "tutorGuidance", "tutorMoves", "noProgressLimit", "phaseCeiling"}
 
@@ -90,6 +114,10 @@ def validate_content(content: Any) -> dict[str, Any]:
         _script_differences(content)
     if "newLineage" in content and not isinstance(content["newLineage"], bool):
         raise ValueError("Content newLineage must be true or false")
+    if "revisionOf" in content:
+        if "newLineage" in content:
+            raise ValueError("Content cannot set both newLineage and revisionOf")
+        _revision_of(content["revisionOf"])
     if "expertNotes" in content:
         _text(content["expertNotes"], "Content expertNotes", MAX_TUTOR_EXPERT_NOTES)
     if content.get("correctionProbes") not in (1, 2):
@@ -186,30 +214,86 @@ def resolve_pointer(content: Any, pointer: Any) -> Any:
     return value
 
 
+def _revision_of(value: Any) -> None:
+    revision = _keys(value, {"caseId", "version"}, "Content revisionOf")
+    if set(revision) != {"caseId", "version"}:
+        raise ValueError("Content revisionOf needs caseId and version")
+    case_id = revision["caseId"]
+    try:
+        valid = isinstance(case_id, str) and str(uuid.UUID(case_id)) == case_id
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ValueError("Content revisionOf caseId must be a lowercase UUID")
+    version = revision["version"]
+    if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+        raise ValueError("Content revisionOf version must be an integer of at least 1")
+
+
+def script_difference_kind(difference: Any) -> str | None:
+    """Return replaced, added, removed or moved from an entry's fields, or None if they match no kind."""
+
+    return SCRIPT_DIFFERENCE_KINDS.get(frozenset(difference)) if isinstance(difference, dict) else None
+
+
+def _normalise(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _wording(value: Any) -> list[str]:
+    """Every string in the content's wording, leaving out ids and metadata-only fields."""
+
+    if isinstance(value, dict):
+        return [text for key, item in value.items() if key != "id" for text in _wording(item)]
+    if isinstance(value, list):
+        return [text for item in value for text in _wording(item)]
+    return [value] if isinstance(value, str) else []
+
+
+def _pointer_into_content(content: dict[str, Any], pointer: Any, label: str) -> None:
+    if not isinstance(pointer, str) or not pointer.startswith("/"):
+        raise ValueError(f"{label}: {pointer!r} is not a JSON Pointer")
+    if pointer == "/approvedScriptDifferences" or pointer.startswith("/approvedScriptDifferences/"):
+        raise ValueError(f"{label} cannot point at approvedScriptDifferences")
+
+
 def _script_differences(content: dict[str, Any]) -> None:
     if "scriptDocumentSha256" not in content:
         raise ValueError("Content approvedScriptDifferences needs a pinned scriptDocument")
     differences = content["approvedScriptDifferences"]
     if not isinstance(differences, list) or not differences:
         raise ValueError("Content approvedScriptDifferences must be a non-empty list")
+    wording = " \n ".join(_normalise(text) for key, value in content.items()
+                          if key not in NON_WORDING_FIELDS for text in _wording(value))
     locations: set[str] = set()
     for index, difference in enumerate(differences, 1):
         label = f"Approved script difference {index}"
-        if not isinstance(difference, dict) or set(difference) != SCRIPT_DIFFERENCE_KEYS:
-            raise ValueError(f"{label} must have exactly {sorted(SCRIPT_DIFFERENCE_KEYS)}")
+        kind = script_difference_kind(difference)
+        if kind is None:
+            shapes = " or ".join(str(sorted(keys)) for keys in SCRIPT_DIFFERENCE_KINDS)
+            raise ValueError(f"{label} must have exactly {shapes}")
         for key in ("oldText", "newText"):
-            _text(difference[key], f"{label} {key}", MAX_TUTOR_EXPERT_NOTES)
+            if key in difference:
+                _text(difference[key], f"{label} {key}", MAX_TUTOR_EXPERT_NOTES)
         _text(difference["source"], f"{label} source", 500)
         location = difference["location"]
+        _pointer_into_content(content, location, label)
         if location in locations:
             raise ValueError(f"{label} repeats location {location!r}")
         locations.add(location)
-        if location == "/approvedScriptDifferences" or location.startswith("/approvedScriptDifferences/"):
-            raise ValueError(f"{label} cannot point at approvedScriptDifferences")
-        if resolve_pointer(content, location) != difference["newText"]:
-            raise ValueError(f"{label}: the content at {location} is not its newText")
-        if difference["oldText"] == difference["newText"]:
+        if kind in ("replaced", "added"):
+            if resolve_pointer(content, location) != difference["newText"]:
+                raise ValueError(f"{label}: the content at {location} is not its newText")
+        if kind == "replaced" and difference["oldText"] == difference["newText"]:
             raise ValueError(f"{label}: oldText and newText are the same")
+        if kind == "removed" and _normalise(difference["oldText"]) in wording:
+            raise ValueError(f"{label}: removed oldText is still in the content")
+        if kind == "moved":
+            _pointer_into_content(content, difference["movedTo"], label)
+            if difference["movedTo"] == location:
+                raise ValueError(f"{label}: movedTo is the same as location")
+            if resolve_pointer(content, difference["movedTo"]) != difference["oldText"]:
+                raise ValueError(f"{label}: the content at {difference['movedTo']} is not its oldText")
 
 
 def _list(value: Any, label: str, limit: int) -> list[Any]:
@@ -317,4 +401,4 @@ def apply_content(case: dict[str, Any], content: dict[str, Any], id_factory: Cal
 
 
 __all__ = ["apply_content", "build_content_phases", "load_content", "merge_expert_notes", "record_unlock_phase",
-           "resolve_pointer", "validate_content", "verify_script_document", "verify_source_document"]
+           "resolve_pointer", "script_difference_kind", "validate_content", "verify_script_document", "verify_source_document"]

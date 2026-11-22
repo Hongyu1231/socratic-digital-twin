@@ -39,8 +39,10 @@ TUTOR_EXPERT_NOTES_LIMIT = 6000  # lib/materials/retrieval.ts slices expertNotes
 MOLAR_CASE1_SCRIPT_EXTRACT = REPO / "content" / "second-molars" / "case-1.script-9nov.txt"
 MOLAR_CASE1_SCRIPT_DIR = Path.home() / "socratic-molar-source" / "2026-11-09"
 CARLA_21_NOV = "Dr Carla Andreina, email of 21 Nov 2026"
+CARLA_22_NOV = "Dr Carla Andreina, WhatsApp of 22 Nov 2026"
+MOLAR_CASE1_V1_ID = "6fc7718f-0093-51c9-adc1-b78a5e7580bb"  # the published version 1 lineage root
 # Content fields that are pipeline metadata, not script wording.
-NON_SCRIPT_FIELDS = {"formatVersion", "id", "newLineage", "title", "sourceDocument", "sourceDocumentSha256",
+NON_SCRIPT_FIELDS = {"formatVersion", "id", "newLineage", "revisionOf", "title", "sourceDocument", "sourceDocumentSha256",
                      "scriptDocument", "scriptDocumentSha256", "correctionProbes", "records",
                      "authoringNotes", "approvedScriptDifferences"}
 EXPERT_BASIS_LABEL = re.compile(r"^Expert basis \(tutor only, never show to students\)(?:, part (\d+) of (\d+))?: ")
@@ -142,8 +144,9 @@ class MolarCase1ContentTests(unittest.TestCase):
         self.assertEqual(self.content["records"], {"defaultUnlockPhase": 1, "overrides": []})
         self.assertEqual([finding["unlockPhase"] for finding in self.content["findings"]], [1])
         self.assertEqual(self.content["correctionProbes"], 1)
-        # Never published: the first published version must be a lineage root.
-        self.assertIs(self.content["newLineage"], True)
+        # Version 2 revises the published version 1 lineage root.
+        self.assertEqual(self.content["revisionOf"], {"caseId": MOLAR_CASE1_V1_ID, "version": 1})
+        self.assertNotIn("newLineage", self.content)
 
     def test_all_ids_are_prefixed(self):
         for phase in self.content["phases"]:
@@ -155,7 +158,8 @@ class MolarCase1ContentTests(unittest.TestCase):
             guidance = " ".join(phase["tutorGuidance"])
             self.assertIn(RULE_INVESTIGATIONS, guidance)
             self.assertIn(RULE_NO_ANSWER, guidance)
-            self.assertEqual(RULE_END_POSITION in guidance, order == 6)
+            # Removed from Phase 6 by Dr Carla on 22 Nov; it was never in another phase.
+            self.assertNotIn(RULE_END_POSITION, guidance)
             self.assertTrue(any(item.startswith("Expert basis (tutor only, never show to students)")
                                 for item in phase["tutorGuidance"]))
 
@@ -170,15 +174,39 @@ class MolarCase1ContentTests(unittest.TestCase):
         self.assertIn("retained #83,", phases[3]["rubric"][2]["revealText"])
         self.assertNotIn("#84", json.dumps(phases))
 
-    def test_records_exactly_the_two_approved_script_differences(self):
+    def test_records_exactly_the_approved_script_differences(self):
         differences = self.content["approvedScriptDifferences"]
-        self.assertEqual([d["location"] for d in differences],
-                         ["/phases/0/rubric/3/revealText", "/phases/4/tutorGuidance/2"])
-        self.assertEqual({d["source"] for d in differences}, {CARLA_21_NOV})
+        self.assertEqual([(d["location"], case_content.script_difference_kind(d)) for d in differences], [
+            ("/phases/0/rubric/3/revealText", "replaced"),
+            ("/phases/4/tutorGuidance/2", "replaced"),
+            ("/phases/0/rubric/1/text", "replaced"),
+            ("/phases/0/tutorGuidance/1", "replaced"),
+            ("/phases/0/exampleQuestions/5", "added"),
+            ("/phases/1/rubric/0/text", "replaced"),
+            ("/phases/1/tutorGuidance/2", "replaced"),
+            ("/phases/1/exampleQuestions/1", "replaced"),
+            ("/phases/1/rubric/2/text", "replaced"),
+            ("/phases/1/rubric/2/revealText", "replaced"),
+            ("/phases/3/rubric/0/text", "replaced"),
+            ("/phases/5/tutorGuidance/1", "removed"),
+            ("/phases/5/tutorGuidance/7", "removed"),
+            ("/phases/5/exampleQuestions/0", "removed"),
+            ("/phases/5/rubric/0/revealText", "removed"),
+            ("/phases/5/rubric/0/text", "moved"),
+        ])
+        self.assertEqual([d["source"] for d in differences], [CARLA_21_NOV] * 2 + [CARLA_22_NOV] * 14)
         self.assertEqual(self.content["phases"][0]["rubric"][3]["id"], "sm1-1.4")
         self.assertIn("no caries seen on the distal surfaces of the second molars", differences[0]["newText"])
         self.assertTrue(differences[1]["newText"].startswith("Extraction is the expected main plan."))
         self.assertNotIn("first molar", self.content["phases"][0]["rubric"][3]["revealText"])
+
+    def test_criterion_6_1_is_now_a_bonus_extra(self):
+        phase6 = self.content["phases"][5]
+        self.assertEqual([c["id"] for c in phase6["rubric"]], ["sm1-6.2", "sm1-6.3", "sm1-6.4"])
+        extra = phase6["acceptedExtras"][-1]
+        self.assertEqual(extra["id"], "sm1-p6-extra-4")
+        self.assertEqual(set(extra), {"id", "text"})
+        self.assertTrue(extra["text"].startswith("Describes the end point and works backwards from it"))
 
     def test_expert_notes_have_both_sections_and_fit_the_tutor_limit(self):
         notes = self.content["expertNotes"]
@@ -228,6 +256,94 @@ class ApprovedScriptDifferenceValidationTests(unittest.TestCase):
         del self.content["scriptDocument"], self.content["scriptDocumentSha256"]
         self.assert_refused("pinned scriptDocument")
 
+    def entry(self, kind):
+        return next(d for d in self.content["approvedScriptDifferences"]
+                    if case_content.script_difference_kind(d) == kind)
+
+    def test_each_kind_is_found_from_its_fields(self):
+        for kind in ("replaced", "added", "removed", "moved"):
+            self.assertEqual(case_content.script_difference_kind(self.entry(kind)), kind)
+        self.assertIsNone(case_content.script_difference_kind({"location": "/title", "source": "x"}))
+        self.assertIsNone(case_content.script_difference_kind(
+            {"location": "/title", "oldText": "a", "newText": "b", "movedTo": "/title", "source": "x"}))
+
+    def test_an_entry_with_mixed_fields_is_refused(self):
+        self.entry("moved")["newText"] = "x"
+        self.assert_refused("must have exactly")
+
+    def test_added_location_must_hold_the_new_text(self):
+        self.content["phases"][0]["exampleQuestions"][5] = "A different question?"
+        self.assert_refused("is not its newText")
+
+    def test_added_location_must_resolve(self):
+        self.content["phases"][0]["exampleQuestions"].pop()
+        self.assert_refused("does not point into the content file")
+
+    def test_removed_text_must_be_gone_from_the_content(self):
+        self.content["phases"][5]["tutorGuidance"].append(self.entry("removed")["oldText"])
+        self.assert_refused("removed oldText is still in the content")
+
+    def test_removed_text_is_found_inside_a_longer_string_and_across_whitespace(self):
+        old = self.entry("removed")["oldText"]
+        self.content["expertNotes"] += "\n" + old.replace(" ", "\n  ", 1)
+        self.assert_refused("removed oldText is still in the content")
+
+    def test_removed_location_need_not_resolve(self):
+        self.assertEqual(self.entry("removed")["location"], "/phases/5/tutorGuidance/1")
+        self.content["approvedScriptDifferences"][12]["location"] = "/phases/5/tutorGuidance/99"
+        case_content.validate_content(self.content)
+
+    def test_locations_must_be_pointers(self):
+        self.entry("removed")["location"] = "phases/5/tutorGuidance/1"
+        self.assert_refused("is not a JSON Pointer")
+
+    def test_moved_to_must_hold_the_old_text(self):
+        self.content["phases"][5]["acceptedExtras"][3]["text"] += " Changed."
+        self.assert_refused("is not its oldText")
+
+    def test_moved_to_must_resolve_and_differ_from_location(self):
+        moved = self.entry("moved")
+        moved["movedTo"] = "/phases/5/acceptedExtras/9/text"
+        self.assert_refused("does not point into the content file")
+        moved["movedTo"] = moved["location"]
+        self.assert_refused("movedTo is the same as location")
+
+    def test_moved_to_cannot_point_at_the_differences(self):
+        self.entry("moved")["movedTo"] = "/approvedScriptDifferences/0/oldText"
+        self.assert_refused("cannot point at approvedScriptDifferences")
+
+
+class RevisionOfValidationTests(unittest.TestCase):
+    def setUp(self):
+        self.content = copy.deepcopy(case_content.load_content(MOLAR_CASE1))
+
+    def assert_refused(self, message):
+        with self.assertRaisesRegex(ValueError, message):
+            case_content.validate_content(self.content)
+
+    def test_cannot_be_combined_with_new_lineage(self):
+        for value in (True, False):
+            self.content["newLineage"] = value
+            self.assert_refused("both newLineage and revisionOf")
+
+    def test_case_id_must_be_a_lowercase_uuid(self):
+        for value in ("not-a-uuid", MOLAR_CASE1_V1_ID.upper(), MOLAR_CASE1_V1_ID.replace("-", ""), 7, None):
+            self.content["revisionOf"]["caseId"] = value
+            self.assert_refused("caseId must be a lowercase UUID")
+
+    def test_version_must_be_an_integer_of_at_least_1(self):
+        for value in (0, -1, 1.0, "1", True, None):
+            self.content["revisionOf"]["version"] = value
+            self.assert_refused("version must be an integer of at least 1")
+
+    def test_needs_exactly_case_id_and_version(self):
+        del self.content["revisionOf"]["version"]
+        self.assert_refused("needs caseId and version")
+        self.content["revisionOf"].update(version=1, extra=1)
+        self.assert_refused("unknown fields")
+        self.content["revisionOf"] = MOLAR_CASE1_V1_ID
+        self.assert_refused("must be an object")
+
 
 class MolarCase1ScriptFidelityTests(unittest.TestCase):
     """The content matches the pinned 9 Nov tutor script word for word, except at the approved differences."""
@@ -254,16 +370,78 @@ class MolarCase1ScriptFidelityTests(unittest.TestCase):
     def test_no_docx_is_committed_beside_the_content(self):
         self.assertEqual(list((REPO / "content").glob("**/*.docx")), [])
 
-    def test_content_differs_from_the_script_only_where_recorded(self):
-        approved = {d["location"]: d for d in self.content["approvedScriptDifferences"]}
-        texts = script_texts(self.content)
+    def by_kind(self, content=None):
+        kinds = {"replaced": {}, "added": {}, "removed": {}, "moved": {}}
+        for difference in (content or self.content)["approvedScriptDifferences"]:
+            kinds[case_content.script_difference_kind(difference)][difference["location"]] = difference
+        return kinds
+
+    def check_against_script(self, content):
+        kinds = self.by_kind(content)
+        texts = script_texts(content)
+        # Replaced and added entries hold their newText in the content; removed and moved
+        # entries name where the text was in the previous version, so they are not content.
+        approved = {**kinds["replaced"], **kinds["added"]}
         self.assertLessEqual(set(approved), set(texts), "an approved difference points outside the script wording")
         unrecorded = [pointer for pointer, text in texts.items()
                       if pointer not in approved and normalise(text) not in self.script]
         self.assertEqual(unrecorded, [], "content differs from the 9 Nov script without an approvedScriptDifferences entry")
         for pointer, difference in approved.items():
-            self.assertIn(normalise(difference["oldText"]), self.script, f"{pointer} oldText is not the script's wording")
             self.assertNotIn(normalise(difference["newText"]), self.script, f"{pointer} is not a difference from the script")
+        for pointer, difference in {**kinds["replaced"], **kinds["removed"], **kinds["moved"]}.items():
+            self.assertIn(normalise(difference["oldText"]), self.script, f"{pointer} oldText is not the script's wording")
+        content_texts = [normalise(text) for text in texts.values()]
+        for pointer, difference in kinds["removed"].items():
+            self.assertFalse(any(normalise(difference["oldText"]) in text for text in content_texts),
+                             f"{pointer} is recorded as removed but is still in the content")
+        for pointer, difference in kinds["moved"].items():
+            self.assertEqual(texts.get(difference["movedTo"]), difference["oldText"], f"{pointer} movedTo does not hold it")
+
+    def test_content_differs_from_the_script_only_where_recorded(self):
+        self.check_against_script(self.content)
+        self.assertEqual({kind: len(entries) for kind, entries in self.by_kind().items()},
+                         {"replaced": 10, "added": 1, "removed": 4, "moved": 1})
+
+    def assert_caught(self, content):
+        with self.assertRaises(AssertionError):
+            self.check_against_script(content)
+
+    def test_a_wrong_replaced_entry_is_caught(self):
+        content = copy.deepcopy(self.content)
+        self.by_kind(content)["replaced"]["/phases/1/tutorGuidance/2"]["oldText"] = "Words that are not in the script."
+        self.assert_caught(content)
+
+    def test_a_wrong_added_entry_is_caught(self):
+        content = copy.deepcopy(self.content)
+        # Recording script wording as "added" is not a difference from the script.
+        script_question = content["phases"][0]["exampleQuestions"][0]
+        content["phases"][0]["exampleQuestions"][5] = script_question
+        self.by_kind(content)["added"]["/phases/0/exampleQuestions/5"]["newText"] = script_question
+        self.assert_caught(content)
+
+    def test_a_wrong_removed_entry_is_caught(self):
+        content = copy.deepcopy(self.content)
+        self.by_kind(content)["removed"]["/phases/5/exampleQuestions/0"]["oldText"] = "A question the script never had?"
+        self.assert_caught(content)
+        content = copy.deepcopy(self.content)
+        # A text recorded as removed that is still in the content.
+        kept = content["phases"][5]["exampleQuestions"][0]
+        self.by_kind(content)["removed"]["/phases/5/exampleQuestions/0"]["oldText"] = kept
+        self.assert_caught(content)
+
+    def test_a_wrong_moved_entry_is_caught(self):
+        content = copy.deepcopy(self.content)
+        moved = self.by_kind(content)["moved"]["/phases/5/rubric/0/text"]
+        moved["oldText"] = content["phases"][5]["acceptedExtras"][3]["text"] = "Text that is not in the script."
+        self.assert_caught(content)
+        content = copy.deepcopy(self.content)
+        self.by_kind(content)["moved"]["/phases/5/rubric/0/text"]["movedTo"] = "/phases/5/acceptedExtras/0/text"
+        self.assert_caught(content)
+
+    def test_an_unrecorded_addition_is_caught(self):
+        content = copy.deepcopy(self.content)
+        content["phases"][0]["exampleQuestions"].append("An unrecorded new question?")
+        self.assert_caught(content)
 
     def test_an_unrecorded_change_is_caught(self):
         content = copy.deepcopy(self.content)
@@ -290,8 +468,9 @@ class ContentGuardTests(unittest.TestCase):
         ]))
         self.content = copy.deepcopy(case_content.load_content(MOLAR_CASE1))
         # The revision-path guards below run without the lineage choice;
-        # the newLineage tests set it explicitly.
+        # the newLineage and revisionOf tests set it explicitly.
         self.content.pop("newLineage", None)
+        self.content.pop("revisionOf", None)
         self.content["sourceDocumentSha256"] = hashlib.sha256(self.docx.read_bytes()).hexdigest()
         self.script = self.base / "tutor script.docx"
         self.script.write_bytes(synthetic_docx(["Synthetic tutor script."]))
@@ -379,6 +558,39 @@ class ContentGuardTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "remove --new-lineage"):
             self.build("c", new_lineage=True)
         self.assertFalse(any((self.base / name).exists() for name in "abc"))
+
+    def built_case(self, name):
+        return json.loads((self.base / name / "manifest.json").read_text(encoding="utf-8"))["cases"][0]["case"]
+
+    def test_content_revision_of_builds_the_next_version_of_that_case(self):
+        source_id = json.loads((self.source / "manifest.json").read_text(encoding="utf-8"))["cases"][0]["case"]["id"]
+        self.build("plain")
+        plain = self.built_case("plain")
+        self.assertEqual((plain["sourceCaseId"], plain["version"]), (source_id, 2))
+        self.write_content(revisionOf={"caseId": MOLAR_CASE1_V1_ID, "version": 1})
+        self.build("v2")
+        revised = self.built_case("v2")
+        self.assertEqual((revised["sourceCaseId"], revised["version"]), (MOLAR_CASE1_V1_ID, 2))
+        self.assertNotEqual(revised["id"], plain["id"])
+        self.assertNotEqual(revised["id"], MOLAR_CASE1_V1_ID)
+        self.assertNotEqual({p["id"] for p in revised["phases"]}, {p["id"] for p in plain["phases"]})
+        self.write_content(revisionOf={"caseId": MOLAR_CASE1_V1_ID, "version": 4})
+        self.build("v5")
+        later = self.built_case("v5")
+        self.assertEqual((later["sourceCaseId"], later["version"]), (MOLAR_CASE1_V1_ID, 5))
+        self.assertNotEqual(later["id"], revised["id"])
+
+    def test_revision_of_refuses_the_new_lineage_flag(self):
+        self.write_content(revisionOf={"caseId": MOLAR_CASE1_V1_ID, "version": 1})
+        with self.assertRaisesRegex(ValueError, "remove --new-lineage"):
+            self.build("a", new_lineage=True)
+        self.assertFalse((self.base / "a").exists())
+
+    def test_revision_of_and_new_lineage_together_are_refused_by_the_build(self):
+        self.write_content(revisionOf={"caseId": MOLAR_CASE1_V1_ID, "version": 1}, newLineage=True)
+        with self.assertRaisesRegex(ValueError, "both newLineage and revisionOf"):
+            self.build("a", new_lineage=True)
+        self.assertFalse((self.base / "a").exists())
 
     def test_new_lineage_value_must_be_boolean(self):
         bad = copy.deepcopy(self.content)
