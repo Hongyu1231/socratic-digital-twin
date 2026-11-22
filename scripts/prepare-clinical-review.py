@@ -206,6 +206,10 @@ def transform_manifest(
         source = select_source_case(source, case_id)
     if new_lineage and len(source["cases"]) != 1:
         raise ValueError("--new-lineage requires exactly one selected case")
+    # A content file's revisionOf names the published case this build revises,
+    # which need not be the local source case (for example, a case already
+    # published from an earlier build of this content).
+    revision_of = content.get("revisionOf") if content is not None else None
     if content is not None:
         # Bound by the source document's hash and text, never its filename.
         verify_source_document(content, source["cases"][0], source_docx)
@@ -263,6 +267,9 @@ def transform_manifest(
             # First published version of a new case series: a lineage root.
             new_case["sourceCaseId"] = None
             new_case["version"] = 1
+        elif revision_of is not None:
+            new_case["sourceCaseId"] = revision_of["caseId"]
+            new_case["version"] = revision_of["version"] + 1
         else:
             new_case["sourceCaseId"] = previous_root
             new_case["version"] = version + 1
