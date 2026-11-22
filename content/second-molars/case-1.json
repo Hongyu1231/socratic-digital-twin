@@ -92,6 +92,11 @@
       "source": "Dr Carla Andreina, WhatsApp of 22 Nov 2026"
     },
     {
+      "location": "/phases/5/exampleQuestions/1",
+      "oldText": "Working back from that end point, is there anything you'd change?",
+      "source": "Dr Carla Andreina, WhatsApp of 22 Nov 2026"
+    },
+    {
       "location": "/phases/5/rubric/0/revealText",
       "oldText": "At the end, both second molars should be upright in occlusion behind first molars that have moved forward, the overjet reduced, and #43 aligned.",
       "source": "Dr Carla Andreina, WhatsApp of 22 Nov 2026"
@@ -460,7 +465,6 @@
       "goal": "Picture where treatment should end up, work back from that end point, and name the challenges you expect and what would make you change course.",
       "starterQuestion": "Picture the end of treatment under your plan. What challenges do you anticipate getting there?",
       "exampleQuestions": [
-        "Working back from that end point, is there anything you'd change?",
         "What would you do if the molar isn't responding?",
         "How would you explain the risks of uprighting to her?"
       ],

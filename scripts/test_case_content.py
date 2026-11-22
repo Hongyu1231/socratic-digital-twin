@@ -191,10 +191,11 @@ class MolarCase1ContentTests(unittest.TestCase):
             ("/phases/5/tutorGuidance/1", "removed"),
             ("/phases/5/tutorGuidance/7", "removed"),
             ("/phases/5/exampleQuestions/0", "removed"),
+            ("/phases/5/exampleQuestions/1", "removed"),
             ("/phases/5/rubric/0/revealText", "removed"),
             ("/phases/5/rubric/0/text", "moved"),
         ])
-        self.assertEqual([d["source"] for d in differences], [CARLA_21_NOV] * 2 + [CARLA_22_NOV] * 14)
+        self.assertEqual([d["source"] for d in differences], [CARLA_21_NOV] * 2 + [CARLA_22_NOV] * 15)
         self.assertEqual(self.content["phases"][0]["rubric"][3]["id"], "sm1-1.4")
         self.assertIn("no caries seen on the distal surfaces of the second molars", differences[0]["newText"])
         self.assertTrue(differences[1]["newText"].startswith("Extraction is the expected main plan."))
@@ -400,7 +401,7 @@ class MolarCase1ScriptFidelityTests(unittest.TestCase):
     def test_content_differs_from_the_script_only_where_recorded(self):
         self.check_against_script(self.content)
         self.assertEqual({kind: len(entries) for kind, entries in self.by_kind().items()},
-                         {"replaced": 10, "added": 1, "removed": 4, "moved": 1})
+                         {"replaced": 10, "added": 1, "removed": 5, "moved": 1})
 
     def assert_caught(self, content):
         with self.assertRaises(AssertionError):
