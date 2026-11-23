@@ -338,6 +338,11 @@ export interface SessionSummary {
   supportedPhases?: number[];
 }
 
+export interface PauseInterval {
+  pausedAt: string;
+  resumedAt?: string;
+}
+
 export interface LearningSession {
   id: string;
   studentId: string;
@@ -350,6 +355,8 @@ export interface LearningSession {
   createdAt: string;
   completedAt: string | null;
   pausedAt?: string | null;
+  /** Every pause, oldest first. An entry without resumedAt is the pause in progress. */
+  pauseHistory?: PauseInterval[];
   assignmentId?: string | null;
   reviewerId?: string | null;
   messages: TutorMessage[];
